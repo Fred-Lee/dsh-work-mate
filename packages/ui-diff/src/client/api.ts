@@ -81,10 +81,13 @@ export function parseHunks(diffText: string): DiffLine[] {
       oldNo += 1
     } else if (raw.startsWith('\\')) {
       lines.push({ kind: 'meta', oldNo: null, newNo: null, text: raw })
-    } else if (raw !== '') {
+    } else if (raw.startsWith(' ')) {
       lines.push({ kind: 'context', oldNo, newNo, text: raw.slice(1) })
       oldNo += 1
       newNo += 1
+    } else if (raw !== '') {
+      // extended headers without a leading space (e.g. "new file mode", "rename from …")
+      lines.push({ kind: 'meta', oldNo: null, newNo: null, text: raw })
     }
   }
   return lines

@@ -100,8 +100,9 @@ export function App() {
     selectedTaskId: null,
     usage: {},
     toasts: [],
-    configOpen: false,
-    theme: window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
+    configOpen: new URLSearchParams(window.location.search).get('panel') === 'config',
+    theme: new URLSearchParams(window.location.search).get('theme') === 'dark'
+      || window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
     isExecuting: false,
   })
   const [isOffline, setOffline] = useState(!navigator.onLine)
