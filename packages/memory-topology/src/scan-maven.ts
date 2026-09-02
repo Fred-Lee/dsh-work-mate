@@ -74,11 +74,15 @@ export function scanMavenPom(pomPath: string, xml: string): MavenScanResult {
       }
     : undefined
 
+  // Project coordinates: exclude the <parent> block so inherited poms don't
+  // report the parent's groupId/artifactId as their own.
+  const withoutParent = parentInner ? xml.replace(/<parent>[\s\S]*?<\/parent>/, '') : xml
+
   return {
     pomPath,
-    groupId: resolveProps(firstTag(xml, 'groupId') ?? '', properties),
-    artifactId: resolveProps(firstTag(xml, 'artifactId') ?? '', properties),
-    version: resolveProps(firstTag(xml, 'version') ?? '', properties),
+    groupId: resolveProps(firstTag(withoutParent, 'groupId') ?? parent?.groupId ?? '', properties),
+    artifactId: resolveProps(firstTag(withoutParent, 'artifactId') ?? '', properties),
+    version: resolveProps(firstTag(withoutParent, 'version') ?? parent?.version ?? '', properties),
     ...(parent ? { parent } : {}),
     modules,
     managedDependencies,

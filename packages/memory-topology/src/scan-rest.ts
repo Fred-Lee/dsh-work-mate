@@ -9,7 +9,7 @@
  * large repos; paths are confined to the configured root.
  */
 import { readFile, readdir, stat, realpath } from 'node:fs/promises'
-import { extname, join, relative, resolve, sep } from 'node:path'
+import { extname, dirname, join, relative, resolve, sep } from 'node:path'
 import type { ApiEndpoint } from './types.ts'
 
 export interface ScanOptions {
@@ -33,7 +33,6 @@ const DEFAULTS: Required<Omit<ScanOptions, 'skipDirs'>> = {
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] as const
 
 const SPRING_METHOD_RE = /@(Get|Post|Put|Delete|Patch)Mapping(?:\s*\(\s*(?:value\s*=\s*)?"([^"]*)"[^)]*\))?/g
-const SPRING_CLASS_RE = /@(?:Rest)?Controller(?:\s*\(\s*(?:value\s*=\s*)?"([^"]*)"[^)]*\))?\s*(?:public\s+)?(?:abstract\s+)?class\s+(\w+)/
 const SPRING_REQMAP_RE = /@RequestMapping(?:\s*\(\s*(?:value\s*=\s*)?"([^"]*)"[^)]*\))?/
 const NEST_METHOD_RE = /@(Get|Post|Put|Delete|Patch)\(\s*(?:'([^']*)'|"([^"]*)")?\s*\)/g
 const NEST_CONTROLLER_RE = /@Controller\(\s*(?:'([^']*)'|"([^']*)")?\s*\)[\s\S]{0,200}?(?:export\s+)?class\s+(\w+)/
@@ -56,8 +55,11 @@ export async function scanRestApis(rootPath: string, opts: ScanOptions = {}): Pr
 
 async function assertInside(rootPath: string): Promise<string> {
   const abs = resolve(rootPath)
-  const real = await realpath(abs)
-  if (!real.startsWith(abs + sep) && real !== abs) {
+  // Compare against the realpath of the parent so symlinked roots like
+  // macOS /var → /private/var are allowed, but a root-internal symlink
+  // pointing outside still trips the check.
+  const [parentReal, real] = await Promise.all([realpath(resolve(dirname(abs))), realpath(abs)])
+  if (!real.startsWith(parentReal + sep)) {
     throw new Error(`resolved path escapes scan root: ${rootPath} -> ${real}`)
   }
   return abs
@@ -112,31 +114,20 @@ async function walk(
 
 function scanJava(content: string, file: string, acc: ScanAccumulator): void {
   if (!content.includes('@Controller') && !content.includes('@RestController') && !content.includes('Mapping')) return
-  for (const classBlock of splitTopLevelJavaClasses(content)) {
-    const classMatch = classBlock.match(SPRING_CLASS_RE)
-    const reqMap = classBlock.match(SPRING_REQMAP_RE)
-    const base = reqMap?.[1] ?? classMatch?.[1] ?? ''
-    for (const m of classBlock.matchAll(SPRING_METHOD_RE)) {
-      const method = m[1]!.toUpperCase()
-      const sub = m[2] ?? ''
-      acc.endpoints.push({
-        method,
-        path: joinPaths(base, sub),
-        handler: `${className(classBlock)}.${method.toLowerCase()}`,
-        description: file,
-      })
-    }
+  // Class-level base path (@RequestMapping on the controller) + every method
+  // mapping in the file. @RequestMapping is not a method annotation, so the
+  // two sets never collide.
+  const base = content.match(SPRING_REQMAP_RE)?.[1] ?? ''
+  const cls = content.match(/class\s+(\w+)/)?.[1] ?? 'Unknown'
+  for (const m of content.matchAll(SPRING_METHOD_RE)) {
+    const method = m[1]!.toUpperCase()
+    acc.endpoints.push({
+      method,
+      path: joinPaths(base, m[2] ?? ''),
+      handler: `${cls}.${method.toLowerCase()}`,
+      description: file,
+    })
   }
-}
-
-function splitTopLevelJavaClasses(content: string): string[] {
-  // Split on top-level class declarations; good enough for endpoint scanning.
-  const parts = content.split(/(?=\n?(?:public|final|abstract)?\s*(?:@|class)\s)/g)
-  return parts.length > 1 ? parts : [content]
-}
-
-function className(block: string): string {
-  return block.match(/class\s+(\w+)/)?.[1] ?? 'Unknown'
 }
 
 function scanTypeScript(content: string, file: string, acc: ScanAccumulator): void {
@@ -167,7 +158,8 @@ function scanTypeScript(content: string, file: string, acc: ScanAccumulator): vo
 function joinPaths(base: string, sub: string): string {
   const b = base.replace(/\/+$/, '')
   const s = sub.startsWith('/') || sub === '' ? sub : `/${sub}`
-  return `${b}${s}` || '/'
+  const joined = `${b}${s}`
+  return joined === '' ? '/' : joined.startsWith('/') ? joined : `/${joined}`
 }
 
 function normalizeExpressPath(p: string): string {

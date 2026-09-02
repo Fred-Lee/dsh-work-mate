@@ -222,16 +222,18 @@ export function toYaml(value: unknown, indent = 0): string {
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   if (Array.isArray(value)) {
     if (value.length === 0) return '[]'
+    if (value.every(isScalar)) return `[${value.map((v) => toYaml(v)).join(', ')}]`
     return value.map((item) => {
-      if (isScalar(item)) return `${pad}- ${toYaml(item)}`
       const nested = toYaml(item, indent + 1)
-      return `${pad}-\n${nested}`
+      const lines = nested.split('\n')
+      // conventional style: first key rides on the dash line, the rest align
+      return [`${pad}- ${lines[0]!.trimStart()}`, ...lines.slice(1)].join('\n')
     }).join('\n')
   }
   const entries = Object.entries(value as Record<string, unknown>)
   if (entries.length === 0) return '{}'
   return entries.map(([key, val]) => {
-    if (isScalar(val) || (Array.isArray(val) && val.every(isScalar) && val.length > 0) || (Array.isArray(val) && val.length === 0)) {
+    if (isScalar(val) || (Array.isArray(val) && (val.length === 0 || val.every(isScalar)))) {
       return `${pad}${quoteIfNeeded(key)}: ${toYaml(val)}`
     }
     const nested = toYaml(val, indent + 1)

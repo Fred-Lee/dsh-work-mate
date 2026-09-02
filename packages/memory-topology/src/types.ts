@@ -106,6 +106,7 @@ export function normalizeTopology(input: unknown): ProjectTopology {
     }
   }
   for (const [key, value] of Object.entries(strRecord(t.services))) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
     const s = value as Record<string, unknown>
     out.services[key] = {
       name: String(s.name ?? key),

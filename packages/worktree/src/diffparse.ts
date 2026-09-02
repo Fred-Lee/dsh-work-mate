@@ -14,7 +14,7 @@ export interface ParsedFileDiff {
   diff: string
 }
 
-const DIFF_GIT_RE = /^diff --git a\/(.+?) b\/(.+)$/
+const DIFF_GIT_RE = /^diff --git a\/(.+?) b\/(.+)$/m
 const RENAME_FROM_RE = /^rename from (.+)$/
 
 export function parseUnifiedDiff(diffText: string): ParsedFileDiff[] {

@@ -20,7 +20,8 @@
     }
   },
   "scripts": {
-    "build": "mkdir -p dist && echo \"export const empty = true\" > dist/empty.js"
+    "build": "mkdir -p dist && echo \"export const empty = true\" > dist/empty.js",
+    "test": "vitest run --passWithNoTests"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2"

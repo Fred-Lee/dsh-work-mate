@@ -43,6 +43,7 @@ const RETRY_BACKOFF_MS = [2_000, 8_000, 32_000]
 export class OrchestratorCore {
   private readonly adapters = new Map<string, AgentAdapter>()
   private readonly tasks = new Map<string, TaskRecord>()
+  private readonly running = new Map<string, Promise<void>>()
   private readonly aborts = new Map<string, AbortController>()
   private readonly usage = new Map<string, UsageEntry>()
   /** consecutive failures per agent for the circuit breaker */
@@ -130,7 +131,7 @@ export class OrchestratorCore {
     const taskId = `t-${this.opts.now().toString(36)}-${randomBytes(3).toString('hex')}`
     const task: TaskRecord = {
       id: taskId,
-      prompt: params.prompt,
+      prompt,
       ...(params.projectGroupId ? { projectGroupId: params.projectGroupId } : {}),
       cascade: params.cascade === true,
       timeoutSec: params.timeoutSec ?? this.opts.defaultTimeoutSec,
@@ -149,7 +150,8 @@ export class OrchestratorCore {
     }
 
     // Fire in background — callers poll getTaskStatus / subscribe to events.
-    void this.executeTask(task).catch((err) => {
+    // waitForTask() lets tests and tools await full settlement.
+    const execution = this.executeTask(task).catch((err) => {
       task.status = 'ALL_FAILED'
       task.endedAt = this.opts.now()
       for (const run of Object.values(task.agents)) {
@@ -160,8 +162,15 @@ export class OrchestratorCore {
       }
       this.touch(task)
     })
+    this.running.set(taskId, execution)
+    void execution.finally(() => this.running.delete(taskId))
     this.touch(task)
     return { taskId }
+  }
+
+  /** Resolves when the task's background execution settles (tests/tools). */
+  async waitForTask(taskId: string): Promise<void> {
+    await this.running.get(taskId)
   }
 
   private async executeTask(task: TaskRecord): Promise<void> {
