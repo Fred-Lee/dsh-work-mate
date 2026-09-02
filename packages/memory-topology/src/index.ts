@@ -26,6 +26,19 @@ import { emptyTopology, normalizeTopology, type ApiEndpoint, type DownstreamRepo
 export const name = '@helmsman/memory-topology'
 export const inject = [] as const
 
+export type {
+  ApiEndpoint,
+  DownstreamEdge,
+  DownstreamReport,
+  MavenParentNode,
+  ProjectNode,
+  ProjectTopology,
+  ProjectType,
+  RestDependencyEdge,
+  ServiceNode,
+} from './types.ts'
+export { emptyTopology, normalizeTopology } from './types.ts'
+
 export interface Config {
   /** Directory that holds <group>.json topology files. @default ~/.helmsman/topologies */
   rootDir?: string
@@ -150,7 +163,8 @@ function registerTools(ctx: Context, service: TopologyService): void {
         render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
       },
       async execute(args) {
-        return await service.getDownstream(args.projectGroupId, args.serviceId)
+        const report = await service.getDownstream(args.projectGroupId, args.serviceId)
+        return JSON.parse(JSON.stringify(report))
       },
     }),
   )
@@ -168,7 +182,7 @@ function registerTools(ctx: Context, service: TopologyService): void {
       },
       async execute(args) {
         const endpoints = await service.scanRestApis(args.localPath)
-        return { total: endpoints.length, endpoints }
+        return JSON.parse(JSON.stringify({ total: endpoints.length, endpoints }))
       },
     }),
   )

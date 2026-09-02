@@ -142,7 +142,7 @@ function registerTools(ctx: Context, service: OrchestratorService): void {
             },
           ]),
         )
-        return {
+        return JSON.parse(JSON.stringify({
           found: true,
           taskId: task.id,
           status: task.status,
@@ -153,7 +153,7 @@ function registerTools(ctx: Context, service: OrchestratorService): void {
           createdAt: task.createdAt,
           endedAt: task.endedAt ?? null,
           agents,
-        }
+        }))
       },
     }),
   )
@@ -173,7 +173,7 @@ function registerTools(ctx: Context, service: OrchestratorService): void {
         const task = service.getTaskStatus(args.taskId)
         if (!task) return { ok: false, error: `unknown task: ${args.taskId}` }
         service.cancelTask(args.taskId)
-        return { ok: true, taskId: args.taskId }
+        return JSON.parse(JSON.stringify({ ok: true, taskId: args.taskId }))
       },
     }),
   )
@@ -204,7 +204,7 @@ function registerTools(ctx: Context, service: OrchestratorService): void {
           ...(args.files !== undefined ? { files: args.files.split(',').map((f) => f.trim()).filter(Boolean) } : {}),
           ...(args.discardAfterMerge === true ? { discardAfterMerge: true } : {}),
         })
-        return result
+        return JSON.parse(JSON.stringify(result))
       },
     }),
   )

@@ -5,7 +5,10 @@
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
-    ".": "./dist/index.js",
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -19,7 +22,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node ../../scripts/build-package.mjs . && tsc -p tsconfig.decls.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
@@ -33,5 +36,6 @@
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
-  }
+  },
+  "dependencies": {}
 }

@@ -19,7 +19,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node ../../scripts/build-package.mjs .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
@@ -33,5 +33,6 @@
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
-  }
+  },
+  "dependencies": {}
 }

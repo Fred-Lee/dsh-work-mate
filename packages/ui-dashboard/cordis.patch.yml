@@ -1,0 +1,4 @@
+# @helmsman/ui-dashboard bundle layer
+- insert:
+    - id: helmsman-ui-dashboard
+      name: '@helmsman/ui-dashboard'

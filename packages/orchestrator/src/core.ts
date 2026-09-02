@@ -195,7 +195,9 @@ export class OrchestratorCore {
     await Promise.all(runnable.map((run) => this.runAgent(task, run, controller.signal)))
     this.aborts.delete(task.id)
 
-    if (task.status === 'CANCELLED') {
+    const cancelled = Object.values(task.agents).some((r) => r.state === 'cancelled')
+    if (cancelled) {
+      task.status = 'CANCELLED'
       task.endedAt = task.endedAt ?? this.opts.now()
       this.touch(task)
       return

@@ -15,11 +15,11 @@ export interface ImportOptions {
   inferDependencies?: boolean
 }
 
-function asRecord(v: YamlValue): Record<string, YamlValue> {
+function asRecord(v: YamlValue | undefined): Record<string, YamlValue> {
   return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, YamlValue>) : {}
 }
 
-function asString(v: YamlValue): string {
+function asString(v: YamlValue | undefined): string {
   return typeof v === 'string' ? v : typeof v === 'number' ? String(v) : ''
 }
 

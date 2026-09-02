@@ -142,7 +142,7 @@ export interface TopologyLike {
 }
 
 /** Failure classification from raw adapter results (single source of truth). */
-export function classifyFailure(result: { exitCode: number | null; stderr: string; timedOut: boolean }): { state: AgentRunState; error: string } {
+export function classifyFailure(result: { exitCode: number | null; stdout?: string; stderr: string; timedOut: boolean }): { state: AgentRunState; error: string } {
   if (result.timedOut) return { state: 'timeout', error: `执行超时` }
   const err = (result.stderr || '').toLowerCase()
   if (/429|rate.?limit|too many requests|quota exceeded/.test(err)) return { state: 'rate-limited', error: '触发限流 (429)' }

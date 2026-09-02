@@ -1,0 +1,35 @@
+{
+  "name": "@helmsman/bundle",
+  "version": "0.1.0",
+  "description": "Helmsman bundle — installs all Helmsman plugins into a DSH profile in one command",
+  "type": "module",
+  "main": "./dist/empty.js",
+  "exports": {
+    ".": "./dist/empty.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "mkdir -p dist && echo \"export const empty = true\" > dist/empty.js"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dependencies": {}
+}

@@ -9,7 +9,7 @@
  * adds supply-chain surface for little gain (see docs/SECURITY-AUDIT.md).
  */
 
-type YamlValue = string | number | boolean | null | YamlValue[] | { [key: string]: YamlValue }
+export type YamlValue = string | number | boolean | null | YamlValue[] | { [key: string]: YamlValue }
 
 export function parseYamlSubset(text: string): YamlValue {
   const lines = text.split('\n')
