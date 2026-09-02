@@ -1,0 +1,21 @@
+{
+  "name": "helmsman-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Helmsman — an Agent fleet command center built as DeepSeek Harness (DSH) plugins",
+  "scripts": {
+    "build": "pnpm -r --if-present run build",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  }
+}

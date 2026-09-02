@@ -1,0 +1,4 @@
+# @helmsman/adapter-pi bundle layer
+- insert:
+    - id: helmsman-adapter-pi
+      name: '@helmsman/adapter-pi'

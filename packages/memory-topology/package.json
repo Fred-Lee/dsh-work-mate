@@ -1,0 +1,37 @@
+{
+  "name": "@helmsman/memory-topology",
+  "version": "0.1.0",
+  "description": "Helmsman project topology memory — extends dsh-memory-manager with ProjectTopology model + Maven/REST scanners",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  }
+}
