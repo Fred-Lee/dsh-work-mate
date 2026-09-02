@@ -40,7 +40,10 @@ export function apply(ctx: Context, config: Config = {}) {
     handler: async (req, res) => {
       const url = new URL(req.url ?? '/', 'http://localhost')
       const pathname = url.pathname
-      const relative = pathname.startsWith(mountPath) ? pathname.slice(mountPath.length) : pathname
+      // keep the query string for API routes
+      const relative = pathname.startsWith(mountPath)
+        ? pathname.slice(mountPath.length) + url.search
+        : req.url ?? pathname
 
       if (relative.startsWith('/api/') || relative === '/api') {
         const handled = await api.handle(req, res, relative)

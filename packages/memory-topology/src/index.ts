@@ -24,7 +24,7 @@ import { toYaml } from './yaml.ts'
 import { emptyTopology, normalizeTopology, type ApiEndpoint, type DownstreamReport, type ProjectTopology } from './types.ts'
 
 export const name = '@helmsman/memory-topology'
-export const inject = [] as const
+export const inject = ['tools'] as const
 
 export type {
   ApiEndpoint,

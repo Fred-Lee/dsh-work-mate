@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "workspaces": {
+    "t-mtkm2x4v-3bfcda-claude": {
+      "mirror": true,
+      "dirs": [
+        {
+          "path": "/Users/fredlee/.helmsman/worktrees/t-mtkm2x4v-3bfcda-claude",
+          "label": "helmsman:claude"
+        }
+      ]
+    }
+  },
+  "mirror": {
+    "t-mtkm2x4v-3bfcda-claude": {
+      "/Users/fredlee/.helmsman/worktrees/t-mtkm2x4v-3bfcda-claude": {
+        "id": "8e20d33c-a29d-4428-8c37-16184bf9f69f",
+        "preexisting": false
+      }
+    }
+  }
+}

@@ -26,7 +26,8 @@ import {
 
 export interface OrchestratorOptions {
   worktree: WorktreeLike
-  topology?: TopologyLike
+  /** Service or lazy getter — lazy avoids cordis service-startup races. */
+  topology?: TopologyLike | (() => TopologyLike | undefined)
   now?: () => number
   /** setTimeout replacement for tests. */
   delay?: (ms: number) => Promise<void>
@@ -117,8 +118,8 @@ export class OrchestratorCore {
 
     let repoPath = params.repoPath
     let prompt = params.prompt
-    if (params.projectGroupId && this.opts.topology) {
-      const topology = await this.opts.topology.loadTopology(params.projectGroupId).catch(() => null)
+    if (params.projectGroupId && this.topo()) {
+      const topology = await this.topo()!.loadTopology(params.projectGroupId).catch(() => null)
       if (params.cascade && topology) {
         prompt = `${params.prompt}\n\n---\n项目拓扑上下文（cascade 模式自动注入）：\n${describeTopology(topology)}`
       }
@@ -216,6 +217,10 @@ export class OrchestratorCore {
     task.status = 'AGGREGATING'
     this.touch(task)
     await this.aggregate(task)
+  }
+
+  private topo(): TopologyLike | undefined {
+    return typeof this.opts.topology === 'function' ? this.opts.topology() : this.opts.topology
   }
 
   private async runAgent(task: TaskRecord, run: AgentRun, signal: AbortSignal): Promise<void> {

@@ -11,8 +11,8 @@ import { OrchestratorCore } from './core.ts'
 import type { AgentAdapter, RunParallelParams, TaskRecord, TopologyLike, WorktreeLike } from './types.ts'
 
 export const name = '@helmsman/orchestrator'
-/** hard dependency: worktrees are the isolation primitive of every task */
-export const inject = ['helmsman.worktree'] as const
+/** hard deps: `tools` for tool registration; worktrees are the isolation primitive */
+export const inject = ['tools', 'helmsman.worktree'] as const
 
 export interface Config {
   defaultTimeoutSec?: number
@@ -52,7 +52,10 @@ export function apply(ctx: Context, config: Config = {}) {
 
   const core = new OrchestratorCore({
     worktree,
-    topology,
+    topology: (): TopologyLike | undefined => {
+      const t = ctx.get('helmsman.topology') as TopologyLike | undefined
+      return t
+    },
     defaultTimeoutSec: config.defaultTimeoutSec ?? 300,
     maxRateLimitAttempts: config.maxRateLimitAttempts ?? 3,
     circuitBreakerThreshold: config.circuitBreakerThreshold ?? 5,
