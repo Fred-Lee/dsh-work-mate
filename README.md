@@ -20,18 +20,19 @@ Helmsman 是一套构建在 [DeepSeek Harness (DSH)](https://github.com/deepseek
 
 ## 交付物
 
-| 插件 | 类型 | 说明 |
-|------|------|------|
-| [`@helmsman/worktree`](packages/worktree) | Service | Worktree 调度：创建/清理/收集 diff/patch 合并，惰性集成 `dsh-virtual-workspace` |
-| [`@helmsman/memory-topology`](packages/memory-topology) | Service + Tools | 项目拓扑记忆（PRD §3.2 数据模型），Maven 父 POM / REST API 扫描，docker-compose / K8s / OpenAPI 导入，YAML 导出，最佳努力镜像到 `dsh-memory-manager` |
-| [`@helmsman/orchestrator`](packages/orchestrator) | Service + Tools | 多 Agent 并行调度引擎：限流退避重试、断路器、取消、冲突标注、合并/放弃，`helmsman_run_parallel` 等 4 个工具 |
-| `@helmsman/adapter-claude` / `-codex` / `-pi` / `-oh-my-pi` | Agent Adapter | 非交互 CLI 执行（无 shell、argv 数组、超时/取消、流式日志），命令与参数可配置 |
-| [`@helmsman/ui-dashboard`](packages/ui-dashboard) | Web UI | 主控面板 React SPA（PRD 第 4 章规范全量实现） |
-| [`@helmsman/ui-diff`](packages/ui-diff) | Web UI | 多 Agent Diff 对比：split / unified / side-by-side、冲突标注与方案选择、行级评论、合并 |
-| [`@helmsman/bundle`](packages/bundle) | Bundle | 一条命令装入全部 9 个插件 |
+| 插件                                                                | 类型            | 说明                                                                                                                                                   |
+| ------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`@helmsman/worktree`](packages/worktree)                          | Service         | Worktree 调度：创建/清理/收集 diff/patch 合并，惰性集成`dsh-virtual-workspace`                                                                       |
+| [`@helmsman/memory-topology`](packages/memory-topology)            | Service + Tools | 项目拓扑记忆（PRD §3.2 数据模型），Maven 父 POM / REST API 扫描，docker-compose / K8s / OpenAPI 导入，YAML 导出，最佳努力镜像到`dsh-memory-manager` |
+| [`@helmsman/orchestrator`](packages/orchestrator)                  | Service + Tools | 多 Agent 并行调度引擎：限流退避重试、断路器、取消、冲突标注、合并/放弃，`helmsman_run_parallel` 等 4 个工具                                          |
+| `@helmsman/adapter-claude` / `-codex` / `-pi` / `-oh-my-pi` | Agent Adapter   | 非交互 CLI 执行（无 shell、argv 数组、超时/取消、流式日志），命令与参数可配置                                                                          |
+| [`@helmsman/ui-dashboard`](packages/ui-dashboard)                  | Web UI          | 主控面板 React SPA（PRD 第 4 章规范全量实现）                                                                                                          |
+| [`@helmsman/ui-diff`](packages/ui-diff)                            | Web UI          | 多 Agent Diff 对比：split / unified / side-by-side、冲突标注与方案选择、行级评论、合并                                                                 |
+| [`@helmsman/bundle`](packages/bundle)                              | Bundle          | 一条命令装入全部 9 个插件                                                                                                                              |
 
 文档：[架构说明](docs/ARCHITECTURE.md) · [UI 规范符合性矩阵](docs/UI-COMPLIANCE.md) ·
-[安全审计报告](docs/SECURITY-AUDIT.md) · [使用手册](docs/USAGE.md)
+[安全审计报告](docs/SECURITY-AUDIT.md) · [使用手册](docs/USAGE.md) ·
+[分发与发布指南](docs/DISTRIBUTION.md)
 
 ## 快速开始
 
@@ -65,6 +66,24 @@ dsh web          # 打开 http://127.0.0.1:3080/helmsman-dashboard/
 > 模板按常见版本预设，若你的安装版本不同，可在 profile 的 `cordis.patch.yml`
 > 用户层覆盖（示例见各适配器 README）。
 
+## 分发给其他人
+
+4 种方式（详见 [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)）：
+
+1. **克隆源码**：收件人克隆本仓库，`pnpm install && pnpm build` 后
+   `dsh plugin add -w ./packages/<pkg>`（团队内协作）。
+2. **npm 发布**（正式对外）：`pnpm publish` 各包（含 `@helmsman/bundle`），
+   收件人一条命令 `dsh plugin --profile <p> add @helmsman/bundle` 装齐全部插件。
+3. **私有 registry**：Verdaccio/Nexus 等，发布命令与 2 相同。
+4. **tarball 直发**（无 registry）：`pnpm pack` 出 9 个 tgz 分发给收件人，
+   `dsh plugin --profile <p> add file:/path/to/helmsman-*.tgz`。
+   该路径已在本机 `helmsman-dist` profile 端到端验证（安装 → dump-config →
+   启动 → UI 200）。
+
+> 版本同步：10 个包统一版本号；`@deepseek-ai/cordis` 与可选
+> `@deepseek-ai/dsh-tools` 均为 peer 依赖，跟随宿主 harness 实例，
+> 不打包私有副本（避免与宿主 dsh-llm 导出漂移）。
+
 ## 验证
 
 ```bash
@@ -87,9 +106,9 @@ PARTIAL_FAILED / ALL_FAILED）→ 在 Diff 视图查看对比 → 合并回主�
 
 ## 复用策略落实情况（PRD 第二章）
 
-| PRD 要求 | 落实 |
-|----------|------|
-| 直接复用 `dsh-virtual-workspace` | ✅ worktree 插件惰性解析 `vws` 服务，创建的 worktree 注册为命名虚拟工作区（未安装则优雅降级） |
-| 直接复用 `dsh-memory-manager` + `dsh-memory-palace` | ✅ topology 保存时最佳努力镜像快照到 `memoryManager`；palace 按其设计仅经 agent 工具使用 |
-| 参考 `dsh-Visual-Workflow` | ✅ 采用其「webServer prefix 路由挂载自有 GUI API」的第三方 UI 模式与「画布状态轮询」思想 |
-| 参考 `kalifun/helmsman` | ✅ 「任务即会话」卡片式看板与状态机视觉反馈 |
+| PRD 要求                                               | 落实                                                                                           |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| 直接复用`dsh-virtual-workspace`                      | ✅ worktree 插件惰性解析`vws` 服务，创建的 worktree 注册为命名虚拟工作区（未安装则优雅降级） |
+| 直接复用`dsh-memory-manager` + `dsh-memory-palace` | ✅ topology 保存时最佳努力镜像快照到`memoryManager`；palace 按其设计仅经 agent 工具使用      |
+| 参考`dsh-Visual-Workflow`                            | ✅ 采用其「webServer prefix 路由挂载自有 GUI API」的第三方 UI 模式与「画布状态轮询」思想       |
+| 参考`kalifun/helmsman`                               | ✅ 「任务即会话」卡片式看板与状态机视觉反馈                                                    |

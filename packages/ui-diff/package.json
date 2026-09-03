@@ -21,7 +21,8 @@
   "scripts": {
     "build": "node ../../scripts/build-package.mjs .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "pnpm run build"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2"
@@ -40,5 +41,21 @@
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "license": "MIT",
+  "author": "Helmsman Team",
+  "keywords": [
+    "helmsman",
+    "dsh",
+    "deepseek-harness",
+    "agent",
+    "orchestration"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/helmsman/helmsman.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }

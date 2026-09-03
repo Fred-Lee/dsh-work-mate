@@ -21,7 +21,8 @@
   },
   "scripts": {
     "build": "mkdir -p dist && echo \"export const empty = true\" > dist/empty.js",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "prepack": "pnpm run build"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2"
@@ -32,5 +33,31 @@
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@helmsman/adapter-claude": "workspace:*",
+    "@helmsman/adapter-codex": "workspace:*",
+    "@helmsman/adapter-oh-my-pi": "workspace:*",
+    "@helmsman/adapter-pi": "workspace:*",
+    "@helmsman/memory-topology": "workspace:*",
+    "@helmsman/orchestrator": "workspace:*",
+    "@helmsman/ui-dashboard": "workspace:*",
+    "@helmsman/ui-diff": "workspace:*",
+    "@helmsman/worktree": "workspace:*"
+  },
+  "license": "MIT",
+  "author": "Helmsman Team",
+  "keywords": [
+    "helmsman",
+    "dsh",
+    "deepseek-harness",
+    "agent",
+    "orchestration"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/helmsman/helmsman.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }
