@@ -722,7 +722,7 @@ function fmtK(n: number): string {
 // config panel (PRD §4.7)
 // ---------------------------------------------------------------------------
 
-function ConfigPanel(props: {
+export function ConfigPanel(props: {
   groups: string[]
   currentGroup: string | null
   onClose: () => void
@@ -731,17 +731,22 @@ function ConfigPanel(props: {
 }) {
   const [group, setGroup] = useState<string | null>(props.currentGroup)
   const [topology, setTopology] = useState<TopologyPayload | null>(null)
+  // 最近一次「加载 / 保存 / 导入应用」的序列化快照：topology 与快照不等即为未保存修改（dirty）。
+  // 关闭面板是显式用户动作，dirty 时需确认，避免另一条「配置到一半被冲掉」的路径。
+  const [baseline, setBaseline] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [scanning, setScanning] = useState<string | null>(null)
   const [editService, setEditService] = useState<string | 'new' | null>(null)
   const [depModal, setDepModal] = useState(false)
   const [importModal, setImportModal] = useState(false)
+  const { onToast } = props
 
   useEffect(() => {
     let active = true
     setLoading(true)
     if (group == null) {
       setTopology(null)
+      setBaseline(null)
       setLoading(false)
       return
     }
@@ -750,21 +755,38 @@ function ConfigPanel(props: {
       .then((res) => {
         if (!active) return
         setTopology(res.topology)
+        setBaseline(res.topology == null ? null : JSON.stringify(res.topology))
       })
-      .catch(() => props.onToast('error', '❌ 无法加载项目拓扑，请检查网络或配置文件'))
+      .catch(() => onToast('error', '❌ 无法加载项目拓扑，请检查网络或配置文件'))
       .finally(() => active && setLoading(false))
     return () => {
       active = false
     }
-  }, [group, props])
+    // 依赖必须是稳定值: props 对象每次父组件渲染都变身份, 而 App 轮询每 5s/1.5s
+    // dispatch loaded 触发重渲染, 会把未保存的 topology 编辑整个冲掉。
+    // onToast 来自 App 的 useCallback([]), 身份稳定, 效果等价于仅随 group 变化重载。
+  }, [group, onToast])
+
+  const applyTopology = (t: TopologyPayload): void => {
+    setTopology(t)
+    setBaseline(JSON.stringify(t))
+  }
+
+  const dirty = topology != null && baseline != null && JSON.stringify(topology) !== baseline
+
+  const tryClose = (): void => {
+    if (dirty && !window.confirm('有未保存的修改，关闭将丢弃。确认关闭？')) return
+    props.onClose()
+  }
 
   const save = async (): Promise<void> => {
     if (!topology) return
     try {
       await api.saveTopology(topology)
-      props.onToast('success', '✅ 配置已保存')
+      setBaseline(JSON.stringify(topology))
+      onToast('success', '✅ 配置已保存')
     } catch (err) {
-      props.onToast('error', err instanceof Error ? err.message : String(err))
+      onToast('error', err instanceof Error ? err.message : String(err))
     }
   }
 
@@ -772,7 +794,7 @@ function ConfigPanel(props: {
     <aside className="config-panel" role="dialog" aria-label="项目群配置">
       <header className="config-head">
         <h3>⚙️ 项目群配置</h3>
-        <button className="icon-btn" onClick={props.onClose} aria-label="关闭">✕</button>
+        <button className="icon-btn" onClick={tryClose} aria-label="关闭">✕</button>
       </header>
 
       <div className="config-toolbar">
@@ -780,6 +802,7 @@ function ConfigPanel(props: {
           value={group ?? ''}
           onChange={(e) => {
             const g = e.target.value || null
+            if (g !== group && dirty && !window.confirm('有未保存的修改，切换项目群将丢弃。确认切换？')) return
             setGroup(g)
             if (g) props.onSelectGroup(g)
           }}
@@ -796,9 +819,10 @@ function ConfigPanel(props: {
             onClick={async () => {
               if (!window.confirm(`确认删除项目群 "${group}"？`)) return
               await api.deleteGroup(group)
-              props.onToast('success', '已删除')
+              onToast('success', '已删除')
               setGroup(null)
               setTopology(null)
+              setBaseline(null)
             }}
           >
             🗑️ 删除
@@ -810,13 +834,14 @@ function ConfigPanel(props: {
             const name = window.prompt('新项目群名称（如：订单中台）')
             if (!name) return
             try {
-              const { topology: t } = await api.createGroup(name)
-              setTopology(t)
+              await api.createGroup(name)
+              // 不手动 setTopology: setGroup 触发的 effect 会从服务端加载新群,
+              // 避免双写造成的短暂覆盖窗口(与主 bug 同型)
               setGroup(name)
               props.onSelectGroup(name)
-              props.onToast('success', '项目群已创建')
+              onToast('success', '项目群已创建')
             } catch (err) {
-              props.onToast('error', err instanceof Error ? err.message : String(err))
+              onToast('error', err instanceof Error ? err.message : String(err))
             }
           }}
         >
@@ -868,7 +893,7 @@ function ConfigPanel(props: {
                     onClick={() => {
                       const next = { ...topology.services }
                       delete next[id]
-                      setTopology({ ...topology, services: next })
+                      applyTopology({ ...topology, services: next })
                     }}
                   >
                     🗑️ 移除
@@ -881,7 +906,7 @@ function ConfigPanel(props: {
                       setScanning(id)
                       try {
                         const res = await api.scanApi(svc.localPath)
-                        setTopology({
+                        applyTopology({
                           ...topology,
                           services: { ...topology.services, [id]: { ...svc, apiEndpoints: res.endpoints } },
                         })
@@ -916,7 +941,7 @@ function ConfigPanel(props: {
                       const rest = { ...topology.restDependencies }
                       rest[from] = (rest[from] ?? []).filter((_, idx) => idx !== i)
                       if (rest[from]?.length === 0) delete rest[from]
-                      setTopology({ ...topology, restDependencies: rest })
+                      applyTopology({ ...topology, restDependencies: rest })
                     }}
                   >
                     🗑️
@@ -957,13 +982,13 @@ function ConfigPanel(props: {
           topology={topology}
           onClose={() => setEditService(null)}
           onSave={(id, svc) => {
-            setTopology({ ...topology, services: { ...topology.services, [id]: svc } })
+            applyTopology({ ...topology, services: { ...topology.services, [id]: svc } })
             setEditService(null)
           }}
           onDelete={(id) => {
             const next = { ...topology.services }
             delete next[id]
-            setTopology({ ...topology, services: next })
+            applyTopology({ ...topology, services: next })
             setEditService(null)
           }}
           onToast={props.onToast}
@@ -977,7 +1002,7 @@ function ConfigPanel(props: {
           onSave={(from, edge) => {
             const rest = { ...topology.restDependencies }
             rest[from] = [...(rest[from] ?? []), edge]
-            setTopology({ ...topology, restDependencies: rest })
+            applyTopology({ ...topology, restDependencies: rest })
             setDepModal(false)
           }}
         />
@@ -989,10 +1014,12 @@ function ConfigPanel(props: {
           onToast={props.onToast}
           onClose={() => setImportModal(false)}
           onImported={(topology2, g) => {
-            setTopology(topology2)
             if (g && g !== group) {
+              // 切群时信任 effect 重新加载, 消除 setTopology+setGroup 双写的覆盖窗口
               setGroup(g)
               props.onSelectGroup(g)
+            } else {
+              applyTopology(topology2)
             }
             setImportModal(false)
           }}

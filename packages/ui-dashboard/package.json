@@ -19,7 +19,7 @@
     }
   },
   "scripts": {
-    "build": "node ../../scripts/build-package.mjs .",
+    "build": "node build.mjs && node ../../scripts/build-package.mjs .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "test": "vitest run",
     "prepack": "pnpm run build"
@@ -31,10 +31,12 @@
     "@deepseek-ai/cordis": "^4.0.2",
     "@helmsman/memory-topology": "workspace:*",
     "@helmsman/orchestrator": "workspace:*",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "esbuild": "^0.24.0",
+    "jsdom": "^30.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.6.0"
@@ -42,7 +44,6 @@
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
-  "dependencies": {},
   "license": "MIT",
   "author": "Helmsman Team",
   "keywords": [

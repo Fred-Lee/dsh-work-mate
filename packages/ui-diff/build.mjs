@@ -1,12 +1,14 @@
 // Build script — bundles the React client into dist/client/app.js (IIFE,
 // zero runtime deps) and copies static assets. Host serves dist/client.
 import { build } from 'esbuild'
-import { mkdir, copyFile, writeFile } from 'node:fs/promises'
+import { mkdir, copyFile, writeFile, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = dirname(fileURLToPath(import.meta.url))
 const outDir = join(root, 'dist', 'client')
+// clean: 防止源文件删除后旧产物残留并被 files:["dist"] 打进包里
+await rm(outDir, { recursive: true, force: true })
 await mkdir(outDir, { recursive: true })
 
 await build({

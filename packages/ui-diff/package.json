@@ -19,7 +19,7 @@
     }
   },
   "scripts": {
-    "build": "node ../../scripts/build-package.mjs .",
+    "build": "node build.mjs && node ../../scripts/build-package.mjs .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "test": "vitest run",
     "prepack": "pnpm run build"
