@@ -1,14 +1,19 @@
 /**
- * Helmsman Workbench view — 4 switchable panels: 研究(Research) / PRD /
- * 执行(Execution, embeds ui-dashboard DashboardView) / 知识(Knowledge graph).
+ * Helmsman Workbench UI — three mount shapes from one panel body:
+ *  - WorkbenchToggle: sidebar.footer.action entry (opens the drawer)
+ *  - WorkbenchDrawer: shell.overlay right-side drawer (self-contained chrome)
+ *  - App: standalone full-page mount (host-served /helmsman-workbench)
  *
- * Data comes from the host half's same-origin REST under /helmsman-workbench/api
- * (/generate, /records, /graph). This component is UI-only; it never talks to
- * DSH internals. When loaded as a DSH client module it is mounted into the
- * `shell.overlay` slot (src/client/index.ts).
+ * Data comes from the host half's same-origin REST under /helmsman-workbench/api.
+ * The execution panel embeds the ui-dashboard view (importable module, shared
+ * React) with a full-page link as an escape hatch for narrow drawers.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useSyncExternalStore, useState } from 'react'
 import { DashboardView } from '@helmsman/ui-dashboard/client/embed'
+import { workbenchOpen } from './store'
+import { injectStyles } from './styles'
+
+injectStyles()
 
 export type PanelKind = 'research' | 'prd' | 'execution' | 'knowledge'
 
@@ -48,7 +53,47 @@ interface GraphNode {
 }
 interface GraphEdge { from: string; to: string; label?: string }
 
-export function App() {
+/** Sidebar footer entry: opens the workbench drawer. */
+export function WorkbenchToggle({ wide }: { wide?: boolean }): React.ReactNode {
+  return (
+    <button
+      type="button"
+      className="hls-toggle-btn"
+      aria-label="打开 Helmsman 工作台"
+      onClick={() => { workbenchOpen.set(true) }}
+    >
+      <span aria-hidden="true">🚀</span>
+      {wide !== false && <span>Helmsman</span>}
+    </button>
+  )
+}
+
+/** shell.overlay entry: the right-side workbench drawer. */
+export function WorkbenchDrawer(): React.ReactNode {
+  const open = useSyncExternalStore(workbenchOpen.subscribe, workbenchOpen.get)
+  if (!open) return null
+  return (
+    <aside className="hls-drawer" role="dialog" aria-label="Helmsman 工作台">
+      <header className="hls-drawer-head">
+        <h3 className="hls-drawer-title">🚀 Helmsman 工作台</h3>
+        <button
+          type="button"
+          className="hls-close"
+          aria-label="关闭工作台"
+          onClick={() => { workbenchOpen.set(false) }}
+        >✕</button>
+      </header>
+      <WorkbenchPanel />
+    </aside>
+  )
+}
+
+/** Standalone full-page mount (host-served /helmsman-workbench). */
+export function App(): React.ReactNode {
+  return <WorkbenchPanel />
+}
+
+function WorkbenchPanel() {
   const [panel, setPanel] = useState<PanelKind>('research')
   const [records, setRecords] = useState<GenerateRecord[]>([])
   const [graph, setGraph] = useState<{ nodes: GraphNode[]; edges: GraphEdge[] } | null>(null)
@@ -91,12 +136,12 @@ export function App() {
   }
 
   return (
-    <div className="helmsman-workbench">
-      <nav className="hw-tabs">
+    <div className="hls-body">
+      <nav className="hls-tabs">
         {PANELS.map((p) => (
           <button
             key={p.kind}
-            className={`hw-tab ${panel === p.kind ? 'active' : ''}`}
+            className={`hls-tab ${panel === p.kind ? 'is-active' : ''}`}
             onClick={() => setPanel(p.kind)}
           >
             {p.label}
@@ -104,85 +149,89 @@ export function App() {
         ))}
       </nav>
 
-      <div className="hw-body">
-        {panel === 'research' && (
-          <section className="hw-panel">
-            <h3>🔍 Deep Research</h3>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="描述研究主题，如：教育行业作业批改 SaaS 的市场现状与技术方案"
-              rows={3}
-            />
-            <div className="hw-actions">
-              <button disabled={busy || !prompt.trim()} onClick={() => void runGenerate('research')}>
-                {busy ? '⏳ 执行中…' : '▶ 生成研究笔记'}
-              </button>
+      {panel === 'research' && (
+        <section className="hls-panel">
+          <h3>🔍 Deep Research</h3>
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="描述研究主题，如：教育行业作业批改 SaaS 的市场现状与技术方案"
+            rows={3}
+          />
+          <div className="hls-actions">
+            <button className="hls-btn" disabled={busy || !prompt.trim()} onClick={() => void runGenerate('research')}>
+              {busy ? '⏳ 执行中…' : '▶ 生成研究笔记'}
+            </button>
+          </div>
+          <RecordList records={records} preset="research" />
+        </section>
+      )}
+
+      {panel === 'prd' && (
+        <section className="hls-panel">
+          <h3>📋 PRD 生成</h3>
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="描述需求，或贴研究笔记 id 供生成 PRD"
+            rows={3}
+          />
+          <div className="hls-actions">
+            <button className="hls-btn" disabled={busy || !prompt.trim()} onClick={() => void runGenerate('prd')}>
+              {busy ? '⏳ 执行中…' : '▶ 生成 PRD 草稿'}
+            </button>
+          </div>
+          <RecordList records={records} preset="prd" />
+        </section>
+      )}
+
+      {panel === 'execution' && (
+        <section className="hls-panel">
+          <h3>⚡ 执行看板</h3>
+          <div className="hls-actions">
+            <a className="hls-link" href="/helmsman-dashboard" target="_blank" rel="noreferrer">
+              ↗ 在新页面打开完整看板
+            </a>
+          </div>
+          {/* Embedded ui-dashboard view (importable module, same React). */}
+          <DashboardView />
+        </section>
+      )}
+
+      {panel === 'knowledge' && (
+        <section className="hls-panel">
+          <h3>🕸️ 知识图谱</h3>
+          <div className="hls-actions">
+            <button className="hls-btn" onClick={() => void loadGraph(setGraph, setToast)}>🔄 加载图谱</button>
+          </div>
+          {graph ? (
+            <div>
+              <p className="hls-empty">节点 {graph.nodes.length} · 边 {graph.edges.length}</p>
+              <ul className="hls-records">
+                {graph.nodes.map((n) => (
+                  <li key={n.id}>[{n.type}] {n.label}</li>
+                ))}
+              </ul>
             </div>
-            <RecordList records={records} preset="research" />
-          </section>
-        )}
+          ) : (
+            <p className="hls-empty">点击加载项目知识图谱。</p>
+          )}
+        </section>
+      )}
 
-        {panel === 'prd' && (
-          <section className="hw-panel">
-            <h3>📋 PRD 生成</h3>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="描述需求，或贴研究笔记 id 供生成 PRD"
-              rows={3}
-            />
-            <div className="hw-actions">
-              <button disabled={busy || !prompt.trim()} onClick={() => void runGenerate('prd')}>
-                {busy ? '⏳ 执行中…' : '▶ 生成 PRD 草稿'}
-              </button>
-            </div>
-            <RecordList records={records} preset="prd" />
-          </section>
-        )}
-
-        {panel === 'execution' && (
-          <section className="hw-panel hw-full">
-            {/* Embedded ui-dashboard view (importable module, same React). */}
-            <DashboardView />
-          </section>
-        )}
-
-        {panel === 'knowledge' && (
-          <section className="hw-panel">
-            <h3>🕸️ 知识图谱</h3>
-            <button onClick={() => void loadGraph(setGraph, setToast)}>🔄 加载图谱</button>
-            {graph ? (
-              <div className="hw-graph">
-                <p>节点 {graph.nodes.length} · 边 {graph.edges.length}</p>
-                <ul>
-                  {graph.nodes.map((n) => (
-                    <li key={n.id}>
-                      [{n.type}] {n.label}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : (
-              <p>点击加载项目知识图谱。</p>
-            )}
-          </section>
-        )}
-      </div>
-
-      {toast && <div className="hw-toast">{toast}</div>}
+      {toast && <div className="hls-toast">{toast}</div>}
     </div>
   )
 }
 
 function RecordList({ records, preset }: { records: GenerateRecord[]; preset: string }) {
   const mine = records.filter((r) => r.preset === preset)
-  if (mine.length === 0) return <p className="hw-empty">暂无记录。</p>
+  if (mine.length === 0) return <p className="hls-empty">暂无记录。</p>
   return (
-    <ul className="hw-records">
+    <ul className="hls-records">
       {mine.map((r) => (
         <li key={r.taskId}>
-          <span className="hw-dot" data-status={r.status} />
+          <span className="hls-dot" data-status={r.status} />
           {r.preset} · {r.status}
           {r.draftId ? ` → ${r.draftId}` : ''}
           {r.error ? ` ❌ ${r.error}` : ''}

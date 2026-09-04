@@ -1,32 +1,40 @@
 /**
- * DSH client-module inject path — this is what a third-party plugin uses to add
- * a panel/entry to the DSH web shell.
+ * DSH client-module inject path — the browser half a third-party plugin uses
+ * to add an entry + panel to the DSH web shell (T0.4, verified against the
+ * DSH slot contracts).
  *
- * NOTE (T0.4): this file is the browser half that a DSH client bundle would
- * host. It registers the workbench view into the `shell.overlay` slot via
- * `ctx.slots`/`ctx.slots.inject`. Whether the DSH web shell actually loads a
- * third-party client bundle is the T0.4 spike; this file documents the exact
- * inject surface we target so the spike has a concrete shape.
+ * Two additive registrations, matching the official pattern (ui-brand-official
+ * / ui-layout contracts):
+ *  1. `sidebar.footer.action` (list, declared by ui-sidebar) — the「🚀 Helmsman」
+ *     entry button beside Settings at the sidebar foot.
+ *  2. `shell.overlay` (list, declared by ui-layout) — the frame-wide floating
+ *     layer; our entry is a self-drawn right-side drawer (position:fixed, own
+ *     chrome, pointer-events:auto on its own box only), NOT a bare component:
+ *     the overlay layer is click-through and unstyled, so a panel there must
+ *     bring its own container.
+ *
+ * This file is the entry DSH's module-loader activates (dsh.client →
+ * exports['./client']). It mounts nothing on its own — slot registration is
+ * declarative and the registry waits for slot declarations.
  */
-import type { App } from './App'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import './slot-types'
+import { WorkbenchDrawer, WorkbenchToggle } from './App'
 
-// The `slots` service is provided by the DSH client shell at runtime.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SlotCtx = any
+/** Required service: the UI slot registry. */
+export const inject = ['slots'] as const
 
-export const inject = ['slots', 'layout'] as const
-
-export function apply(ctx: SlotCtx): void {
-  // `shell.overlay` is a list-type slot; add our panel as an additive entry.
-  ctx.slots.inject('shell.overlay', () =>
-    ctx.slots.register(
-      {
-        name: 'shell.overlay',
-        id: 'helmsman:workbench',
-        label: '🚀 Helmsman',
-      },
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-      () => import('./App') as unknown as typeof App,
-    ),
-  )
+export function apply(ctx: ClientContext): void {
+  ctx.slots.inject('sidebar.footer.action', function* () {
+    yield ctx.slots.register(
+      { name: 'sidebar.footer.action', id: 'helmsman:workbench-toggle', label: 'Helmsman' },
+      WorkbenchToggle,
+    )
+  })
+  ctx.slots.inject('shell.overlay', function* () {
+    yield ctx.slots.register(
+      { name: 'shell.overlay', id: 'helmsman:workbench-panel' },
+      WorkbenchDrawer,
+    )
+  })
 }

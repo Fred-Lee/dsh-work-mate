@@ -11,21 +11,29 @@ const outDir = join(root, 'dist', 'client')
 await rm(outDir, { recursive: true, force: true })
 await mkdir(outDir, { recursive: true })
 
-// IIFE shell (standalone SPA, zero runtime deps).
+// DSH client-module closure-factory bundle (the format the web shell loads
+// via window.__ModuleLoader__). react + @deepseek-ai/* are external (module
+// table rows); everything else inlines.
+const CLIENT_ID = '@helmsman/ui-workbench'
 await build({
-  entryPoints: [join(root, 'src/client/main.tsx')],
+  entryPoints: [join(root, 'src/client/index.ts')],
   bundle: true,
-  format: 'iife',
+  format: 'cjs',
+  platform: 'browser',
   target: 'es2020',
   jsx: 'automatic',
   minify: true,
   sourcemap: false,
-  outfile: join(outDir, 'app.js'),
+  external: ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client', '@deepseek-ai/cordis'],
+  outfile: join(outDir, 'client.js'),
+  banner: { js: `window.__ModuleLoader__.load({ id: ${JSON.stringify(CLIENT_ID)}, factory: (require) => {\nvar module = { exports: {} };\nvar exports = module.exports;` },
+  footer: { js: 'return module.exports; } });' },
   define: { 'process.env.NODE_ENV': '"production"' },
   logLevel: 'info',
 })
 
-// Library entry (importable by the DSH client shell). react/react-dom external.
+// Embedded DashboardView / DiffView entry (importable by other client code,
+// react external) — the workbench panel that embeds the execution view.
 await build({
   entryPoints: [join(root, 'src/client/embed.tsx')],
   bundle: true,
@@ -36,6 +44,20 @@ await build({
   sourcemap: false,
   external: ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client'],
   outfile: join(outDir, 'embed.js'),
+  define: { 'process.env.NODE_ENV': '"production"' },
+  logLevel: 'info',
+})
+
+// IIFE shell (standalone SPA, zero runtime deps).
+await build({
+  entryPoints: [join(root, 'src/client/main.tsx')],
+  bundle: true,
+  format: 'iife',
+  target: 'es2020',
+  jsx: 'automatic',
+  minify: true,
+  sourcemap: false,
+  outfile: join(outDir, 'app.js'),
   define: { 'process.env.NODE_ENV': '"production"' },
   logLevel: 'info',
 })
