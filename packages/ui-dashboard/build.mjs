@@ -1,5 +1,8 @@
 // Build script — bundles the React client into dist/client/app.js (IIFE,
 // zero runtime deps) and copies static assets. Host serves dist/client.
+// Also emits a browser-safe ESM "library" entry (dist/client/embed.js) with
+// react/react-dom external so a host client bundle (ui-workbench) can import
+// the view components without duplicating React.
 import { build } from 'esbuild'
 import { mkdir, copyFile, writeFile, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -11,6 +14,7 @@ const outDir = join(root, 'dist', 'client')
 await rm(outDir, { recursive: true, force: true })
 await mkdir(outDir, { recursive: true })
 
+// IIFE shell (standalone SPA, zero runtime deps).
 await build({
   entryPoints: [join(root, 'src/client/main.tsx')],
   bundle: true,
@@ -20,6 +24,21 @@ await build({
   minify: true,
   sourcemap: false,
   outfile: join(outDir, 'app.js'),
+  define: { 'process.env.NODE_ENV': '"production"' },
+  logLevel: 'info',
+})
+
+// Library entry (importable by the workbench panel). react/react-dom external.
+await build({
+  entryPoints: [join(root, 'src/client/embed.tsx')],
+  bundle: true,
+  format: 'esm',
+  target: 'es2020',
+  jsx: 'automatic',
+  minify: true,
+  sourcemap: false,
+  external: ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client'],
+  outfile: join(outDir, 'embed.js'),
   define: { 'process.env.NODE_ENV': '"production"' },
   logLevel: 'info',
 })
@@ -40,6 +59,15 @@ await writeFile(
 <script src="app.js"></script>
 </body>
 </html>
+`,
+  'utf8',
+)
+
+await writeFile(
+  join(outDir, 'embed.d.ts'),
+  `export { App as DashboardView } from '../src/client/App'
+export { api, AGENTS, AGENT_LABELS, USAGE_QUOTA } from '../src/client/api'
+export type { AgentRunPayload, AgentRunState, StatePayload, TaskPayload, TopologyPayload, ImportPreviewPayload } from '../src/client/api'
 `,
   'utf8',
 )

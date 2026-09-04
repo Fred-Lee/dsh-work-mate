@@ -6,6 +6,10 @@
   "main": "./dist/index.js",
   "exports": {
     ".": "./dist/index.js",
+    "./client/embed": {
+      "types": "./dist/client/embed.d.ts",
+      "default": "./dist/client/embed.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

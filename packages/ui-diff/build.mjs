@@ -24,6 +24,21 @@ await build({
   logLevel: 'info',
 })
 
+// Library entry (importable by the workbench panel). react/react-dom external.
+await build({
+  entryPoints: [join(root, 'src/client/embed.tsx')],
+  bundle: true,
+  format: 'esm',
+  target: 'es2020',
+  jsx: 'automatic',
+  minify: true,
+  sourcemap: false,
+  external: ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client'],
+  outfile: join(outDir, 'embed.js'),
+  define: { 'process.env.NODE_ENV': '"production"' },
+  logLevel: 'info',
+})
+
 await copyFile(join(root, 'src/client/styles.css'), join(outDir, 'styles.css'))
 await writeFile(
   join(outDir, 'index.html'),
@@ -40,6 +55,15 @@ await writeFile(
 <script src="app.js"></script>
 </body>
 </html>
+`,
+  'utf8',
+)
+
+await writeFile(
+  join(outDir, 'embed.d.ts'),
+  `export { App as DiffView } from '../src/client/App'
+export { api, parseHunks, AGENT_LABELS } from '../src/client/api'
+export type { DiffLine, DiffTaskPayload, FileDiff } from '../src/client/api'
 `,
   'utf8',
 )
