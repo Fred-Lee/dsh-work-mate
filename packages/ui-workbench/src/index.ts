@@ -146,6 +146,12 @@ export function apply(ctx: Context, config: Config = {}): void {
     path: mountPath,
     handler: async (req, res) => {
       const url = new URL(req.url ?? '/', 'http://localhost')
+      // Bare mount path: redirect so relative asset URLs resolve.
+      if (url.pathname === mountPath) {
+        res.writeHead(301, { location: `${mountPath}/` })
+        res.end()
+        return
+      }
       const relative = url.pathname.startsWith(mountPath)
         ? url.pathname.slice(mountPath.length) + url.search
         : req.url ?? url.pathname
