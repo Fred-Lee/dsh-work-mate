@@ -30,6 +30,24 @@ const CSS = `
 .hls-toast{position:absolute;left:14px;right:14px;bottom:12px;padding:8px 10px;border-radius:8px;background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.07));font-size:13px}
 .hls-toggle-btn{display:flex;align-items:center;gap:6px;width:100%;padding:8px 10px;border:none;background:transparent;color:inherit;cursor:pointer;border-radius:8px;font-size:13px;text-align:left}
 .hls-toggle-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.05))}
+.hls-sub{margin:12px 0 6px;font-size:13px;opacity:.85}
+.hls-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.hls-chip{display:inline-flex;align-items:center;border:1px solid var(--dsw-alias-border-l3,#d1d5db);border-radius:999px;overflow:hidden}
+.hls-chip-btn{border:none;background:transparent;color:inherit;cursor:pointer;padding:4px 8px;font-size:12px}
+.hls-chip-btn:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.05))}
+.hls-chip-x{border:none;background:transparent;color:inherit;opacity:.5;cursor:pointer;padding:4px 6px;font-size:11px}
+.hls-chip-x:hover{opacity:1}
+.hls-chip-add{border:1px dashed var(--dsw-alias-border-l3,#d1d5db);background:transparent;color:inherit;opacity:.7;cursor:pointer;border-radius:999px;padding:4px 10px;font-size:12px}
+.hls-chip-add:hover{opacity:1}
+.hls-draft-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.hls-draft-id{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.hls-draft-actions{display:flex;gap:4px;flex:none}
+.hls-mini{border:1px solid var(--dsw-alias-border-l3,#d1d5db);background:transparent;color:inherit;cursor:pointer;border-radius:6px;padding:2px 8px;font-size:12px}
+.hls-mini:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(0,0,0,.05))}
+.hls-modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:60;pointer-events:auto}
+.hls-modal-box{background:var(--dsw-specific-sidebar-fill,#fff);color:var(--dsw-alias-label-primary,#16191e);border-radius:12px;width:720px;max-width:92vw;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 18px 48px rgba(0,0,0,.25)}
+.hls-modal-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb);flex:none}
+.hls-modal-pre{margin:0;padding:14px;overflow:auto;font-size:12px;line-height:1.55;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 `
 
 const TAG_ID = '@helmsman/ui-workbench/workbench.css'

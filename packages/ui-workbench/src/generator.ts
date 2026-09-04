@@ -123,12 +123,9 @@ export function createGenerator(ctx: Context): GeneratorImpl {
   return {
     generate(req) {
       if (generationScope.getStore() === true) {
-        // Agent-initiated nested call: refuse instead of forking.
-        return Promise.resolve({
-          taskId: `gen-nested-${Date.now().toString(36)}`,
-          status: 'failed' as const,
-          error: 'helmsman.generator: nested generation refused (you are already the Helmsman generation session — answer directly)',
-        })
+        // Agent-initiated nested call: refuse with an error (no fake taskId —
+        // a synthesized "failed task" record used to confuse downstream agents).
+        throw new Error('helmsman.generator: 嵌套生成已拒绝 — 你已处于 Helmsman 生成会话中,请直接作答,不要再调用 helmsman_* 生成工具')
       }
       return generationScope.run(true, () => run(req))
     },

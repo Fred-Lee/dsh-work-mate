@@ -11,12 +11,12 @@
  * The DSH client-module inject (client half) is in src/client/index.ts.
  */
 import { join, dirname, normalize, extname } from 'node:path'
-import { readFile, stat } from 'node:fs/promises'
+import { readFile, stat, readdir, writeFile, mkdir } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type { GenerateRecord } from './host-types.ts'
-import { createGenerator } from './generator.ts'
+import { createGenerator, draftsDir } from './generator.ts'
 
 export const name = '@helmsman/ui-workbench'
 // agents/agentDefaultModel/sessions: generation engine (same contract as the
@@ -94,7 +94,10 @@ export function apply(ctx: Context, config: Config = {}): void {
     register(route: { kind: 'exact' | 'prefix'; path: string; handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void> }): void
   }
   const knowledge = ctx.get('helmsman.knowledge') as
-    | { buildGraph?: (scope?: { projectGroupId?: string }) => Promise<unknown> }
+    | {
+        buildGraph?: (scope?: { projectGroupId?: string }) => Promise<unknown>
+        archive?: (note: { id: string; title: string; kind: string; createdAt: string; body: string; frontmatter: Record<string, unknown>; linkedProjects?: string[] }) => Promise<{ id: string; path: string }>
+      }
     | undefined
 
   const mountPath = (config.mountPath ?? '/helmsman-workbench').replace(/\/+$/, '')
@@ -133,6 +136,102 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
 
   router.add('GET', '/api/records', async () => ({ records: records.slice(0, 50) }))
+
+  // ── Drafts (L1/L2 artifacts) ────────────────────────────────────────────
+  // Every generation writes a draft file; the panel lists, views, and archives
+  // them (archive = confirmed-final copy into the Tolaria vault).
+  router.add('GET', '/api/drafts', async () => {
+    const dir = draftsDir()
+    await mkdir(dir, { recursive: true })
+    const out: Array<{ id: string; kind: string; mtime: number; size: number }> = []
+    for (const f of await readdir(dir)) {
+      if (!f.endsWith('.md') && !f.endsWith('.json')) continue
+      const st = await stat(join(dir, f))
+      out.push({
+        id: f.replace(/\.(md|json)$/, ''),
+        kind: f.split('-')[0] ?? 'research',
+        mtime: st.mtimeMs,
+        size: st.size,
+      })
+    }
+    return { drafts: out.sort((a, b) => b.mtime - a.mtime) }
+  })
+
+  router.add('GET', '/api/draft/:id', async (params) => {
+    const id = params.id ?? ''
+    if (!/^[a-z0-9-]+$/i.test(id)) throw new Error('invalid draft id')
+    const dir = draftsDir()
+    for (const ext of ['.md', '.json']) {
+      const p = join(dir, `${id}${ext}`)
+      try {
+        return { id, content: await readFile(p, 'utf8') }
+      } catch {
+        // try next extension
+      }
+    }
+    throw new Error(`draft not found: ${id}`)
+  })
+
+  router.add('POST', '/api/draft/archive', async (params, query, req) => {
+    const body = await readJson(req)
+    const id = typeof body.draftId === 'string' ? body.draftId : ''
+    if (!/^[a-z0-9-]+$/i.test(id)) throw new Error('invalid draft id')
+    const kind = body.kind === 'prd' ? 'prd' : body.kind === 'design' ? 'design' : 'research'
+    const dir = draftsDir()
+    let content: string | null = null
+    for (const ext of ['.md', '.json']) {
+      try {
+        content = await readFile(join(dir, `${id}${ext}`), 'utf8')
+        break
+      } catch {
+        // try next extension
+      }
+    }
+    if (content === null) throw new Error(`draft not found: ${id}`)
+    if (!knowledge?.archive) throw new Error('knowledge-tolaria not wired: cannot archive')
+    const title = typeof body.title === 'string' && body.title.trim() !== '' ? body.title.trim() : id
+    const linkedProjects = Array.isArray(body.linkedProjects) ? body.linkedProjects.map(String) : []
+    const archived = await knowledge.archive({
+      id,
+      title,
+      kind,
+      createdAt: new Date().toISOString(),
+      body: content,
+      frontmatter: { keywords: [] },
+      ...(linkedProjects.length > 0 ? { linkedProjects } : {}),
+    })
+    return { ok: true, ...archived }
+  })
+
+  // ── Custom commands (个人指令库) ────────────────────────────────────────
+  // User-defined reusable prompts: {id, name, prompt, preset?}. One click in
+  // the panel fills the textarea (and can run directly).
+  const commandsFile = join(draftsDir(), '..', 'commands.json')
+  const readCommands = async (): Promise<Array<{ id: string; name: string; prompt: string; preset?: string }>> => {
+    try {
+      const parsed = JSON.parse(await readFile(commandsFile, 'utf8')) as Array<{ id: string; name: string; prompt: string; preset?: string }>
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+  router.add('GET', '/api/commands', async () => ({ commands: await readCommands() }))
+  router.add('POST', '/api/commands', async (params, query, req) => {
+    const body = await readJson(req)
+    const list = Array.isArray(body.commands) ? body.commands : []
+    const clean = list
+      .filter((c): c is { id: string; name: string; prompt: string; preset?: string } =>
+        typeof (c as any)?.name === 'string' && typeof (c as any)?.prompt === 'string')
+      .map((c) => ({
+        id: typeof c.id === 'string' && c.id !== '' ? c.id : `cmd-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+        name: c.name,
+        prompt: c.prompt,
+        ...(typeof c.preset === 'string' ? { preset: c.preset } : {}),
+      }))
+    await mkdir(dirname(commandsFile), { recursive: true })
+    await writeFile(commandsFile, JSON.stringify(clean, null, 2), 'utf8')
+    return { ok: true, commands: clean }
+  })
 
   router.add('GET', '/api/graph', async () => {
     if (!knowledge?.buildGraph) return { nodes: [], edges: [], warning: 'knowledge-tolaria not wired' }
