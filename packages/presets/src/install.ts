@@ -12,8 +12,11 @@ import { dirname, join } from 'node:path'
 export const PRESET_NAMES = ['helmsman-research', 'helmsman-prd', 'helmsman-decompose', 'helmsman-require-analyze'] as const
 
 export function defaultPresetRoot(): string {
-  const base = process.env.HELMSMAN_HOME ?? join(homedir(), '.helmsman')
-  return join(base, 'presets')
+  // DSH's agent-preset discovery scans <DSH_HOME>/.agent-presets as the
+  // writable user root (USER_PRESET_DIR) — presets copied there are picked up
+  // without restart-free roster changes (discovery is unmemoized).
+  const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  return join(dshHome, '.agent-presets')
 }
 
 export function bundlePresetDir(): string {

@@ -16,9 +16,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type { GenerateRecord } from './host-types.ts'
+import { createGenerator } from './generator.ts'
 
 export const name = '@helmsman/ui-workbench'
-export const inject = ['webServer', 'helmsman.knowledge'] as const
+// agents/agentDefaultModel/sessions: generation engine (same contract as the
+// headless bundle); loader/agentPresets: app settlement + preset mounting.
+export const inject = ['webServer', 'helmsman.knowledge', 'agents', 'agentDefaultModel', 'sessions', 'loader', 'agentPresets'] as const
 
 export interface Config {
   /** URL prefix. @default '/helmsman-workbench' */
@@ -98,24 +101,33 @@ export function apply(ctx: Context, config: Config = {}): void {
   const assetsDir = join(dirname(fileURLToPath(import.meta.url)), 'client')
   const router = new MiniRouter()
 
-  // Generation is behind the helmsman.generator seam (implemented by T0.1 wiring).
-  const generator = ctx.get('helmsman.generator') as
-    | { generate?: (req: { preset: string; input: Record<string, unknown> }) => Promise<{ taskId: string; status: string; draftId?: string }> }
-    | undefined
+  // Provide the generation engine once — both this REST surface and the
+  // @helmsman/presets tools (which ctx.get('helmsman.generator')) share it.
+  const generator = createGenerator(ctx)
+  const provide = (ctx as unknown as { provide: (name: string, value: unknown) => void }).provide
+  provide('helmsman.generator', generator)
 
-  const records: Array<{ taskId: string; preset: string; status: 'running' | 'completed' | 'failed'; startedAt: number; endedAt?: number; error?: string; draftId?: string }> = []
+  const records: GenerateRecord[] = []
 
   router.add('POST', '/api/generate', async (params, query, req) => {
     const body = await readJson(req)
     const preset = typeof body.preset === 'string' ? body.preset : 'research'
     const input = (typeof body.input === 'object' && body.input !== null ? body.input : {}) as Record<string, unknown>
-    if (!generator?.generate) throw new Error('helmsman.generator not wired (T0.1): generation unavailable')
     const rec: GenerateRecord = { taskId: `gen-${Date.now().toString(36)}`, preset, status: 'running', startedAt: Date.now() }
     records.unshift(rec)
-    // Fire-and-await into the seam; update record on completion.
-    void generator.generate({ preset, input }).then(
-      (r) => { rec.status = 'completed'; rec.draftId = r.draftId; rec.endedAt = Date.now() },
-      (err) => { rec.status = 'failed'; rec.error = err instanceof Error ? err.message : String(err); rec.endedAt = Date.now() },
+    // Fire-and-await into the engine; the panel polls /api/records.
+    void generator.generate({ preset: preset as never, input }).then(
+      (r) => {
+        rec.status = r.status === 'completed' ? 'completed' : 'failed'
+        if (r.draftId !== undefined) rec.draftId = r.draftId
+        if (r.error !== undefined) rec.error = r.error
+        rec.endedAt = Date.now()
+      },
+      (err: unknown) => {
+        rec.status = 'failed'
+        rec.error = err instanceof Error ? err.message : String(err)
+        rec.endedAt = Date.now()
+      },
     )
     return { taskId: rec.taskId, status: 'running' }
   })
