@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist/types",
+    "rootDir": "src",
+    "types": [
+      "node"
+    ],
+    "allowImportingTsExtensions": false,
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": [
+    "src/*.ts"
+  ],
+  "exclude": [
+    "src/client/**",
+    "src/**/*.test.ts"
+  ]
+}
