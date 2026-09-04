@@ -8,13 +8,18 @@ Helmsman 是一套构建在 [DeepSeek Harness (DSH)](https://github.com/deepseek
 ```
 ┌────────────────────────────────────────────────────────────────────┐
 │  dsh web (127.0.0.1:3080)                                          │
-│   ├─ /helmsman-dashboard/   主控面板（任务编排、Agent 卡片、配置）    │
-│   └─ /helmsman-diff/        多 Agent Diff 对比 + 合并               │
+│   ├─ DSH 聊天页 侧边栏 🚀 Helmsman → 工作台抽屉                     │
+│   │    [📚研究] [📋PRD] [⚡执行] [🕸️知识]                          │
+│   ├─ /helmsman-dashboard/   执行看板（任务编排、Agent 卡片、配置）  │
+│   ├─ /helmsman-diff/        多 Agent Diff 对比 + 合并               │
+│   └─ /helmsman-workbench/   工作台独立页（同抽屉内容）              │
 │                                                                    │
-│  cordis 插件树（@helmsman/bundle 一次装入）                          │
+│  cordis 插件树（@helmsman/bundle 一次装入）                         │
 │   worktree ──▶ orchestrator ◀── adapter-{claude,codex,pi,oh-my-pi}  │
 │   memory-topology ──┘        │                                     │
-│   （可选：dsh-virtual-workspace / dsh-memory-manager 等社区插件复用） │
+│   knowledge-tolaria（vault/检索/图谱）                              │
+│   presets（研究/PRD/拆解/需求分析 预设 + 生成工具）                 │
+│   ui-workbench（DSH client bundle：侧边栏入口 + 抽屉面板）          │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -24,11 +29,14 @@ Helmsman 是一套构建在 [DeepSeek Harness (DSH)](https://github.com/deepseek
 | ------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [`@helmsman/worktree`](packages/worktree)                          | Service         | Worktree 调度：创建/清理/收集 diff/patch 合并，惰性集成`dsh-virtual-workspace`                                                                       |
 | [`@helmsman/memory-topology`](packages/memory-topology)            | Service + Tools | 项目拓扑记忆（PRD §3.2 数据模型），Maven 父 POM / REST API 扫描，docker-compose / K8s / OpenAPI 导入，YAML 导出，最佳努力镜像到`dsh-memory-manager` |
+| [`@helmsman/knowledge-tolaria`](packages/knowledge-tolaria)        | Service         | **L4 知识层**：Tolaria vault 归档门面（仅定稿）+ 全文检索 + 项目知识图谱（消费 topology）                                                          |
 | [`@helmsman/orchestrator`](packages/orchestrator)                  | Service + Tools | 多 Agent 并行调度引擎：限流退避重试、断路器、取消、冲突标注、合并/放弃，`helmsman_run_parallel` 等 4 个工具                                          |
 | `@helmsman/adapter-claude` / `-codex` / `-pi` / `-oh-my-pi` | Agent Adapter   | 非交互 CLI 执行（无 shell、argv 数组、超时/取消、流式日志），命令与参数可配置                                                                          |
-| [`@helmsman/ui-dashboard`](packages/ui-dashboard)                  | Web UI          | 主控面板 React SPA（PRD 第 4 章规范全量实现）                                                                                                          |
-| [`@helmsman/ui-diff`](packages/ui-diff)                            | Web UI          | 多 Agent Diff 对比：split / unified / side-by-side、冲突标注与方案选择、行级评论、合并                                                                 |
-| [`@helmsman/bundle`](packages/bundle)                              | Bundle          | 一条命令装入全部 9 个插件                                                                                                                              |
+| [`@helmsman/presets`](packages/presets)                            | Agent 预设 + Tools | **L1/L2 生成**：研究 / PRD / 拆解 / 需求分析 4 个 agent 预设（同步进 DSH roster）+ `helmsman_research` 等 4 个生成工具（走 `helmsman.generator` 引擎） |
+| [`@helmsman/ui-dashboard`](packages/ui-dashboard)                  | Web UI          | 主控面板 React SPA（PRD 第 4 章规范全量实现；同时导出可嵌入视图模块 `./client/embed`）                                                                  |
+| [`@helmsman/ui-diff`](packages/ui-diff)                            | Web UI          | 多 Agent Diff 对比：split / unified / side-by-side、冲突标注与方案选择、行级评论、合并（同样可嵌入）                                                    |
+| [`@helmsman/ui-workbench`](packages/ui-workbench)                  | Web UI + DSH client | **工作台**：DSH 网页侧边栏「🚀 Helmsman」入口 + 右侧抽屉（研究/PRD/执行/知识 4 面板）+ 生成/草稿/归档/指令库 REST；DSH client bundle 注入 `shell.overlay` |
+| [`@helmsman/bundle`](packages/bundle)                              | Bundle          | 一条命令装入全部 12 个插件                                                                                                                              |
 
 文档：[架构说明](docs/ARCHITECTURE.md) · [UI 规范符合性矩阵](docs/UI-COMPLIANCE.md) ·
 [安全审计报告](docs/SECURITY-AUDIT.md) · [使用手册](docs/USAGE.md) ·
@@ -48,14 +56,15 @@ dsh plugin --profile web add -w https://github.com/MoonlitDropOfBlood/dsh-memory
 dsh plugin --profile web add -w github:lovezi0/dsh-memory-palace
 
 # 3) 安装 Helmsman 全部插件（在仓库根目录执行；相对路径按调用目录锚定）
-for p in worktree memory-topology orchestrator adapter-claude adapter-codex \
-         adapter-pi adapter-oh-my-pi ui-dashboard ui-diff; do
+for p in worktree memory-topology knowledge-tolaria orchestrator adapter-claude \
+         adapter-codex adapter-pi adapter-oh-my-pi presets ui-dashboard ui-diff \
+         ui-workbench; do
   dsh plugin --profile web add -w ./packages/$p
 done
 #   或逐个安装后安装 bundle：dsh plugin --profile web add -w ./packages/bundle
 
 # 4) 验证插件树注册成功
-dsh --profile web --dump-config | grep helmsman   # 应看到 9 个 helmsman-* 条目
+dsh --profile web --dump-config | grep helmsman   # 应看到 12 个 helmsman-* 条目
 
 # 5) 启动
 dsh web          # 打开 http://127.0.0.1:3080/helmsman-dashboard/
@@ -75,7 +84,7 @@ dsh web          # 打开 http://127.0.0.1:3080/helmsman-dashboard/
 2. **npm 发布**（正式对外）：`pnpm publish` 各包（含 `@helmsman/bundle`），
    收件人一条命令 `dsh plugin --profile <p> add @helmsman/bundle` 装齐全部插件。
 3. **私有 registry**：Verdaccio/Nexus 等，发布命令与 2 相同。
-4. **tarball 直发**（无 registry）：`pnpm pack` 出 9 个 tgz 分发给收件人，
+4. **tarball 直发**（无 registry）：`pnpm pack` 出 12 个 tgz 分发给收件人，
    `dsh plugin --profile <p> add file:/path/to/helmsman-*.tgz`。
    该路径已在本机 `helmsman-dist` profile 端到端验证（安装 → dump-config →
    启动 → UI 200）。
@@ -87,14 +96,17 @@ dsh web          # 打开 http://127.0.0.1:3080/helmsman-dashboard/
 ## 验证
 
 ```bash
-pnpm test          # 56 个单元/集成测试（含真实 git worktree 集成测试）
+pnpm test          # 73 个单元/集成测试（含真实 git worktree 集成测试、vault/图谱、预设工具）
 pnpm typecheck     # 全部包 tsc --noEmit 通过
-pnpm build         # esbuild host 产物 + React client IIFE + d.ts
+pnpm build         # esbuild host 产物 + React client IIFE/ESM + DSH client bundle + d.ts
 ```
 
-端到端（在真实 harness 上已验证）：创建项目群 → 配置服务仓库 → 提交并行任务 →
+端到端（真实 harness 已验证）：创建项目群 → 配置服务仓库 → 提交并行任务 →
 观察 Agent 卡片状态机（CREATING_WORKTREES → RUNNING → AGGREGATING → COMPLETED /
 PARTIAL_FAILED / ALL_FAILED）→ 在 Diff 视图查看对比 → 合并回主仓库。
+Workbench 链路（真实模型验证）：侧边栏 🚀 Helmsman → 抽屉 → 研究生成（预设
+会话 + DeepSeek 模型，~30s）→ 草稿查看 → ✅ 归档进 Tolaria vault；自定义指令库
+一键填入运行。
 
 ## 安全要点（详见 [docs/SECURITY-AUDIT.md](docs/SECURITY-AUDIT.md)）
 
@@ -102,7 +114,13 @@ PARTIAL_FAILED / ALL_FAILED）→ 在 Diff 视图查看对比 → 合并回主�
 - worktree id / 分支 / 路径强制字符集校验与 `rootDir` 越界检查；
 - 合并 patch 经 stdin 传入，不落临时文件；merge 冲突时主仓库保持原状；
 - 扫描器有深度 / 文件数 / 文件大小上限与符号链接逃逸检查；
-- 无 `eval`/`Function`、无网络外发、零第三方运行时依赖（社区插件除外）。
+- 无 `eval`/`Function`、零第三方运行时依赖（社区插件除外）；
+- 核心闭环**无网络外发**；唯一外发是 Workbench 生成（Deep Research 等）——
+  走 **DSH 原生 agent 会话**，由用户自己配置的模型/密钥发出，与在 DSH 里聊天
+  同面，Helmsman 不接触密钥、不新增网络端点（审计 §1.3 豁免声明）；
+- 生成引擎有递归分叉闸门（AsyncLocalStorage）+ 单 turn 240s 超时熔断；
+- 草稿留在本地 `~/.helmsman/workbench/`，仅用户显式「✅ 归档」的定稿写入
+  Tolaria vault（纯本地文件，无网络）。
 
 ## 复用策略落实情况（PRD 第二章）
 

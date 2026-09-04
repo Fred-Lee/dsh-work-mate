@@ -1,14 +1,16 @@
 # @helmsman/bundle — Helmsman 全家桶 patch 层
 # 安装本包后，reconcilePlugins 会把 helmsman-bundle 写入 profile 的
-# dsh.profile.bundles，此处的 9 行 insert 即整棵 Helmsman 插件树。
+# dsh.profile.bundles，此处的 12 行 insert 即整棵 Helmsman 插件树。
 #
-# 加载顺序：worktree → topology → orchestrator → adapters → UI（inject 声明
-# 的依赖关系保证实际就绪顺序，此列表顺序仅为可读性）。
+# 加载顺序：worktree → topology → knowledge → orchestrator → adapters →
+# presets → UI（inject 声明的依赖关系保证实际就绪顺序，此列表顺序仅为可读性）。
 - insert:
     - id: helmsman-worktree
       name: '@helmsman/worktree'
     - id: helmsman-memory-topology
       name: '@helmsman/memory-topology'
+    - id: helmsman-knowledge-tolaria
+      name: '@helmsman/knowledge-tolaria'
     - id: helmsman-orchestrator
       name: '@helmsman/orchestrator'
     - id: helmsman-adapter-claude
@@ -19,7 +21,11 @@
       name: '@helmsman/adapter-pi'
     - id: helmsman-adapter-oh-my-pi
       name: '@helmsman/adapter-oh-my-pi'
+    - id: helmsman-presets
+      name: '@helmsman/presets'
     - id: helmsman-ui-dashboard
       name: '@helmsman/ui-dashboard'
     - id: helmsman-ui-diff
       name: '@helmsman/ui-diff'
+    - id: helmsman-ui-workbench
+      name: '@helmsman/ui-workbench'

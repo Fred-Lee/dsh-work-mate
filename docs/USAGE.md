@@ -16,7 +16,25 @@
    - 💬 行级评论（存本地 localStorage）；
    - 底部操作：✅ 合并单个 Agent、🔀 合并所选文件、❌ 全部放弃。
 
-## 2. 状态参考
+## 2. 工作台（Helmsman Workbench）
+
+装入 `@helmsman/ui-workbench` 后，DSH 网页侧边栏底部出现 **🚀 Helmsman** 按钮：
+
+1. 点击打开右侧抽屉，四个面板随时切换：
+   - **📚 研究**：输入主题 → ▶ 生成研究笔记（走 DSH 预设会话 + 当前模型，约 30s~2min）。
+   - **📋 PRD**：从需求/研究笔记生成 PRD 草稿。
+   - **⚡ 执行**：内嵌执行看板；也可「↗ 在新页面打开完整看板」。
+   - **🕸️ 知识**：加载项目知识图谱（拓扑 + 已归档文档）。
+2. **📄 草稿**：生成产物列在面板下方，「查看」读全文，「✅ 归档」把定稿写入
+   Tolaria vault（`~/.helmsman/vault/`）——未归档的草稿只留在本地。
+3. **自定义指令**：输入框上方的指令 chips（「＋ 指令」新建），一键填入并运行；
+   存储于 `~/.helmsman/workbench/commands.json`。
+4. 独立页：`/helmsman-workbench/`（不带斜杠会自动 301 跳转）。
+
+生成工具也可在对话/headless 中直接调用（见 §3）；生成过程中模型再次调用
+生成工具会被拒绝（递归闸门），单次生成超 240s 自动取消。
+
+## 3. 状态参考
 
 ### Agent 卡片状态
 
@@ -35,7 +53,7 @@
 `CREATING_WORKTREES → RUNNING → AGGREGATING → COMPLETED | PARTIAL_FAILED | ALL_FAILED`
 （RUNNING 中可取消 → CANCELLED）。部分失败时成功的 Agent 结果照常可用。
 
-## 3. Agent 工具（headless 驱动）
+## 4. Agent 工具（headless 驱动）
 
 Helmsman 同时注册了一组 agent 工具，可以在 `dsh --profile <p> "…"` 会话里直接指挥舰队：
 
@@ -46,10 +64,14 @@ Helmsman 同时注册了一组 agent 工具，可以在 `dsh --profile <p> "…"
 - `helmsman_topology_get_downstream {projectGroupId, serviceId}`
 - `helmsman_topology_scan_rest_apis {localPath}`
 - `helmsman_topology_list_groups`
+- `helmsman_research {prompt}` — 起预设会话做 Deep Research，落研究草稿
+- `helmsman_generate_prd {prompt, noteId?}` — 生成 PRD 草稿
+- `helmsman_decompose {prdId}` — PRD 拆解为里程碑/任务
+- `helmsman_require_analyze {requirement, projectGroupId?}` — 知识库复用/新建评估
 
 示例：`dsh --profile headless "使用 Helmsman 执行任务：用 claude 和 codex 并行给 user-service 加一个修改密码接口，然后合并 claude 的结果"`。
 
-## 4. 配置
+## 5. 配置
 
 所有插件都接受 profile patch 层的 config 覆盖（`~/.dsh/profiles/<p>/cordis.patch.yml`，
 同 id 行 = 覆盖配置，改完自动热重载）：
@@ -84,17 +106,17 @@ Helmsman 同时注册了一组 agent 工具，可以在 `dsh --profile <p> "…"
 数据目录：`~/.helmsman/topologies/`（项目群 JSON）、`~/.helmsman/worktrees/`
 （任务 worktree，任务合并/放弃后自动清理）。
 
-## 5. 验证安装
+## 6. 验证安装
 
 ```bash
-dsh --profile web --dump-config | grep helmsman      # 9 个 helmsman-* 条目
+dsh --profile web --dump-config | grep helmsman      # 12 个 helmsman-* 条目
 curl -s localhost:3080/helmsman-dashboard/api/state  # {"groups":[...],"agents":{...}}
 open http://127.0.0.1:3080/helmsman-dashboard/
 ```
 
 深链参数：`?panel=config` 直接打开配置面板；`?theme=dark` 强制暗色。
 
-## 6. 常见问题
+## 7. 常见问题
 
 - **提示「no repoPath」**：项目群下没有任何服务配置 localPath；在配置面板给
   服务填本地 git 仓库路径，或调用工具时直接传 `repoPath`。

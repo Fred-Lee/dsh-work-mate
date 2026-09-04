@@ -3,14 +3,21 @@
 Helmsman 是一组标准 DSH 第三方插件。本文给出 4 种让其他人安装的方式，
 从「零发布门槛」到「正式发布」，以及每条路径已验证的状态。
 
+> **2026-09-04 更新**：Workbench 版本新增 3 个插件（`knowledge-tolaria` /
+> `presets` / `ui-workbench`），插件总数 9 → **12**；下文的插件清单与
+> tarball 数量按旧版记录，重新分发时以 `packages/bundle/cordis.patch.yml`
+> （12 行 insert）为准，且发布前应重跑一遍验证（新增了 DSH client bundle
+> 与预设同步，见 §方式 D 验证记录的口径）。
+
 ## 方式 A：直接克隆源码（最简单，零发布）
 
 收件人克隆本仓库，在仓库根目录执行：
 
 ```bash
 pnpm install && pnpm build
-for p in worktree memory-topology orchestrator adapter-claude adapter-codex \
-         adapter-pi adapter-oh-my-pi ui-dashboard ui-diff; do
+for p in worktree memory-topology knowledge-tolaria orchestrator adapter-claude \
+         adapter-codex adapter-pi adapter-oh-my-pi presets ui-dashboard ui-diff \
+         ui-workbench; do
   dsh plugin --profile <目标profile> add -w ./packages/$p
 done
 # 或只装组合包：

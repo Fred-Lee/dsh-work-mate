@@ -1,7 +1,7 @@
 # Helmsman 安全审计报告
 
-- 日期：2026-09-03
-- 范围：Helmsman 自研插件（10 个包）+ 3 个被复用的社区插件 + 依赖面
+- 日期：2026-09-03（Workbench 增量更新：2026-09-04）
+- 范围：Helmsman 自研插件（13 个包）+ 3 个被复用的社区插件 + 依赖面
 - 结论：**自研代码通过审计**；社区插件存在**中风险注意事项**（详见 §2），
   建议仅在受信任的个人/内网 profile 中使用，安装时保持第 7.1 节的检查习惯。
 
@@ -30,15 +30,27 @@
 | topology store：文件名 `encodeURIComponent(group)`，CJK 安全；`normalizeTopology` 双侧清洗，坏 JSON 降级 null | ✅ |
 | scan-rest：realpath 父目录比对，允许 macOS `/var→/private/var` 这类根符号链接，阻断根内部符号链接逃逸；深度 8 / 3000 文件 / 512KB 上限 | ✅ 有测试 |
 | UI 静态服务：`normalize` + `startsWith(assetsDir)` 越界检查，403/404 | ✅ |
+| knowledge-tolaria vault：路径由服务端配置/常量拼出（`~/.helmsman/vault/<固定子目录>/<id>.md`），归档接口对 `draftId` 强制 `^[a-z0-9-]+$` 校验，无用户可控路径段 | ✅ |
+| workbench drafts/commands：仅读写 `~/.helmsman/workbench/` 下固定文件（`commands.json` 结构化清洗后落盘） | ✅ |
 
 ### 1.3 网络请求
 
-- 自研插件**零出站网络调用**（无 fetch/http）。唯一网络面是
-  `webServer.register` 的本地路由（dashboard/diff 的 REST API）。
+- 自研插件**零直接出站网络调用**（无 fetch/http）。唯一网络面是
+  `webServer.register` 的本地路由（dashboard/diff/workbench 的 REST API）。
+- **Deep Research 豁免（Workbench 新增，显式声明）**：`@helmsman/ui-workbench`
+  的生成引擎通过 `ctx.agents.create` 启动**DSH 原生 agent 会话**（挂 Helmsman
+  预设）。模型推理请求由 **DSH 自身的 LLM 栈**发出——这与用户在 DSH 里正常
+  聊天的外发完全同面、同凭据（用户自己配置的 provider/key），Helmsman 不新增
+  任何网络端点、不接触密钥、不自带搜索工具。生成会话可选启用且需用户在面板
+  显式触发。
+- Tolaria vault 读写为**纯本地文件**（`~/.helmsman/vault/`），无 MCP/网络调用。
 
 ### 1.4 动态执行
 
 - 无 `eval`、`new Function`、`vm`。✅
+- `@helmsman/ui-workbench` 生成引擎在运行时 `import('@deepseek-ai/dsh-brand')`
+  等 **harness 官方包**（createRequire 锚定 cwd 解析后动态 import）——仅加载
+  宿主自带的官方模块，非任意代码执行面。
 
 ### 1.5 环境变量与敏感信息
 
@@ -118,6 +130,8 @@
 | 本地非浏览器进程滥用 API | loopback 绑定；文档明确多用户主机限制 |
 | 依赖投毒 | 零第三方运行时依赖；devDeps 锁定 semver 范围；社区插件仅 3 个且经审计 |
 | 路径穿越 / 计划任务注入 | 字符集白名单 + realpath + normalize；无 cron/定时器注册 |
+| 生成引擎递归分叉（生成的 agent 调 helmsman_* 生成工具 → 无限 fork 会话烧 token） | AsyncLocalStorage 递归闸门：生成 turn 内的嵌套调用直接拒绝并返回自解释错误（实测模型收到后改为自己作答）；单 turn 240s 超时熔断 + agent.cancel。实测修复前曾 fork 100+ 会话，修复后单会话稳定完成 |
+| DSH client 模块注入面（ui-workbench client bundle 进网页壳） | bundle 只含自家组件与样式注入，经 slot 系统声明式注册（`shell.overlay`/`sidebar.footer.action`），不触碰页面其他区域；模块表 externals 仅 react/cordis 官方行 |
 
 ## 4. 遗留建议
 
