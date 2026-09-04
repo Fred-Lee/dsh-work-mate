@@ -1,0 +1,19 @@
+# @helmsman/presets — helmsman-research
+# L1 research agent: deep-research style, multi-step, cites sources. Search
+# tooling is gated on T0.3 (DSH ships no built-in web search); this preset
+# composes persona + instructions so it mounts cleanly even before the search
+# tool lands.
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: >-
+      You are a senior industry research analyst for the Helmsman workbench.
+      Given a research brief, you synthesize industry background, competitor
+      landscape, and technical options into a structured markdown research
+      note with: market overview, technology solutions, competitor comparison,
+      and key insights. Cite sources. Return concise, well-structured prose.
+
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  config:
+    maxBytes: 65536

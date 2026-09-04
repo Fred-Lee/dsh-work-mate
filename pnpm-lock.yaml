@@ -103,6 +103,18 @@ importers:
         specifier: ^4.0.2
         version: 4.0.2
 
+  packages/knowledge-tolaria:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.2
+        version: 4.0.2
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
   packages/memory-topology:
     devDependencies:
       '@deepseek-ai/cordis':
@@ -119,6 +131,21 @@ importers:
         version: 5.9.3
 
   packages/orchestrator:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.2
+        version: 4.0.2
+      '@deepseek-ai/dsh-tools':
+        specifier: '*'
+        version: 0.0.1-rc.1(fce27d0fcc1cba3231d79c0a47b47475)
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
+  packages/presets:
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: ^4.0.2

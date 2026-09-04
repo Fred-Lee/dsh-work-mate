@@ -2,7 +2,6 @@
 
 ## — 完整开发任务书 v4.0（最终完整版）
 
-
 ## 一、项目背景与核心定位
 
 **Helmsman** 是一个基于 DeepSeek Harness (DSH) “一切皆插件”架构的 ADE（Agent Development Environment），让开发者在一个看板上同时指挥 Claude Code、Codex、Pi、oh-my-pi 等多个 AI 编程 Agent，在独立的 Git Worktree 中并行执行任务，并对比结果择优合并。
@@ -16,22 +15,20 @@
 - 使用 `ctx.effect()` 管理资源
 - 遵循 Cordis 插件生命周期
 
-
 ## 二、技术架构与插件拆解（含复用策略）
 
-| 序号 | 插件名（npm scope） | 类型 | 复用策略 |
-|------|---------------------|------|----------|
-| 1 | `@helmsman/worktree` | Service | **直接复用** `dsh-virtual-workspace`，仅做轻量封装 |
-| 2 | `@helmsman/memory-topology` | Service | **直接复用** `dsh-memory-manager` + `dsh-memory-palace`，扩展项目拓扑数据模型 |
-| 3 | `@helmsman/orchestrator` | Service/Tool | **参考** `dsh-Visual-Workflow` 和 `kalifun/helmsman` 的编排架构，开发自定义调度引擎 |
-| 4 | `@helmsman/adapter-claude` | Agent Adapter | **从零开发**（社区无现成统一适配层） |
-| 5 | `@helmsman/adapter-codex` | Agent Adapter | **从零开发** |
-| 6 | `@helmsman/adapter-pi` | Agent Adapter | **从零开发** |
-| 7 | `@helmsman/adapter-oh-my-pi` | Agent Adapter | **从零开发** |
-| 8 | `@helmsman/ui-dashboard` | Web UI | **参考** `kalifun/helmsman` UI 设计，从零开发 |
-| 9 | `@helmsman/ui-diff` | Web UI | **从零开发**（社区无现成多 Agent 并排 Diff 组件） |
-| 10 | `@helmsman/bundle` | Bundle | 组合所有插件 |
-
+| 序号 | 插件名（npm scope）            | 类型          | 复用策略                                                                                      |
+| ---- | ------------------------------ | ------------- | --------------------------------------------------------------------------------------------- |
+| 1    | `@helmsman/worktree`         | Service       | **直接复用** `dsh-virtual-workspace`，仅做轻量封装                                    |
+| 2    | `@helmsman/memory-topology`  | Service       | **直接复用** `dsh-memory-manager` + `dsh-memory-palace`，扩展项目拓扑数据模型       |
+| 3    | `@helmsman/orchestrator`     | Service/Tool  | **参考** `dsh-Visual-Workflow` 和 `kalifun/helmsman` 的编排架构，开发自定义调度引擎 |
+| 4    | `@helmsman/adapter-claude`   | Agent Adapter | **从零开发**（社区无现成统一适配层）                                                    |
+| 5    | `@helmsman/adapter-codex`    | Agent Adapter | **从零开发**                                                                            |
+| 6    | `@helmsman/adapter-pi`       | Agent Adapter | **从零开发**                                                                            |
+| 7    | `@helmsman/adapter-oh-my-pi` | Agent Adapter | **从零开发**                                                                            |
+| 8    | `@helmsman/ui-dashboard`     | Web UI        | **参考** `kalifun/helmsman` UI 设计，从零开发                                         |
+| 9    | `@helmsman/ui-diff`          | Web UI        | **从零开发**（社区无现成多 Agent 并排 Diff 组件）                                       |
+| 10   | `@helmsman/bundle`           | Bundle        | 组合所有插件                                                                                  |
 
 ## 三、各模块详细实现要求
 
@@ -39,15 +36,16 @@
 
 > **🔁 复用策略：直接复用 `dsh-virtual-workspace`**
 
-| 策略项 | 说明 |
-|--------|------|
-| **复用插件** | `dsh-virtual-workspace` — 将多个项目目录分组到同一名称下，支持跨项目读/搜索/写 |
-| **GitHub 地址** | https://github.com/KevinWen7415/dsh-virtual-workspace |
-| **安装方式** | `dsh plugin --profile <你的profile名> add github:KevinWen7415/dsh-virtual-workspace` |
+| 策略项                      | 说明                                                                                                                                                     |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **复用插件**          | `dsh-virtual-workspace` — 将多个项目目录分组到同一名称下，支持跨项目读/搜索/写                                                                        |
+| **GitHub 地址**       | https://github.com/KevinWen7415/dsh-virtual-workspace                                                                                                    |
+| **安装方式**          | `dsh plugin --profile <你的profile名> add github:KevinWen7415/dsh-virtual-workspace`                                                                   |
 | **Helmsman 新增内容** | 封装一层统一 API：`createWorktree()`、`removeWorktree()`、`listWorktrees()`、`getDiff()`，内部调用 `dsh-virtual-workspace` 的 `vws` 工具能力 |
-| **代码量** | 约 150-200 行（封装层） |
+| **代码量**            | 约 150-200 行（封装层）                                                                                                                                  |
 
 **实现要求**：
+
 ```typescript
 // @helmsman/worktree/src/index.ts
 import { Context } from '@deepseek-ai/cordis';
@@ -69,18 +67,19 @@ export function apply(ctx: Context) {
 
 > **🔁 复用策略：直接复用 `dsh-memory-manager` + `dsh-memory-palace`**
 
-| 策略项 | 说明 |
-|--------|------|
-| **复用插件 A** | `dsh-memory-manager` — 移植自 ZCode 的项目记忆，Markdown 格式落盘 |
-| **GitHub 地址** | https://github.com/MoonlitDropOfBlood/dsh-memory-manager |
-| **安装方式** | `dsh plugin --profile web add https://github.com/MoonlitDropOfBlood/dsh-memory-manager/releases/download/v1.2.0/dsh-memory-manager-1.2.0.tgz` |
-| **复用插件 B** | `dsh-memory-palace` — 用户级 + 工作区级双层记忆，每轮自动注入提示词 |
-| **GitHub 地址** | https://github.com/lovezi0/dsh-memory-palace |
-| **安装方式** | `dsh plugin --profile <你的profile名> add github:lovezi0/dsh-memory-palace` |
-| **Helmsman 新增内容** | 在记忆模型中增加项目拓扑数据结构（`ProjectTopology`），新增 `scanMavenParent()`、`scanRestApis()`、`getDownstream()` 三个 API |
-| **代码量** | 约 200-300 行（扩展层） |
+| 策略项                      | 说明                                                                                                                                            |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| **复用插件 A**        | `dsh-memory-manager` — 移植自 ZCode 的项目记忆，Markdown 格式落盘                                                                            |
+| **GitHub 地址**       | https://github.com/MoonlitDropOfBlood/dsh-memory-manager                                                                                        |
+| **安装方式**          | `dsh plugin --profile web add https://github.com/MoonlitDropOfBlood/dsh-memory-manager/releases/download/v1.2.0/dsh-memory-manager-1.2.0.tgz` |
+| **复用插件 B**        | `dsh-memory-palace` — 用户级 + 工作区级双层记忆，每轮自动注入提示词                                                                          |
+| **GitHub 地址**       | https://github.com/lovezi0/dsh-memory-palace                                                                                                    |
+| **安装方式**          | `dsh plugin --profile <你的profile名> add github:lovezi0/dsh-memory-palace`                                                                   |
+| **Helmsman 新增内容** | 在记忆模型中增加项目拓扑数据结构（`ProjectTopology`），新增 `scanMavenParent()`、`scanRestApis()`、`getDownstream()` 三个 API           |
+| **代码量**            | 约 200-300 行（扩展层）                                                                                                                         |
 
 **数据模型**：
+
 ```typescript
 interface ProjectTopology {
   projectGroupId: string;
@@ -95,18 +94,19 @@ interface ProjectTopology {
 
 > **🔁 复用策略：参考 `dsh-Visual-Workflow` 和 `kalifun/helmsman` 架构，从零实现调度核心**
 
-| 策略项 | 说明 |
-|--------|------|
-| **参考项目 A** | `dsh-Visual-Workflow` — 可视化多 Agent 工作流编排，零代码拖拽连线 |
-| **GitHub 地址** | https://github.com/GZX2211/dsh-Visual-Workflow |
-| **安装方式** | `dsh plugin --profile web add GZX2211/dsh-Visual-Workflow` |
-| **参考项目 B** | `kalifun/helmsman` — 任务型 AI 工作台：“任务即会话、评论即控制” |
-| **GitHub 地址** | https://github.com/kalifun/helmsman |
-| **参考方式** | `git clone https://github.com/kalifun/helmsman.git` 研究其设计 |
-| **Helmsman 新增内容** | 从零实现 `runParallelTask()`、`cancelTask()`、`getTaskStatus()`、`registerAdapter()` |
-| **代码量** | 约 400-600 行 |
+| 策略项                      | 说明                                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| **参考项目 A**        | `dsh-Visual-Workflow` — 可视化多 Agent 工作流编排，零代码拖拽连线                        |
+| **GitHub 地址**       | https://github.com/GZX2211/dsh-Visual-Workflow                                              |
+| **安装方式**          | `dsh plugin --profile web add GZX2211/dsh-Visual-Workflow`                                |
+| **参考项目 B**        | `kalifun/helmsman` — 任务型 AI 工作台：“任务即会话、评论即控制”                        |
+| **GitHub 地址**       | https://github.com/kalifun/helmsman                                                         |
+| **参考方式**          | `git clone https://github.com/kalifun/helmsman.git` 研究其设计                            |
+| **Helmsman 新增内容** | 从零实现`runParallelTask()`、`cancelTask()`、`getTaskStatus()`、`registerAdapter()` |
+| **代码量**            | 约 400-600 行                                                                               |
 
 **核心 API**：
+
 ```typescript
 interface OrchestratorService {
   registerAdapter(adapter: AgentAdapter): void;
@@ -120,13 +120,14 @@ interface OrchestratorService {
 
 > **🔁 复用策略：从零开发（社区无现成统一适配层）**
 
-| 策略项 | 说明 |
-|--------|------|
-| **参考** | 各 Agent 的 CLI 官方文档 |
-| **Helmsman 新增内容** | 4 个独立适配器，每个实现 `checkInstalled()` 和 `execute()` |
-| **代码量** | 每个约 80-120 行 |
+| 策略项                      | 说明                                                          |
+| --------------------------- | ------------------------------------------------------------- |
+| **参考**              | 各 Agent 的 CLI 官方文档                                      |
+| **Helmsman 新增内容** | 4 个独立适配器，每个实现`checkInstalled()` 和 `execute()` |
+| **代码量**            | 每个约 80-120 行                                              |
 
 **实现模板**（以 claude 为例）：
+
 ```typescript
 // @helmsman/adapter-claude/src/index.ts
 export const name = '@helmsman/adapter-claude';
@@ -149,21 +150,21 @@ export function apply(ctx: Context) {
 
 > **🔁 复用策略：参考 `kalifun/helmsman` 的 UI 设计，按 DSH WebUI 规范从零实现**
 
-| 策略项 | 说明 |
-|--------|------|
-| **参考项目** | `kalifun/helmsman` — 同名项目的 UI 布局和交互模式 |
+| 策略项                      | 说明                                                                 |
+| --------------------------- | -------------------------------------------------------------------- |
+| **参考项目**          | `kalifun/helmsman` — 同名项目的 UI 布局和交互模式                 |
 | **Helmsman 新增内容** | Dashboard React 组件：项目群切换、任务输入、Agent 卡片网格、用量追踪 |
-| **代码量** | 约 600-900 行 |
+| **代码量**            | 约 600-900 行                                                        |
 
 ### 3.6 `@helmsman/ui-diff` — Diff 对比视图
 
 > **🔁 复用策略：从零开发（社区无现成多 Agent 并排 Diff 组件）**
 
-| 策略项 | 说明 |
-|--------|------|
-| **参考** | Git diff 格式标准，可用 `diff` 库或 `monaco-editor` diff 组件 |
-| **Helmsman 新增内容** | 多 Agent Diff 并排对比、冲突标注、行级批注、一键合并 |
-| **代码量** | 约 500-700 行 |
+| 策略项                      | 说明                                                             |
+| --------------------------- | ---------------------------------------------------------------- |
+| **参考**              | Git diff 格式标准，可用`diff` 库或 `monaco-editor` diff 组件 |
+| **Helmsman 新增内容** | 多 Agent Diff 并排对比、冲突标注、行级批注、一键合并             |
+| **代码量**            | 约 500-700 行                                                    |
 
 ### 3.7 `@helmsman/bundle` — 组合包
 
@@ -178,7 +179,6 @@ export function apply(ctx: Context) {
   ] } }
 }
 ```
-
 
 ## 四、UI 交互流程与设计系统规范（完整版）
 
@@ -212,15 +212,15 @@ interface HelmsmanState {
 
 **数据流转规则**：
 
-| 触发事件 | 数据流向 | UI响应 |
-| :--- | :--- | :--- |
-| 用户切换项目群 | Dashboard → `topology.loadTopology()` | 清空当前任务列表，刷新Agent卡片 |
-| 用户点击“并行执行” | Dashboard → `orchestrator.runParallelTask()` | 立即显示所有Agent的“Loading”状态卡片 |
-| 单个Agent完成 | Orchestrator 推送事件 → Dashboard 监听 | 对应卡片从 🟡 变为 🟢，进度条跳转至100% |
-| 用户点击“查看Diff” | Dashboard → Diff 视图 (传递 taskId) | 右侧滑出 Diff 面板，加载各 Agent 代码变更 |
-| 用户点击配置按钮 | Dashboard → 打开配置面板 | 右侧滑出配置面板，加载当前项目群拓扑 |
-| 用户保存配置 | 配置面板 → `topology.saveTopology()` | 写入磁盘，关闭面板，刷新 Dashboard |
-| 用户导入架构 | 配置面板 → 解析文件 → `topology.saveTopology()` | 批量创建服务和依赖，刷新面板和 Dashboard |
+| 触发事件             | 数据流向                                           | UI响应                                    |
+| :------------------- | :------------------------------------------------- | :---------------------------------------- |
+| 用户切换项目群       | Dashboard →`topology.loadTopology()`            | 清空当前任务列表，刷新Agent卡片           |
+| 用户点击“并行执行” | Dashboard →`orchestrator.runParallelTask()`     | 立即显示所有Agent的“Loading”状态卡片    |
+| 单个Agent完成        | Orchestrator 推送事件 → Dashboard 监听            | 对应卡片从 🟡 变为 🟢，进度条跳转至100%   |
+| 用户点击“查看Diff” | Dashboard → Diff 视图 (传递 taskId)               | 右侧滑出 Diff 面板，加载各 Agent 代码变更 |
+| 用户点击配置按钮     | Dashboard → 打开配置面板                          | 右侧滑出配置面板，加载当前项目群拓扑      |
+| 用户保存配置         | 配置面板 →`topology.saveTopology()`             | 写入磁盘，关闭面板，刷新 Dashboard        |
+| 用户导入架构         | 配置面板 → 解析文件 →`topology.saveTopology()` | 批量创建服务和依赖，刷新面板和 Dashboard  |
 
 ### 4.2 任务执行全流程状态机
 
@@ -248,6 +248,7 @@ interface HelmsmanState {
 ```
 
 **超时与取消机制**：
+
 - 每个 Agent 任务默认超时：**300 秒**，UI 端设置倒计时进度条。
 - 用户可随时点击卡片右上角的 **“✕ 取消”**，前端发送取消信号给 Orchestrator。
 
@@ -257,20 +258,22 @@ interface HelmsmanState {
 
 左侧边栏的“项目群切换”是最高频操作：
 
-| 用户操作 | 系统响应 | 加载状态 |
-| :--- | :--- | :--- |
-| 点击左侧项目群名称（如“订单中台”） | 调用 `topology.loadTopology("订单中台")` | 顶部出现“🔄 加载中...”的全局进度环 |
-| 加载完成 | 右侧 Dashboard 刷新为该群下的所有服务和历史任务 | 平滑淡入动画 (300ms) |
-| 加载失败 | 弹出 Toast 提示：“❌ 无法加载项目拓扑，请检查网络或配置文件” | 保留上次可用缓存数据 |
+| 用户操作                             | 系统响应                                                       | 加载状态                             |
+| :----------------------------------- | :------------------------------------------------------------- | :----------------------------------- |
+| 点击左侧项目群名称（如“订单中台”） | 调用`topology.loadTopology("订单中台")`                      | 顶部出现“🔄 加载中...”的全局进度环 |
+| 加载完成                             | 右侧 Dashboard 刷新为该群下的所有服务和历史任务                | 平滑淡入动画 (300ms)                 |
+| 加载失败                             | 弹出 Toast 提示：“❌ 无法加载项目拓扑，请检查网络或配置文件” | 保留上次可用缓存数据                 |
 
 #### 4.3.2 Diff 对比与合并交互规范
 
 **视图切换**：支持三种模式
+
 - `split`：左右并排（Git 默认风格）
 - `unified`：统一格式（+ / - 行内混合）
 - `side-by-side`：多 Agent 并排（最多 4 个）
 
 **行级交互**：
+
 1. **悬停**：鼠标悬停在某行 diff 上 → 该行高亮，出现“💬 评论”图标
 2. **点击评论图标** → 底部展开评论输入框（Markdown 支持）
 3. **冲突解决**：当多个 Agent 修改同一行时，该行用“⚡ 冲突”标签标注，并弹出下拉选择框：
@@ -285,6 +288,7 @@ interface HelmsmanState {
 ```
 
 **合并操作**：
+
 - **单Agent合并**：点击卡片底部 **[✅ 合并此Agent]** → 弹窗二次确认 → 执行 `git merge` → 返回结果 Toast
 - **部分合并**：用户在不同 Agent 的 diff 中勾选特定文件 → 点击 **[🔀 合并所选]** → 生成混合 commit
 
@@ -292,29 +296,29 @@ interface HelmsmanState {
 
 #### 4.4.1 品牌色与语义色
 
-| 类型 | 颜色值 (HEX) | 用途 |
-| :--- | :--- | :--- |
-| **品牌主色** | `#1A8CD8` | 按钮、链接、主要图标 |
-| **品牌辅助** | `#0D9488` | 选中状态、进度条轨道 |
-| **成功** | `#10B981` | Agent完成、合并成功 |
-| **警告** | `#F59E0B` | 超时、部分失败、重试提醒 |
-| **错误** | `#EF4444` | Agent执行失败、合并冲突 |
-| **运行中** | `#8B5CF6` | 正在执行的Agent卡片边框动画 |
-| **空闲/未启用** | `#9CA3AF` | 未选中的Agent，不可用 |
+| 类型                  | 颜色值 (HEX) | 用途                        |
+| :-------------------- | :----------- | :-------------------------- |
+| **品牌主色**    | `#1A8CD8`  | 按钮、链接、主要图标        |
+| **品牌辅助**    | `#0D9488`  | 选中状态、进度条轨道        |
+| **成功**        | `#10B981`  | Agent完成、合并成功         |
+| **警告**        | `#F59E0B`  | 超时、部分失败、重试提醒    |
+| **错误**        | `#EF4444`  | Agent执行失败、合并冲突     |
+| **运行中**      | `#8B5CF6`  | 正在执行的Agent卡片边框动画 |
+| **空闲/未启用** | `#9CA3AF`  | 未选中的Agent，不可用       |
 
 #### 4.4.2 Agent 卡片状态视觉规范
 
 每个 Agent 卡片（尺寸：`280px x 160px`）必须包含以下元素：
 
-| 状态 | 边框色 | 背景色 | 进度条颜色 | 附加标记 |
-| :--- | :--- | :--- | :--- | :--- |
-| `idle` | `#E5E7EB` | `#F9FAFB` | 无 | 显示“⚪ 待命” |
-| `running` | `#8B5CF6` (带呼吸光晕动画) | `#F5F3FF` | 紫色渐变动画 | 显示“🔄 执行中 Xs” (计时器) |
-| `completed` | `#10B981` | `#ECFDF5` | 全满，翠绿色 | 显示“✅ 完成 +N/-M行” |
-| `failed` | `#EF4444` | `#FEF2F2` | 红色，定格在当前进度 | 显示“❌ 失败: [错误摘要]” |
-| `timeout` | `#F59E0B` | `#FFFBEB` | 黄色，定格在80% | 显示“⏰ 超时 (300s)” |
-| `rate-limited` | `#F59E0B` | `#FFFBEB` | 黄色，定格在当前进度 | 显示“⏱️ 限流中 剩余 X次” |
-| `auth-failed` | `#EF4444` | `#FEF2F2` | 无 | 显示“🔐 认证失效” |
+| 状态             | 边框色                       | 背景色      | 进度条颜色           | 附加标记                      |
+| :--------------- | :--------------------------- | :---------- | :------------------- | :---------------------------- |
+| `idle`         | `#E5E7EB`                  | `#F9FAFB` | 无                   | 显示“⚪ 待命”               |
+| `running`      | `#8B5CF6` (带呼吸光晕动画) | `#F5F3FF` | 紫色渐变动画         | 显示“🔄 执行中 Xs” (计时器) |
+| `completed`    | `#10B981`                  | `#ECFDF5` | 全满，翠绿色         | 显示“✅ 完成 +N/-M行”       |
+| `failed`       | `#EF4444`                  | `#FEF2F2` | 红色，定格在当前进度 | 显示“❌ 失败: [错误摘要]”   |
+| `timeout`      | `#F59E0B`                  | `#FFFBEB` | 黄色，定格在80%      | 显示“⏰ 超时 (300s)”        |
+| `rate-limited` | `#F59E0B`                  | `#FFFBEB` | 黄色，定格在当前进度 | 显示“⏱️ 限流中 剩余 X次”  |
+| `auth-failed`  | `#EF4444`                  | `#FEF2F2` | 无                   | 显示“🔐 认证失效”           |
 
 #### 4.4.3 排版与间距
 
@@ -330,15 +334,16 @@ interface HelmsmanState {
 
 **所有 UI 组件必须使用 CSS 变量**，而非硬编码颜色值：
 
-| CSS变量 | 亮色值 | 暗色值 | 用途 |
-| :--- | :--- | :--- | :--- |
-| `--hls-bg-primary` | `#FFFFFF` | `#1F2937` | 主背景 |
-| `--hls-bg-secondary` | `#F3F4F6` | `#111827` | 卡片背景、侧边栏 |
-| `--hls-text-primary` | `#111827` | `#F9FAFB` | 主要文字 |
-| `--hls-text-secondary` | `#6B7280` | `#9CA3AF` | 辅助文字 |
-| `--hls-border` | `#E5E7EB` | `#374151` | 分割线、卡片边框 |
+| CSS变量                  | 亮色值      | 暗色值      | 用途             |
+| :----------------------- | :---------- | :---------- | :--------------- |
+| `--hls-bg-primary`     | `#FFFFFF` | `#1F2937` | 主背景           |
+| `--hls-bg-secondary`   | `#F3F4F6` | `#111827` | 卡片背景、侧边栏 |
+| `--hls-text-primary`   | `#111827` | `#F9FAFB` | 主要文字         |
+| `--hls-text-secondary` | `#6B7280` | `#9CA3AF` | 辅助文字         |
+| `--hls-border`         | `#E5E7EB` | `#374151` | 分割线、卡片边框 |
 
 **暗色模式验证标准**：
+
 - [ ] 卡片在暗色模式下有微弱的 `box-shadow: 0 1px 3px rgba(0,0,0,0.3)`
 - [ ] Diff 代码高亮在暗色模式下使用类似 `github-dark` 的配色
 - [ ] 所有 SVG 图标使用 `currentColor` 或 CSS 变量控制颜色
@@ -351,15 +356,15 @@ interface HelmsmanState {
 
 ### 4.5 UI 组件交互状态清单
 
-| 组件 | 状态列表 | 交互反馈 |
-| :--- | :--- | :--- |
-| **Prompt输入框** | `default`, `focused`, `disabled` (执行中), `error` (内容为空) | 聚焦时边框变为品牌色；错误时红色抖动动画 |
-| **Agent多选开关** | `checked`, `unchecked`, `disabled` (该Agent未安装) | 选中时显示✅；未安装显示“⚠️ 未安装”提示 |
-| **[并行执行] 按钮** | `default`, `loading` (执行中), `disabled` (无选中Agent) | 加载时显示旋转动画 + “执行中...” |
-| **项目群下拉菜单** | `collapsed`, `expanded` | 展开时显示带 🕸️ 拓扑图标的服务列表 |
-| **Diff行号** | `default`, `hover`, `selected` | hover 时显示蓝色竖条；点击时复制该行代码 |
-| **合并确认弹窗** | `idle`, `processing` (合并中), `success`, `error` | 处理时不可关闭；成功后自动关闭并刷新页面 |
-| **Toast通知** | `info`, `success`, `warning`, `error` | 从右上角滑入，3秒后自动淡出 (error级别需手动关闭) |
+| 组件                      | 状态列表                                                              | 交互反馈                                          |
+| :------------------------ | :-------------------------------------------------------------------- | :------------------------------------------------ |
+| **Prompt输入框**    | `default`, `focused`, `disabled` (执行中), `error` (内容为空) | 聚焦时边框变为品牌色；错误时红色抖动动画          |
+| **Agent多选开关**   | `checked`, `unchecked`, `disabled` (该Agent未安装)              | 选中时显示✅；未安装显示“⚠️ 未安装”提示       |
+| **[并行执行] 按钮** | `default`, `loading` (执行中), `disabled` (无选中Agent)         | 加载时显示旋转动画 + “执行中...”                |
+| **项目群下拉菜单**  | `collapsed`, `expanded`                                           | 展开时显示带 🕸️ 拓扑图标的服务列表              |
+| **Diff行号**        | `default`, `hover`, `selected`                                  | hover 时显示蓝色竖条；点击时复制该行代码          |
+| **合并确认弹窗**    | `idle`, `processing` (合并中), `success`, `error`             | 处理时不可关闭；成功后自动关闭并刷新页面          |
+| **Toast通知**       | `info`, `success`, `warning`, `error`                         | 从右上角滑入，3秒后自动淡出 (error级别需手动关闭) |
 
 ### 4.6 UI 线稿参考
 
@@ -428,6 +433,7 @@ ZCode 开发时须参考以下线稿实现：
 #### 4.7.1 功能定位
 
 项目群配置是 Helmsman 的 **“设置中心”** ，用户在这里完成以下操作：
+
 1. **创建/删除/重命名** 项目群（对应微服务架构中的一个业务域）
 2. **添加/移除/配置** 服务（每个服务对应一个 Git 仓库）
 3. **声明依赖关系**（REST 调用、Maven 父 POM 继承）
@@ -446,6 +452,7 @@ ZCode 开发时须参考以下线稿实现：
 ```
 
 **交互规则**：
+
 - 点击 **⚙️ 配置按钮** → 右侧滑出配置面板（`width: 640px`，覆盖在主内容上方）
 - 若当前没有选中任何项目群，配置面板自动进入“新建项目群”模式
 
@@ -641,15 +648,15 @@ mavenParents:
 
 #### 4.7.8 配置面板交互规则
 
-| 用户操作 | 系统响应 | UI反馈 |
-| :--- | :--- | :--- |
-| 创建新项目群 | 在 `~/.helmsman/topologies/` 下创建空配置 | 面板清空，进入编辑状态 |
-| 切换项目群 | 加载对应的拓扑配置 | 面板内容刷新，显示该群的服务和依赖 |
-| 添加服务 | 校验 Git URL 是否有效 | 成功：服务出现在列表中；失败：红色错误提示 |
-| 扫描 API | 在后台执行 `scanRestApis()` | 按钮显示“⏳ 扫描中...”，完成后显示端点数量 |
-| 保存配置 | 验证拓扑完整性后写入磁盘 | 右上角 Toast：“✅ 配置已保存” |
-| 删除项目群 | 弹窗二次确认 | 确认后从磁盘删除，返回空状态 |
-| 导入架构 | 解析文件，生成服务列表预览 | 用户确认后批量导入，合并到现有配置 |
+| 用户操作     | 系统响应                                   | UI反馈                                       |
+| :----------- | :----------------------------------------- | :------------------------------------------- |
+| 创建新项目群 | 在`~/.helmsman/topologies/` 下创建空配置 | 面板清空，进入编辑状态                       |
+| 切换项目群   | 加载对应的拓扑配置                         | 面板内容刷新，显示该群的服务和依赖           |
+| 添加服务     | 校验 Git URL 是否有效                      | 成功：服务出现在列表中；失败：红色错误提示   |
+| 扫描 API     | 在后台执行`scanRestApis()`               | 按钮显示“⏳ 扫描中...”，完成后显示端点数量 |
+| 保存配置     | 验证拓扑完整性后写入磁盘                   | 右上角 Toast：“✅ 配置已保存”              |
+| 删除项目群   | 弹窗二次确认                               | 确认后从磁盘删除，返回空状态                 |
+| 导入架构     | 解析文件，生成服务列表预览                 | 用户确认后批量导入，合并到现有配置           |
 
 #### 4.7.9 空状态设计
 
@@ -685,21 +692,22 @@ mavenParents:
 
 ### 5.2 七种核心边缘状态
 
-| 状态 | 触发条件 | UI 表现 |
-| :--- | :--- | :--- |
-| **Loading** | 首次加载，无缓存数据 | 骨架屏（Skeleton）动画占位 |
-| **Empty** | 加载完成，但无数据 | 空状态提示 + 操作引导 |
-| **Populated** | 数据加载成功 | 正常内容展示 |
-| **Error** | 服务器/网络错误，无缓存数据 | 错误卡片 + 重试按钮 |
-| **Offline** | `navigator.onLine === false` | 顶部离线横幅 + 缓存数据继续展示 |
-| **Rate-limited** | API 返回 429 | 限流卡片 + 倒计时 |
-| **Degraded** | 部分数据可用，部分失败 | 警告样式 + 部分数据展示 |
+| 状态                   | 触发条件                       | UI 表现                         |
+| :--------------------- | :----------------------------- | :------------------------------ |
+| **Loading**      | 首次加载，无缓存数据           | 骨架屏（Skeleton）动画占位      |
+| **Empty**        | 加载完成，但无数据             | 空状态提示 + 操作引导           |
+| **Populated**    | 数据加载成功                   | 正常内容展示                    |
+| **Error**        | 服务器/网络错误，无缓存数据    | 错误卡片 + 重试按钮             |
+| **Offline**      | `navigator.onLine === false` | 顶部离线横幅 + 缓存数据继续展示 |
+| **Rate-limited** | API 返回 429                   | 限流卡片 + 倒计时               |
+| **Degraded**     | 部分数据可用，部分失败         | 警告样式 + 部分数据展示         |
 
 ### 5.3 各边缘场景详细降级方案
 
 #### 场景一：网络断开（Offline）
 
 **UI 表现**：
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  ⚡ 网络已断开，当前显示本地缓存数据（最后更新: 2分钟前）  [🔄 重连]    │  ← 顶部固定横幅
@@ -716,6 +724,7 @@ mavenParents:
 ```
 
 **行为规范**：
+
 - 用户输入的 Prompt 自动保存到 `localStorage`，网络恢复后自动恢复
 - 显示“已保存到本地” / “同步中” / “已同步” 三种状态
 - “并行执行”按钮置灰，Tooltip 提示“网络已断开，请连接后重试”
@@ -724,6 +733,7 @@ mavenParents:
 #### 场景二：API 限流（Rate Limit - 429）
 
 **UI 表现**：
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  ⚠️ API 限流中  │  Claude: 剩余 12/100 次  │  Codex: 已耗尽，2分钟后重置  │
@@ -739,6 +749,7 @@ mavenParents:
 ```
 
 **行为规范**：
+
 - 自动从任务中移除被限流的 Agent，继续执行其他 Agent
 - 提供“切换模型提供商”入口（如从 Claude 切换到 DeepSeek）
 - 限流错误自动使用指数退避策略重试
@@ -746,6 +757,7 @@ mavenParents:
 #### 场景三：Agent 执行失败（超时/错误码/认证失效）
 
 **UI 表现**：
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  ⚠️ 部分 Agent 执行失败 (2/4 成功)                                         │
@@ -762,6 +774,7 @@ mavenParents:
 ```
 
 **行为规范**：
+
 - 部分成功模式：成功的 Agent 结果仍然可用
 - 断路器模式：同一 Agent 连续失败 5 次后，30 秒内不再调用
 - 缓存回退：若有缓存结果，展示并标注“⚠ 缓存数据”
@@ -772,19 +785,20 @@ mavenParents:
 
 ### 5.4 边缘状态视觉规范
 
-| 状态 | 主色 | 图标 | 横幅位置 | 用户操作 |
-| :--- | :--- | :--- | :--- | :--- |
-| **Loading** | 品牌蓝 `#1A8CD8` | 🔄 旋转动画 | 内容区骨架屏 | 无（等待） |
-| **Offline** | 琥珀 `#F59E0B` | ⚡ | 顶部固定 | “重连”按钮 |
-| **Rate-limited** | 琥珀 `#F59E0B` | ⏱️ | Agent 卡片内 | 倒计时 + “切换模型” |
-| **Error** | 赤红 `#EF4444` | ❌ | 内容区错误卡片 | “重试”按钮 |
-| **Degraded** | 琥珀 `#F59E0B` | ⚠️ | 内容区顶部 | “重试失败部分” + “跳过继续” |
-| **Auth-failed** | 赤红 `#EF4444` | 🔐 | Agent 卡片内 | “更新密钥”按钮 |
-| **Empty** | 灰色 `#9CA3AF` | 📭 | 内容区 | 操作引导 CTA |
+| 状态                   | 主色              | 图标        | 横幅位置       | 用户操作                        |
+| :--------------------- | :---------------- | :---------- | :------------- | :------------------------------ |
+| **Loading**      | 品牌蓝`#1A8CD8` | 🔄 旋转动画 | 内容区骨架屏   | 无（等待）                      |
+| **Offline**      | 琥珀`#F59E0B`   | ⚡          | 顶部固定       | “重连”按钮                    |
+| **Rate-limited** | 琥珀`#F59E0B`   | ⏱️        | Agent 卡片内   | 倒计时 + “切换模型”           |
+| **Error**        | 赤红`#EF4444`   | ❌          | 内容区错误卡片 | “重试”按钮                    |
+| **Degraded**     | 琥珀`#F59E0B`   | ⚠️        | 内容区顶部     | “重试失败部分” + “跳过继续” |
+| **Auth-failed**  | 赤红`#EF4444`   | 🔐          | Agent 卡片内   | “更新密钥”按钮                |
+| **Empty**        | 灰色`#9CA3AF`   | 📭          | 内容区         | 操作引导 CTA                    |
 
 ### 5.5 实现参考
 
 **网络状态监听**：
+
 ```typescript
 import { useOffline } from 'next/client';
 function HelmsmanApp() {
@@ -794,6 +808,7 @@ function HelmsmanApp() {
 ```
 
 **错误边界**：
+
 ```typescript
 class HelmsmanErrorBoundary extends React.Component {
   componentDidCatch(error, errorInfo) { this.setState({ hasError: true, error }); }
@@ -802,6 +817,7 @@ class HelmsmanErrorBoundary extends React.Component {
 ```
 
 **缓存回退模式**：
+
 ```typescript
 async function fetchWithFallback<T>(cacheKey: string, fetcher: () => Promise<T>): Promise<{ data: T; fromCache: boolean }> {
   try {
@@ -816,25 +832,25 @@ async function fetchWithFallback<T>(cacheKey: string, fetcher: () => Promise<T>)
 }
 ```
 
-
 ## 六、可选增强插件
 
-| 插件 | 用途 | GitHub 地址 | 安装方式 |
-|------|------|-------------|----------|
+| 插件                           | 用途                               | GitHub 地址                              | 安装方式                                          |
+| ------------------------------ | ---------------------------------- | ---------------------------------------- | ------------------------------------------------- |
 | **`dsh-llm-failover`** | 限流或配额耗尽时自动切换模型提供方 | https://github.com/HB00/dsh-llm-failover | `dsh plugin --profile web add dsh-llm-failover` |
-| **`dsh-doctor`** | 插件升级与排障工具 | https://github.com/bruc3van/dsh-doctor | `npx skills add bruc3van/dsh-doctor` |
-
+| **`dsh-doctor`**       | 插件升级与排障工具                 | https://github.com/bruc3van/dsh-doctor   | `npx skills add bruc3van/dsh-doctor`            |
 
 ## 七、安全审计要求
 
 ZCode 在集成任何社区插件前，**必须执行以下安全检查**：
 
 ### 7.1 项目健康度检查
+
 - [ ] 检查 `commits` 和 `releases` 更新频率，优先选择近期有维护的项目
 - [ ] 检查 `Issues` 和 `Pull Requests`，确认无严重或未处理的安全问题
 - [ ] 参考 `Stars` 和 `Forks` 数量评估社区活跃度
 
 ### 7.2 代码审计（重点检查以下高危模式）
+
 - [ ] `child_process.exec` / `spawn` — 执行系统命令，确认参数可控
 - [ ] `fs.writeFile` / `fs.readFile` — 文件读写，确认路径不可注入
 - [ ] `http.request` / `fetch` — 网络请求，检查目标地址合法性
@@ -842,15 +858,17 @@ ZCode 在集成任何社区插件前，**必须执行以下安全检查**：
 - [ ] `process.env` — 环境变量读取，确认无敏感信息泄露
 
 ### 7.3 依赖审查
+
 - [ ] 检查 `package.json` 中的 `dependencies`，警惕来源不明、版本过旧或命名可疑的包
 
 ### 7.4 沙箱验证
-- [ ] 先在测试 profile 中安装插件，观察行为，确认无误后再用于正式环境
 
+- [ ] 先在测试 profile 中安装插件，观察行为，确认无误后再用于正式环境
 
 ## 八、开发步骤（ZCode 执行顺序）
 
 ### 第 1 步：安装依赖的社区插件（不要自己重写！）
+
 ```bash
 dsh plugin --profile web add github:KevinWen7415/dsh-virtual-workspace
 dsh plugin --profile web add https://github.com/MoonlitDropOfBlood/dsh-memory-manager/releases/download/v1.2.0/dsh-memory-manager-1.2.0.tgz
@@ -860,6 +878,7 @@ npx skills add bruc3van/dsh-doctor                      # 可选
 ```
 
 ### 第 2 步：创建 Helmsman 自己的插件（使用脚手架）
+
 ```bash
 npx create-dsh-plugin @helmsman/orchestrator -t tool
 npx create-dsh-plugin @helmsman/adapter-claude -t tool
@@ -874,6 +893,7 @@ npx create-dsh-plugin @helmsman/bundle -t events
 ```
 
 ### 第 3 步：实现封装层插件
+
 ```bash
 mkdir @helmsman/worktree && cd @helmsman/worktree
 # 编写 index.ts，封装 dsh-virtual-workspace 为 Helmsman API
@@ -883,12 +903,14 @@ mkdir @helmsman/memory-topology && cd @helmsman/memory-topology
 ```
 
 ### 第 4 步：实现核心插件（按顺序）
+
 1. `@helmsman/orchestrator` — 多 Agent 调度引擎
 2. `@helmsman/adapter-*` — 4 个 Agent 适配器
 3. `@helmsman/ui-dashboard` — Dashboard UI（**严格遵循第 4 章规范**）
 4. `@helmsman/ui-diff` — Diff 对比 UI（**严格遵循第 4 章规范**）
 
 ### 第 5 步：构建与安装
+
 ```bash
 pnpm run build
 dsh plugin --profile web add ./@helmsman/worktree
@@ -899,6 +921,7 @@ dsh plugin --profile web add ./@helmsman/bundle
 ```
 
 ### 第 6 步：测试验证
+
 ```bash
 dsh web --profile web
 dsh --dump-config          # 验证所有插件加载成功
@@ -906,35 +929,36 @@ dsh --profile headless "使用 Helmsman 执行任务：..."
 ```
 
 ### 第 7 步：安全审计
+
 - [ ] 对社区插件执行第 7 章的安全审计
 - [ ] 对自研插件执行代码审查
 - [ ] 在测试 profile 中验证所有功能
 
 ### 第 8 步：克隆参考项目（仅用于研究）
+
 ```bash
 # 仅用于学习设计思想，不直接复用代码
 git clone https://github.com/kalifun/helmsman.git
 git clone https://github.com/GZX2211/dsh-Visual-Workflow.git
 ```
 
-
 ## 九、交付物清单
 
-| 交付物 | 类型 | 代码量 | 说明 |
-|--------|------|--------|------|
-| `@helmsman/worktree` | 封装层插件 | ~150-200行 | 调用 `dsh-virtual-workspace` |
-| `@helmsman/memory-topology` | 封装层插件 | ~200-300行 | 扩展 `dsh-memory-manager` |
-| `@helmsman/orchestrator` | 核心插件 | ~400-600行 | 参考 `dsh-Visual-Workflow` |
-| `@helmsman/adapter-claude` | 适配器 | ~80-120行 | 从零开发 |
-| `@helmsman/adapter-codex` | 适配器 | ~80-120行 | 从零开发 |
-| `@helmsman/adapter-pi` | 适配器 | ~80-120行 | 从零开发 |
-| `@helmsman/adapter-oh-my-pi` | 适配器 | ~80-120行 | 从零开发 |
-| `@helmsman/ui-dashboard` | UI 插件 | ~600-900行 | 遵循第 4 章 UI 规范 |
-| `@helmsman/ui-diff` | UI 插件 | ~500-700行 | 遵循第 4 章 UI 规范 |
-| `@helmsman/bundle` | 组合包 | ~20行 | 聚合所有插件 |
-| README + 文档 | 文档 | — | 安装、配置、使用说明 |
-| 单元测试 + 集成测试 | 测试 | — | 核心服务覆盖 |
-| 安全审计报告 | 文档 | — | 所有依赖插件的审计结果 |
+| 交付物                         | 类型       | 代码量     | 说明                          |
+| ------------------------------ | ---------- | ---------- | ----------------------------- |
+| `@helmsman/worktree`         | 封装层插件 | ~150-200行 | 调用`dsh-virtual-workspace` |
+| `@helmsman/memory-topology`  | 封装层插件 | ~200-300行 | 扩展`dsh-memory-manager`    |
+| `@helmsman/orchestrator`     | 核心插件   | ~400-600行 | 参考`dsh-Visual-Workflow`   |
+| `@helmsman/adapter-claude`   | 适配器     | ~80-120行  | 从零开发                      |
+| `@helmsman/adapter-codex`    | 适配器     | ~80-120行  | 从零开发                      |
+| `@helmsman/adapter-pi`       | 适配器     | ~80-120行  | 从零开发                      |
+| `@helmsman/adapter-oh-my-pi` | 适配器     | ~80-120行  | 从零开发                      |
+| `@helmsman/ui-dashboard`     | UI 插件    | ~600-900行 | 遵循第 4 章 UI 规范           |
+| `@helmsman/ui-diff`          | UI 插件    | ~500-700行 | 遵循第 4 章 UI 规范           |
+| `@helmsman/bundle`           | 组合包     | ~20行      | 聚合所有插件                  |
+| README + 文档                  | 文档       | —         | 安装、配置、使用说明          |
+| 单元测试 + 集成测试            | 测试       | —         | 核心服务覆盖                  |
+| 安全审计报告                   | 文档       | —         | 所有依赖插件的审计结果        |
 
 **总代码量估算**：约 **2400-3400 行** Helmsman 专有代码
 
@@ -951,6 +975,7 @@ git clone https://github.com/GZX2211/dsh-Visual-Workflow.git
 7. **构建、安装、测试、审计**（第 5-7 步）
 
 **遇到问题时**：
+
 - 参考 `dsh-Visual-Workflow` 的编排架构
 - 参考 `kalifun/helmsman` 的“任务即会话”设计
 - 使用 `dsh --dump-config` 调试配置加载问题
