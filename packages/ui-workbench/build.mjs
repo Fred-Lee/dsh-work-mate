@@ -13,7 +13,7 @@ await mkdir(outDir, { recursive: true })
 
 // DSH client-module closure-factory bundle (the format the web shell loads
 // via window.__ModuleLoader__). react + @deepseek-ai/* are external (module
-// table rows); everything else inlines.
+// table rows); everything else inlines. `?inline` CSS → text loader.
 const CLIENT_ID = '@helmsman/ui-workbench'
 await build({
   entryPoints: [join(root, 'src/client/index.ts')],
@@ -29,6 +29,7 @@ await build({
   banner: { js: `window.__ModuleLoader__.load({ id: ${JSON.stringify(CLIENT_ID)}, factory: (require) => {\nvar module = { exports: {} };\nvar exports = module.exports;` },
   footer: { js: 'return module.exports; } });' },
   define: { 'process.env.NODE_ENV': '"production"' },
+  loader: { '.css': 'text' },
   logLevel: 'info',
 })
 
@@ -59,6 +60,7 @@ await build({
   sourcemap: false,
   outfile: join(outDir, 'app.js'),
   define: { 'process.env.NODE_ENV': '"production"' },
+  loader: { '.css': 'text' },
   logLevel: 'info',
 })
 

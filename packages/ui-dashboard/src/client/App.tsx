@@ -16,6 +16,11 @@ import {
   type TaskPayload,
   type TopologyPayload,
 } from './api'
+import { injectDashboardStyles } from './inject-styles'
+
+// Embedded mounts get their stylesheet from this injection (standalone mounts
+// load the same file via index.html <link>; the injection is idempotent).
+injectDashboardStyles()
 
 // ---------------------------------------------------------------------------
 // state
@@ -107,8 +112,20 @@ export function App() {
   })
   const [isOffline, setOffline] = useState(!navigator.onLine)
   const [search, setSearch] = useState('')
+  // Own container root: when mounted standalone the ref is null (not yet
+  // rendered) and the theme falls through to <html> as before; when embedded,
+  // the theme is scoped here so the host page's theme is untouched.
+  const rootRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
+    // Scope theme to the dashboard container. As an embedded view (workbench
+    // drawer / DSH shell) the dashboard must NOT touch <html data-theme> —
+    // that would flip the host app's whole page theme on mount.
+    const ownRoot = rootRef.current
+    if (ownRoot) {
+      ownRoot.dataset.theme = state.theme
+      return
+    }
     document.documentElement.dataset.theme = state.theme
   }, [state.theme])
 
@@ -167,14 +184,14 @@ export function App() {
 
   if (state.loading && state.tasks.length === 0 && state.groups.length === 0) {
     return (
-      <div className="app">
+      <div className="app" ref={rootRef}>
         <SkeletonScreen />
       </div>
     )
   }
 
   return (
-    <div className="app">
+    <div className="app" ref={rootRef}>
       {isOffline && <OfflineBanner onRetry={() => { void refresh() }} />}
       <TopBar
         groups={state.groups}

@@ -24,7 +24,8 @@ const PANELS: Array<{ kind: PanelKind; label: string }> = [
   { kind: 'knowledge', label: '🕸️ 知识' },
 ]
 
-const BASE = '/helmsman-workbench/api'
+const WORKBENCH_MOUNT = '/helmsman-workbench'
+const BASE = `${WORKBENCH_MOUNT}/api`
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -139,14 +140,17 @@ function WorkbenchPanel() {
     return () => window.clearInterval(t)
   }, [])
 
-  const runGenerate = async (preset: 'research' | 'prd'): Promise<void> => {
-    if (!prompt.trim()) return
+  const runGenerate = async (preset: 'research' | 'prd', textOverride?: string): Promise<void> => {
+    // Explicit text: a command chip passes its prompt directly (setState is
+    // async, so reading `prompt` here would race and send the stale value).
+    const text = (textOverride ?? prompt).trim()
+    if (!text) return
     setBusy(true)
     setToast('')
     try {
       await api('/generate', {
         method: 'POST',
-        body: JSON.stringify({ preset, input: { prompt } }),
+        body: JSON.stringify({ preset, input: { prompt: text } }),
       })
       setToast(`✅ 已提交 ${preset} 生成任务`)
       setPrompt('')
@@ -224,7 +228,7 @@ function WorkbenchPanel() {
           {visibleCommands.length > 0 && (
             <CommandChips
               commands={visibleCommands}
-              onPick={(c) => { setPrompt(c.prompt); void runGenerate(c.preset === 'prd' ? 'prd' : 'research') }}
+              onPick={(c) => { setPrompt(c.prompt); void runGenerate('research', c.prompt) }}
               onAdd={addCommand}
               onRemove={(id) => void saveCommands(commands.filter((c) => c.id !== id))}
             />
@@ -251,7 +255,7 @@ function WorkbenchPanel() {
           {visibleCommands.length > 0 && (
             <CommandChips
               commands={visibleCommands}
-              onPick={(c) => { setPrompt(c.prompt); void runGenerate(c.preset === 'research' ? 'research' : 'prd') }}
+              onPick={(c) => { setPrompt(c.prompt); void runGenerate('prd', c.prompt) }}
               onAdd={addCommand}
               onRemove={(id) => void saveCommands(commands.filter((c) => c.id !== id))}
             />

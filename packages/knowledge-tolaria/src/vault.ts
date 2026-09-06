@@ -12,10 +12,18 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { composeNote, parseFrontmatter } from './frontmatter.ts'
 import type { Note, NoteKind, NoteMeta, SearchHit } from './types.ts'
 
 const KIND_DIRS: Record<NoteKind, string> = { research: 'notes', prd: 'prds', design: 'designs' }
+
+/** Note ids are filenames under the vault: strict charset, no traversal. */
+const ID_RE = /^[a-z0-9][a-z0-9-]{0,79}$/
+
+export function assertValidId(id: string): void {
+  if (!ID_RE.test(id)) throw new Error(`invalid note id: ${JSON.stringify(id)}`)
+}
 
 export interface VaultStoreOptions {
   rootDir?: string
@@ -32,11 +40,13 @@ function slugify(input: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^[-]+|[-]+$/g, '')
-    .slice(0, 64) || 'note'
+    .slice(0, 48)
 }
 
+/** Random suffix keeps ids unique under same-millisecond archives (no silent overwrite). */
 export function makeId(title: string): string {
-  return `${slugify(title)}-${Date.now().toString(36)}`
+  const slug = slugify(title)
+  return `${slug}-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}` || `note-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`
 }
 
 export function defaultVaultDir(): string {
@@ -61,7 +71,12 @@ export class VaultStore {
     }
     if (this.gitInit && !existsSync(join(this.rootDir, '.git'))) {
       await new Promise<void>((resolve) => {
-        execFile('git', ['init'], { cwd: this.rootDir }, () => resolve())
+        execFile('git', ['init'], { cwd: this.rootDir }, (err) => {
+          if (err !== null && typeof (err as NodeJS.ErrnoException).code !== 'undefined') {
+            console.warn(`[knowledge-tolaria] git init failed (vault still usable without git): ${err.message}`)
+          }
+          resolve()
+        })
       })
     }
   }
@@ -78,6 +93,7 @@ export class VaultStore {
   async archive(note: Note): Promise<{ id: string; path: string }> {
     await this.ensure()
     const id = note.id || makeId(note.title)
+    assertValidId(id)
     const now = new Date().toISOString()
     const meta: Record<string, unknown> = {
       kind: note.kind,
@@ -106,6 +122,7 @@ export class VaultStore {
 
   /** Fetch a full note by id across all kind dirs. */
   async get(id: string): Promise<Note | null> {
+    assertValidId(id)
     await this.ensure()
     for (const { kind: k, dir } of allKindDirs(this.rootDir)) {
       const path = join(dir, `${id}.md`)
@@ -129,6 +146,8 @@ export class VaultStore {
     const hits: SearchHit[] = []
     for (const { kind, dir } of dirs) {
       for (const meta of await this.scanDir(dir, kind)) {
+        // One full read per file: scanDir's readMeta already consumed the
+        // frontmatter, this pass takes the body for snippet matching.
         const { frontmatter, body } = parseFrontmatter(await readFile(meta.path, 'utf8'))
         const title = meta.title.toLowerCase()
         const keywords = (Array.isArray(frontmatter.keywords) ? frontmatter.keywords : []).map(String).join(' ').toLowerCase()
@@ -182,10 +201,13 @@ function validKind(v: NoteKind): NoteKind {
   return v === 'prd' || v === 'design' || v === 'research' ? v : 'research'
 }
 
-/** Clip a snippet around the first match position. */
+/** Clip a snippet around the first match position (index computed on the SAME collapsed text). */
 function clip(body: string, at = 0): string {
   const text = body.replace(/\s+/g, ' ').trim()
   if (text.length <= 160) return text
-  const start = Math.max(0, at - 60)
+  const collapsed = at > 0
+    ? body.slice(0, at).replace(/\s+/g, ' ').length
+    : 0
+  const start = Math.max(0, collapsed - 60)
   return `${start > 0 ? '…' : ''}${text.slice(start, start + 160)}${start + 160 < text.length ? '…' : ''}`
 }

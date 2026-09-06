@@ -173,25 +173,31 @@ async function runGenerate(
           source: { kind: 'user' },
         }))
         console.log(`[helmsman/generator] ${taskId}: followup dispatched, awaiting turn end`)
-        await Promise.race([
-          agent.whenIdle(),
-          new Promise<never>((_, reject) => {
-            const timer = setTimeout(() => {
-              try { agent.cancel?.() } catch { /* already gone */ }
-              reject(new Error(`generation turn exceeded ${TURN_TIMEOUT_MS / 1000}s and was cancelled`))
-            }, TURN_TIMEOUT_MS)
-            // Do not hold the event loop open for the timer alone.
-            timer.unref?.()
-          }),
-        ])
+        let timeoutTimer: NodeJS.Timeout | undefined
+        try {
+          await Promise.race([
+            agent.whenIdle(),
+            new Promise<never>((_, reject) => {
+              timeoutTimer = setTimeout(() => {
+                try { agent.cancel?.() } catch { /* already gone */ }
+                reject(new Error(`generation turn exceeded ${TURN_TIMEOUT_MS / 1000}s and was cancelled`))
+              }, TURN_TIMEOUT_MS)
+              // Do not hold the event loop open for the timer alone.
+              timeoutTimer.unref?.()
+            }),
+          ])
+        } finally {
+          if (timeoutTimer !== undefined) clearTimeout(timeoutTimer)
+        }
         console.log(`[helmsman/generator] ${taskId}: turn ended`)
         await sessions?.flush?.(agent.session)
         const text = summarizeSession(agent.session, firstSeq)
         if (!text) throw new Error('generation produced no assistant text')
         // Persist the draft (markdown; decompose tries JSON extraction for a .json twin).
+        // Random suffix: same-preset same-millisecond writes must not clobber.
         const dir = draftsDir()
         await mkdir(dir, { recursive: true })
-        const draftId = `${preset}-${Date.now().toString(36)}`
+        const draftId = `${preset}-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`
         await writeFile(join(dir, `${draftId}.md`), text, 'utf8')
         if (preset === 'decompose') {
           const match = text.match(/\{[\s\S]*\}/)

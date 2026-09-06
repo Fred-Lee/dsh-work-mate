@@ -95,4 +95,16 @@ describe('frontmatter codec', () => {
   it('serializes a bare metadata block', () => {
     expect(serializeFrontmatter({ a: 1, b: true })).toBe('---\na: 1\nb: true\n---')
   })
+
+  it('round-trips newlines and quotes in values without breaking the block', () => {
+    const hostile = '第一行\nkey2: injected\n---\nbody'
+    const text = composeNote({ title: hostile }, '正文')
+    const { frontmatter, body } = parseFrontmatter(text)
+    expect(frontmatter.title).toBe(hostile)
+    expect(frontmatter.key2).toBeUndefined()
+    expect(body).toBe('正文')
+    const quoted = 'He said "hi" and left\\right'
+    const { frontmatter: fm2 } = parseFrontmatter(composeNote({ title: quoted }, 'x'))
+    expect(fm2.title).toBe(quoted)
+  })
 })

@@ -38,9 +38,13 @@ interface ToolDef {
 }
 
 function registerTool(ctx: Context, def: ToolDef): void {
+  // dsh-tools: `required?: true` — optional params are simply omitted from
+  // the parameter map (the map root is an implicit open object).
   const parameters: Record<string, { type: 'string'; required: true; description: string }> = {}
   for (const [key, meta] of Object.entries(def.params)) {
-    parameters[key] = { type: 'string', required: true, description: meta.description }
+    if (meta.required) {
+      parameters[key] = { type: 'string', required: true, description: meta.description }
+    }
   }
   ctx.tools.register(defineTool({
     name: def.name,

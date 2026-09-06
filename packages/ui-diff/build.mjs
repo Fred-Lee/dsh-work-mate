@@ -25,6 +25,7 @@ await build({
 })
 
 // Library entry (importable by the workbench panel). react/react-dom external.
+// `?inline` CSS imports resolve to text (esbuild loader) for inject-styles.
 await build({
   entryPoints: [join(root, 'src/client/embed.tsx')],
   bundle: true,
@@ -36,6 +37,7 @@ await build({
   external: ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client'],
   outfile: join(outDir, 'embed.js'),
   define: { 'process.env.NODE_ENV': '"production"' },
+  loader: { '.css': 'text' },
   logLevel: 'info',
 })
 
@@ -61,9 +63,16 @@ await writeFile(
 
 await writeFile(
   join(outDir, 'embed.d.ts'),
-  `export { App as DiffView } from '../src/client/App'
-export { api, parseHunks, AGENT_LABELS } from '../src/client/api'
-export type { DiffLine, DiffTaskPayload, FileDiff } from '../src/client/api'
+  `// Self-contained declaration (no ./src references — this file ships in the
+// published package, where src/ does not exist).
+import type { ComponentType } from 'react'
+export interface DiffViewProps {
+  className?: string
+}
+export declare const DiffView: ComponentType<DiffViewProps>
+export declare const api: Record<string, (...args: never[]) => Promise<unknown>>
+export declare function parseHunks(diffText: string): Array<{ kind: string; oldNo: number | null; newNo: number | null; text: string }>
+export declare const AGENT_LABELS: Record<string, string>
 `,
   'utf8',
 )

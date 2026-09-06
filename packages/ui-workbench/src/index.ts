@@ -10,10 +10,11 @@
  *
  * The DSH client-module inject (client half) is in src/client/index.ts.
  */
-import { join, dirname, normalize, extname } from 'node:path'
-import { readFile, stat, readdir, writeFile, mkdir } from 'node:fs/promises'
+import { join, dirname, normalize, extname, sep } from 'node:path'
+import { readFile, stat, readdir, writeFile, mkdir, rename, copyFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
+import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import type { GenerateRecord } from './host-types.ts'
 import { createGenerator, draftsDir } from './generator.ts'
@@ -35,7 +36,7 @@ class MiniRouter {
     this.routes.push({ method: method.toUpperCase(), parts: pattern.split('/').filter(Boolean), handler })
     return this
   }
-  async handle(req: IncomingMessage, pathname: string): Promise<{ ok: true; body: unknown } | { ok: false }> {
+  async handle(req: IncomingMessage, pathname: string): Promise<{ ok: false } | { ok: true; status: number; body: unknown }> {
     const url = new URL(pathname, 'http://localhost')
     const actual = url.pathname.split('/').filter(Boolean)
     for (const route of this.routes) {
@@ -51,9 +52,12 @@ class MiniRouter {
       }
       if (!match) continue
       try {
-        return { ok: true, body: await route.handler(params, url.searchParams, req) }
+        return { ok: true, status: 200, body: await route.handler(params, url.searchParams, req) }
       } catch (err) {
-        return { ok: true, body: { error: err instanceof Error ? err.message : String(err) } }
+        // Real error contract: 4xx/5xx so the client's !res.ok branch fires.
+        const message = err instanceof Error ? err.message : String(err)
+        const status = /not found/i.test(message) ? 404 : /invalid/i.test(message) ? 400 : 500
+        return { ok: true, status, body: { error: message } }
       }
     }
     return { ok: false }
@@ -67,6 +71,11 @@ const CONTENT_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
 }
 
+/** Reject path segments escaping the assets dir (sep-aware containment). */
+function assertInsideAssets(assetsDir: string, abs: string): boolean {
+  return abs === assetsDir || abs.startsWith(assetsDir.endsWith(sep) ? assetsDir : assetsDir + sep)
+}
+
 function createStaticHandler(mountPath: string, assetsDir: string) {
   const prefix = mountPath.endsWith('/') ? mountPath : `${mountPath}/`
   return async (pathname: string, res: ServerResponse): Promise<boolean> => {
@@ -74,7 +83,7 @@ function createStaticHandler(mountPath: string, assetsDir: string) {
     const rel = (pathname.slice(prefix.length).replace(/^\//, '') || 'index.html')
     const clean = normalize(rel).replace(/^(\.\.[/\\])+/, '')
     const abs = join(assetsDir, clean)
-    if (!abs.startsWith(assetsDir)) { res.writeHead(403); res.end('forbidden'); return true }
+    if (!assertInsideAssets(assetsDir, abs)) { res.writeHead(403); res.end('forbidden'); return true }
     try {
       let info = await stat(abs)
       let file = abs
@@ -118,10 +127,13 @@ export function apply(ctx: Context, config: Config = {}): void {
     const input = (typeof body.input === 'object' && body.input !== null ? body.input : {}) as Record<string, unknown>
     const rec: GenerateRecord = { taskId: `gen-${Date.now().toString(36)}`, preset, status: 'running', startedAt: Date.now() }
     records.unshift(rec)
-    // Fire-and-await into the engine; the panel polls /api/records.
+    if (records.length > 200) records.length = 200
+    // Fire-and-await into the engine; the panel polls /api/records. The engine
+    // taskId is written back so UI records match the generator/draft logs.
     void generator.generate({ preset: preset as never, input }).then(
       (r) => {
         rec.status = r.status === 'completed' ? 'completed' : 'failed'
+        if (r.taskId) rec.taskId = r.taskId
         if (r.draftId !== undefined) rec.draftId = r.draftId
         if (r.error !== undefined) rec.error = r.error
         rec.endedAt = Date.now()
@@ -143,18 +155,29 @@ export function apply(ctx: Context, config: Config = {}): void {
   router.add('GET', '/api/drafts', async () => {
     const dir = draftsDir()
     await mkdir(dir, { recursive: true })
-    const out: Array<{ id: string; kind: string; mtime: number; size: number }> = []
+    const byId = new Map<string, { id: string; kind: string; mtime: number; size: number; hasJson?: boolean }>()
     for (const f of await readdir(dir)) {
-      if (!f.endsWith('.md') && !f.endsWith('.json')) continue
+      const ext = f.endsWith('.md') ? '.md' : f.endsWith('.json') ? '.json' : null
+      if (ext === null) continue
+      const id = f.slice(0, -ext.length)
       const st = await stat(join(dir, f))
-      out.push({
-        id: f.replace(/\.(md|json)$/, ''),
-        kind: f.split('-')[0] ?? 'research',
-        mtime: st.mtimeMs,
-        size: st.size,
-      })
+      const existing = byId.get(id)
+      if (existing) {
+        // decompose writes a .md and a .json twin — merge into one row.
+        existing.size = Math.max(existing.size, st.size)
+        existing.mtime = Math.max(existing.mtime, st.mtimeMs)
+        if (ext === '.json') existing.hasJson = true
+      } else {
+        byId.set(id, {
+          id,
+          kind: id.split('-')[0] ?? 'research',
+          mtime: st.mtimeMs,
+          size: st.size,
+          ...(ext === '.json' ? { hasJson: true } : {}),
+        })
+      }
     }
-    return { drafts: out.sort((a, b) => b.mtime - a.mtime) }
+    return { drafts: [...byId.values()].sort((a, b) => b.mtime - a.mtime) }
   })
 
   router.add('GET', '/api/draft/:id', async (params) => {
@@ -211,7 +234,14 @@ export function apply(ctx: Context, config: Config = {}): void {
     try {
       const parsed = JSON.parse(await readFile(commandsFile, 'utf8')) as Array<{ id: string; name: string; prompt: string; preset?: string }>
       return Array.isArray(parsed) ? parsed : []
-    } catch {
+    } catch (err) {
+      // Corrupted file: back it up instead of letting the next save clobber it.
+      try {
+        await copyFile(commandsFile, `${commandsFile}.corrupt-${Date.now().toString(36)}`)
+      } catch {
+        // best-effort backup
+      }
+      console.warn(`[helmsman/ui-workbench] commands.json unreadable (${err instanceof Error ? err.message : String(err)}); backed up, starting fresh`)
       return []
     }
   }
@@ -229,7 +259,10 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...(typeof c.preset === 'string' ? { preset: c.preset } : {}),
       }))
     await mkdir(dirname(commandsFile), { recursive: true })
-    await writeFile(commandsFile, JSON.stringify(clean, null, 2), 'utf8')
+    // Atomic write (tmp + rename): an interrupted save can't leave a half-JSON.
+    const tmp = `${commandsFile}.tmp-${randomUUID().slice(0, 8)}`
+    await writeFile(tmp, JSON.stringify(clean, null, 2), 'utf8')
+    await rename(tmp, commandsFile)
     return { ok: true, commands: clean }
   })
 
@@ -256,10 +289,13 @@ export function apply(ctx: Context, config: Config = {}): void {
         : req.url ?? url.pathname
       if (relative.startsWith('/api/') || relative === '/api') {
         const result = await router.handle(req, relative)
-        const status = result.ok ? 200 : 404
-        const body = result.ok ? JSON.stringify(result.body) : JSON.stringify({ error: 'not found' })
-        res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-        res.end(body)
+        if (!result.ok) {
+          res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+          res.end(JSON.stringify({ error: 'not found' }))
+          return
+        }
+        res.writeHead(result.status, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify(result.body))
         return
       }
       const served = await staticHandler(url.pathname, res)
@@ -270,9 +306,14 @@ export function apply(ctx: Context, config: Config = {}): void {
   console.log(`[helmsman/ui-workbench] serving workbench at ${mountPath}/`)
 }
 
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJson(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = []
-  for await (const chunk of req) chunks.push(chunk as Buffer)
+  let size = 0
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length
+    if (size > maxBytes) throw new Error('request body too large')
+    chunks.push(chunk as Buffer)
+  }
   const text = Buffer.concat(chunks).toString('utf8')
   if (!text) return {}
   try { return JSON.parse(text) as Record<string, unknown> } catch { return {} }

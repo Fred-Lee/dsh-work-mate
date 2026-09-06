@@ -29,6 +29,7 @@ await build({
 })
 
 // Library entry (importable by the workbench panel). react/react-dom external.
+// `?inline` CSS imports resolve to text (esbuild loader) for inject-styles.
 await build({
   entryPoints: [join(root, 'src/client/embed.tsx')],
   bundle: true,
@@ -40,6 +41,7 @@ await build({
   external: ['react', 'react-dom', 'react/jsx-runtime', 'react-dom/client'],
   outfile: join(outDir, 'embed.js'),
   define: { 'process.env.NODE_ENV': '"production"' },
+  loader: { '.css': 'text' },
   logLevel: 'info',
 })
 
@@ -65,9 +67,17 @@ await writeFile(
 
 await writeFile(
   join(outDir, 'embed.d.ts'),
-  `export { App as DashboardView } from '../src/client/App'
-export { api, AGENTS, AGENT_LABELS, USAGE_QUOTA } from '../src/client/api'
-export type { AgentRunPayload, AgentRunState, StatePayload, TaskPayload, TopologyPayload, ImportPreviewPayload } from '../src/client/api'
+  `// Self-contained declaration (no ./src references — this file ships in the
+// published package, where src/ does not exist).
+import type { ComponentType } from 'react'
+export interface DashboardViewProps {
+  className?: string
+}
+export declare const DashboardView: ComponentType<DashboardViewProps>
+export declare const api: Record<string, (...args: never[]) => Promise<unknown>>
+export declare const AGENTS: readonly string[]
+export declare const AGENT_LABELS: Record<string, string>
+export declare const USAGE_QUOTA: number
 `,
   'utf8',
 )

@@ -5,6 +5,10 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AGENT_LABELS, api, parseHunks, type DiffLine, type DiffTaskPayload, type FileDiff } from './api'
+import { injectDiffStyles } from './inject-styles'
+
+// Embedded mounts get their stylesheet from this injection (idempotent).
+injectDiffStyles()
 
 type ViewMode = 'split' | 'unified' | 'side-by-side'
 

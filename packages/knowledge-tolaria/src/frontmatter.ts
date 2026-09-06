@@ -6,6 +6,11 @@
  * anchors) is deliberately out of scope — this is Helmsman's own vault, and we
  * are the only writer. Tolaria notes opened in other tools remain plain
  * markdown with a frontmatter block they can ignore.
+ *
+ * String values escape backslash, quote, and NEWLINE (`\n` → `\\n`), so a
+ * multi-line title can neither break out of the frontmatter block (a raw
+ * `\n---\n` would close it early) nor inject sibling keys. Parsing undoes the
+ * escapes, making the codec a true round trip.
  */
 const FM_START = '---\n'
 
@@ -58,15 +63,44 @@ function parseValue(raw: string): unknown {
   return parseScalar(raw)
 }
 
+/** Undo exactly the escapes formatValue applies (quote string first, then de-escape). */
 function parseScalar(s: string): string | boolean | number {
   if (s === 'true') return true
   if (s === 'false') return false
   if (/^-?\d+$/.test(s)) return Number(s)
-  return s.replace(/^['"]|['"]$/g, '')
+  if (s.startsWith('"') && s.endsWith('"') && s.length >= 2) {
+    const inner = s.slice(1, -1)
+    let out = ''
+    for (let i = 0; i < inner.length; i++) {
+      const ch = inner[i]
+      if (ch === '\\' && i + 1 < inner.length) {
+        const next = inner[i + 1]
+        i++
+        out += next === 'n' ? '\n' : next
+      } else {
+        out += ch
+      }
+    }
+    return out
+  }
+  return s
+}
+
+/** Escape a string for double-quoted serialization: backslash, quote, newline. */
+function escapeString(value: string): string {
+  let out = ''
+  for (const ch of value) {
+    if (ch === '\\') out += '\\\\'
+    else if (ch === '"') out += '\\"'
+    else if (ch === '\n') out += '\\n'
+    else if (ch === '\r') out += '\\r'
+    else out += ch
+  }
+  return out
 }
 
 function formatValue(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map((v) => formatValue(v)).join(', ')}]`
-  if (typeof value === 'string') return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+  if (typeof value === 'string') return `"${escapeString(value)}"`
   return String(value)
 }
