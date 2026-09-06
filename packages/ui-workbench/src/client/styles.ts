@@ -12,7 +12,7 @@ const CSS = `
 .hls-tabs{display:flex;gap:4px;padding:8px 10px 0;flex:none}
 .hls-tab{flex:1;text-align:center;padding:6px 4px;font-size:13px;border:none;background:transparent;color:inherit;opacity:.65;cursor:pointer;border-bottom:2px solid transparent}
 .hls-tab.is-active{opacity:1;font-weight:600;border-bottom-color:var(--dsw-alias-label-primary,#16191e)}
-.hls-body{flex:1;overflow-y:auto;padding:12px 14px 16px;position:relative}
+.hls-body{flex:1;overflow-y:auto;padding:12px 14px 16px;position:relative;color:var(--dsw-alias-label-primary,#16191e)}
 .hls-panel h3{margin:4px 0 10px;font-size:14px}
 .hls-panel textarea{width:100%;box-sizing:border-box;resize:vertical;min-height:72px;padding:8px 10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l3,#d1d5db);background:transparent;color:inherit;font:inherit;margin:0 0 4px}
 .hls-panel textarea:focus{outline:none;border-color:var(--dsw-alias-label-primary,#16191e)}

@@ -16,7 +16,7 @@ await mkdir(outDir, { recursive: true })
 // table rows); everything else inlines. `?inline` CSS → text loader.
 const CLIENT_ID = '@helmsman/ui-workbench'
 await build({
-  entryPoints: [join(root, 'src/client/index.ts')],
+  entryPoints: [join(root, 'src/client/index.tsx')],
   bundle: true,
   format: 'cjs',
   platform: 'browser',

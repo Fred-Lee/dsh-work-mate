@@ -22,6 +22,8 @@ export interface SlotRegistryFace {
 declare module '@deepseek-ai/cordis' {
   interface Context {
     slots: SlotRegistryFace
+    /** Client-side effect scope (disposer registration); provided by the client runtime. */
+    effect(fn: () => () => void): void
   }
 }
 

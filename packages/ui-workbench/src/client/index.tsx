@@ -19,10 +19,12 @@
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import './slot-types'
-import { WorkbenchDrawer, WorkbenchToggle } from './App'
+import './better-sidebar-types'
+import { App as WorkbenchView, WorkbenchDrawer, WorkbenchToggle } from './App'
+import type { TabDescriptor } from './better-sidebar-types'
 
-/** Required service: the UI slot registry. */
-export const inject = ['slots'] as const
+/** Required services: the UI slot registry + the better-sidebar tab registry. */
+export const inject = ['slots', 'betterSidebar'] as const
 
 export function apply(ctx: ClientContext): void {
   ctx.slots.inject('sidebar.footer.action', function* () {
@@ -37,4 +39,13 @@ export function apply(ctx: ClientContext): void {
       WorkbenchDrawer,
     )
   })
+  // Mount the workbench as a better-sidebar tab too — the same place the
+  // built-in Files/Terminal/Memory tabs live (single-instance, + menu).
+  ctx.effect(() => ctx.betterSidebar.registerTab({
+    id: 'helmsman:workbench',
+    title: '🚀 Helmsman',
+    single: true,
+    order: 40,
+    component: () => <WorkbenchView />,
+  } satisfies TabDescriptor))
 }

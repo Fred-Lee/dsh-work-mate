@@ -45,3 +45,11 @@ adapter-*4/presets/ui-dashboard/ui-diff/ui-workbench）同 profile 共存。
 - 浏览器实测：左侧 DSH 侧边栏 + **Memory System**（mnemon）+ 底部 **Terminal** 面板
   （better-sidebar）+ 右侧 **Files** 栏（agfs/better-sidebar）+ composer **Vision** 徽标
   （vision-router）+ 🚀 Helmsman 工作台抽屉，全部同时挂载、互不冲突。
+
+## 侧边栏 Tab 挂载（2026-09-07）
+
+Helmsman 工作台除抽屉外，还注册为 better-sidebar 的一个 Tab（`helmsman:workbench`，
+单实例，位于右侧栏「+」菜单，与 Files/Terminal/Memory System 并列）。实现：
+client half `inject: ['slots','betterSidebar']` + `ctx.betterSidebar.registerTab`；
+面板本体复用抽屉同一组件。文字颜色在 Tab 容器内由 `.hls-body` 自带主题变量修正
+（侧边栏容器不提供继承色）。
