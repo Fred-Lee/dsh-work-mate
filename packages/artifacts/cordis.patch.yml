@@ -1,0 +1,4 @@
+# @helmsman/artifacts bundle layer
+- insert:
+    - id: helmsman-artifacts
+      name: '@helmsman/artifacts'

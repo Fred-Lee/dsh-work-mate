@@ -12,8 +12,15 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "cordis.patch.yml",
+    "README.md"
   ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
   "scripts": {
     "build": "node ../../scripts/build-package.mjs . && tsc -p tsconfig.decls.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
