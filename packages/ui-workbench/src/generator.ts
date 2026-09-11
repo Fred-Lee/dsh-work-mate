@@ -33,6 +33,16 @@ const generationScope = new AsyncLocalStorage<boolean>()
 /** Hard ceiling for one generation turn (ms) — a stuck turn must not burn tokens forever. */
 const TURN_TIMEOUT_MS = 240_000
 
+/**
+ * Ceiling for one summary turn (ms). Summaries are best-effort decoration on a
+ * task card (design D4): a slow model must degrade to the fallback text rather
+ * than hold the intake request open.
+ */
+const SUMMARIZE_TIMEOUT_MS = 90_000
+
+/** Max characters of conversation text handed to the summarizer prompt. */
+const SUMMARIZE_INPUT_CHARS = 6000
+
 const PRESET_IDS: Record<PresetName, string> = {
   research: 'helmsman-research',
   prd: 'helmsman-prd',
@@ -113,6 +123,24 @@ export interface GeneratorImpl {
      * `helmsman.artifacts` registry is present). */
     artifacts?: RegisteredArtifact[]
   }>
+  /**
+   * 对话摘要 (add-task-workitem-model T5.2 / design D4): 走同一条 agent 通道,
+   * 但**不写草稿、不注册产物、不套人格**,只返回一段文本(2–4 行中文由提示词约定)。
+   * 失败以 `status: 'failed'` 返回而不抛出 —— 建档方据此退化为 fallback 摘要。
+   */
+  summarize(req: SummarizeRequest): Promise<SummarizeResult>
+}
+
+/** 摘要请求:待总结文本(通常是对话最近消息的拼接)与可选卡片标题。 */
+export interface SummarizeRequest {
+  title?: string
+  text: string
+}
+
+export interface SummarizeResult {
+  status: 'completed' | 'failed'
+  text?: string
+  error?: string
 }
 
 /**
@@ -221,7 +249,84 @@ export function createGenerator(ctx: Context): GeneratorImpl {
       }
       return generationScope.run(true, () => run(req))
     },
+    summarize(req) {
+      if (generationScope.getStore() === true) {
+        // 生成会话内部触发摘要:直接失败,调用方退化(fail-open,绝不抛)。
+        return Promise.resolve({ status: 'failed' as const, error: '嵌套摘要已拒绝 — 你已处于 Helmsman 生成会话中' })
+      }
+      return generationScope.run(true, () => runSummarize(ctx, req))
+    },
   }
+}
+
+/**
+ * One prompt-only agent turn for a conversation summary. Deliberately separate
+ * from `runGenerate`: no preset persona (a research/prd persona would rewrite
+ * the summary into its own artifact), no draft file, no artifact registration —
+ * the summary only ever lands on the task card (design D4).
+ */
+async function runSummarize(ctx: Context, { title, text }: SummarizeRequest): Promise<SummarizeResult> {
+  const taskId = `sum-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`
+  const store = ctx as unknown as Record<string, any>
+  const trimmed = text.trim()
+  if (trimmed === '') return { status: 'failed', error: 'nothing to summarize' }
+  try {
+    await store.loader?.await?.()
+    const agents = store.agents
+    const defaultModel = store.agentDefaultModel
+    const sessions = store.sessions
+    if (!agents || !defaultModel) {
+      throw new Error('agents/agentDefaultModel services unavailable in this profile')
+    }
+    const { brandString } = await importHarness('@deepseek-ai/dsh-brand')
+    const { createUserMessage } = await importHarness('@deepseek-ai/dsh-llm')
+    const selection = defaultModel.currentSelection()
+    console.log(`[helmsman/generator] ${taskId}: summarizing conversation (provider=${selection.provider}, model=${selection.model})`)
+    const { agent } = await agents.create({
+      sessionId: brandString(`helmsman-summary-${randomUUID()}`),
+      meta: { cwd: process.cwd() },
+      agentOptions: { provider: selection.provider, model: selection.model },
+    })
+    await agent.whenIdle()
+    const firstSeq = Number(agent.session.seq)
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text: buildSummarizePrompt(title, trimmed) }],
+      source: { kind: 'user' },
+    }))
+    let timeoutTimer: NodeJS.Timeout | undefined
+    try {
+      await Promise.race([
+        agent.whenIdle(),
+        new Promise<never>((_, reject) => {
+          timeoutTimer = setTimeout(() => {
+            try { agent.cancel?.() } catch { /* already gone */ }
+            reject(new Error(`summary turn exceeded ${SUMMARIZE_TIMEOUT_MS / 1000}s and was cancelled`))
+          }, SUMMARIZE_TIMEOUT_MS)
+          timeoutTimer.unref?.()
+        }),
+      ])
+    } finally {
+      if (timeoutTimer !== undefined) clearTimeout(timeoutTimer)
+    }
+    await sessions?.flush?.(agent.session)
+    const out = summarizeSession(agent.session, firstSeq).trim()
+    if (!out) throw new Error('summary produced no assistant text')
+    return { status: 'completed', text: out }
+  } catch (err) {
+    return { status: 'failed', error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** Summary prompt: 2–4 plain Chinese lines, no headings or bullet characters. */
+function buildSummarizePrompt(title: string | undefined, text: string): string {
+  const clipped = text.length > SUMMARIZE_INPUT_CHARS ? text.slice(text.length - SUMMARIZE_INPUT_CHARS) : text
+  const lines = [
+    '请阅读下面这段开发对话的最近消息,用中文 2 到 4 行总结:对话主题、当前进展/结论、下一步。',
+    '直接输出摘要正文,不要标题、不要列表符号、不要客套话,每行一个要点。',
+  ]
+  if (title !== undefined && title.trim() !== '') lines.push(`卡片标题(供参考): ${title.trim()}`)
+  lines.push('', '对话内容:', clipped)
+  return lines.join('\n')
 }
 
 async function runGenerate(

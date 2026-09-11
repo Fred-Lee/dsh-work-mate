@@ -10,6 +10,8 @@
  *   GET  /api/artifacts  → registered delivery artifacts (helmsman.artifacts)
  *   GET  /api/artifacts/:id      → download one artifact (CJK-safe headers)
  *   GET  /api/artifacts/:id/meta → delivery metadata of one artifact
+ *   POST /api/task-from-conversation → 从对话建立任务卡片 (helmsman.board, T5.2)
+ *   GET  /api/sessions   → 最近 DSH 会话门面(id + 标题),供建档选择器
  *
  * The DSH client-module inject (client half) is in src/client/index.ts.
  */
@@ -24,6 +26,15 @@ import type { ArtifactService } from '@helmsman/artifacts'
 import type { GenerateRecord } from './host-types.ts'
 import { createGenerator, draftsDir } from './generator.ts'
 import type { RegisteredArtifact } from './generator.ts'
+import { MiniRouter, readJson } from './router.ts'
+import { registerIntakeRoutes } from './intake.ts'
+import type {
+  BoardServiceLike,
+  SessionQueryLike,
+  SessionTitleLike,
+  SessionsSeamLike,
+  SummarizerLike,
+} from './intake.ts'
 
 export const name = '@helmsman/ui-workbench'
 // agents/agentDefaultModel/sessions: generation engine (same contract as the
@@ -33,55 +44,6 @@ export const inject = ['webServer', 'helmsman.knowledge', 'agents', 'agentDefaul
 export interface Config {
   /** URL prefix. @default '/helmsman-workbench' */
   mountPath?: string
-}
-
-/** Minimal method+path router (same contract as the other UI plugins). A route
- * handler that returns `undefined` has written the response itself (binary
- * download streams); every other handler returns a JSON body. */
-class MiniRouter {
-  private routes: Array<{
-    method: string
-    parts: string[]
-    handler: (params: Record<string, string>, query: URLSearchParams, req: IncomingMessage, res: ServerResponse) => Promise<unknown>
-  }> = []
-  add(
-    method: string,
-    pattern: string,
-    handler: (params: Record<string, string>, query: URLSearchParams, req: IncomingMessage, res: ServerResponse) => Promise<unknown>,
-  ): this {
-    this.routes.push({ method: method.toUpperCase(), parts: pattern.split('/').filter(Boolean), handler })
-    return this
-  }
-  async handle(
-    req: IncomingMessage,
-    res: ServerResponse,
-    pathname: string,
-  ): Promise<{ ok: false } | { ok: true; status: number; body?: unknown }> {
-    const url = new URL(pathname, 'http://localhost')
-    const actual = url.pathname.split('/').filter(Boolean)
-    for (const route of this.routes) {
-      if (route.method !== (req.method ?? 'GET').toUpperCase()) continue
-      if (route.parts.length !== actual.length) continue
-      const params: Record<string, string> = {}
-      let match = true
-      for (let i = 0; i < route.parts.length; i++) {
-        const p = route.parts[i]!
-        const a = actual[i]!
-        if (p.startsWith(':')) params[p.slice(1)] = decodeURIComponent(a)
-        else if (p !== a) { match = false; break }
-      }
-      if (!match) continue
-      try {
-        return { ok: true, status: 200, body: await route.handler(params, url.searchParams, req, res) }
-      } catch (err) {
-        // Real error contract: 4xx/5xx so the client's !res.ok branch fires.
-        const message = err instanceof Error ? err.message : String(err)
-        const status = /not found/i.test(message) ? 404 : /invalid/i.test(message) ? 400 : 500
-        return { ok: true, status, body: { error: message } }
-      }
-    }
-    return { ok: false }
-  }
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -347,6 +309,23 @@ export function apply(ctx: Context, config: Config = {}): void {
     return undefined
   })
 
+  // ── Task intake: 对话 → 任务卡片 (add-task-workitem-model T5.2) ──────────
+  // `helmsman.board` / session-query / session-title are OPTIONAL: every seam is
+  // resolved lazily per request (design D1 convention), and a missing board
+  // plugin produces a clear 「未安装 @helmsman/board」 error instead of a
+  // TypeError. Summary generation runs through this package's own generator
+  // seam and is fail-open (a failed summary still yields a usable card).
+  const serviceOf = <T>(serviceName: string): T | undefined =>
+    (ctx as unknown as { get(name: string): unknown }).get(serviceName) as T | undefined
+
+  registerIntakeRoutes(router, {
+    board: () => serviceOf<BoardServiceLike>('helmsman.board'),
+    sessions: () => serviceOf<SessionsSeamLike>('sessions'),
+    sessionQuery: () => serviceOf<SessionQueryLike>('sessionQuery'),
+    sessionTitle: () => serviceOf<SessionTitleLike>('sessionTitle'),
+    summarizer: () => (generator as SummarizerLike | undefined),
+  })
+
   const staticHandler = createStaticHandler(`${mountPath}/`, assetsDir)
 
   webServer.register({
@@ -381,19 +360,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
 
   console.log(`[helmsman/ui-workbench] serving workbench at ${mountPath}/`)
-}
-
-async function readJson(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = []
-  let size = 0
-  for await (const chunk of req) {
-    size += (chunk as Buffer).length
-    if (size > maxBytes) throw new Error('request body too large')
-    chunks.push(chunk as Buffer)
-  }
-  const text = Buffer.concat(chunks).toString('utf8')
-  if (!text) return {}
-  try { return JSON.parse(text) as Record<string, unknown> } catch { return {} }
 }
 
 /**
