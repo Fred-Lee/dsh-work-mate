@@ -36,4 +36,11 @@
 ## 5. 收尾
 
 - [ ] 5.1 把 B 级条目在 `add-task-workitem-model` 落地时逐条验证并升级为 A 级（已作为该变更的设计输入登记）
-- [ ] 5.2 清理本次冒烟残留（临时仓库、smoke 任务记录、修复前的重复产物）
+- [x] 5.2 清理本次冒烟残留（临时仓库、smoke 任务记录、worktree、产物库、审计日志；`~/.helmsman` 其余既有数据未触碰）
+
+## 6. 静态检查防复发（测试盲区固化）
+
+- [x] 6.1 在 `scripts/check-toolchain.mjs --structural` 增加检查：每个 `@helmsman/*` 包必须声明 `dsh.bundle.patch`
+- [x] 6.2 同检查覆盖两点衍生缺陷：声明的补丁文件不存在、`files[]` 未包含补丁（打包会丢 bundle 层）
+- [x] 6.3 补 3 个测试用例（缺声明失败、files 漏项失败、声明齐备通过），`node --test` 15/15 通过
+- [x] 6.4 负向验证：临时删掉 `packages/artifacts` 的 `dsh` 字段，检查以精确信息 MISMATCH；恢复后 OK

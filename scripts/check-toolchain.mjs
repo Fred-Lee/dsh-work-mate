@@ -26,7 +26,7 @@
  * against a minimal fixture tree.
  */
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -681,6 +681,42 @@ export function structuralValidate(root, manifest, { compatPath } = {}) {
       }
       if (!versionsEqual(pkg.version, p.version)) {
         problems.push(`${manifestFile} version "${pkg.version}" differs from manifest "${p.version}" for ${p.name}`)
+      }
+    }
+
+    // Every @helmsman/* package must be mountable as a profile bundle: DSH
+    // refuses to boot when a bundle entry lacks `dsh.bundle.patch`, and the
+    // published tarball loses the bundle layer when files[] omits the patch.
+    // Neither defect is reachable from unit tests — they only appear once the
+    // package is really installed into a profile — so check it here.
+    for (const dirEntry of readdirSync(packagesDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!dirEntry.isDirectory()) continue
+      const pkgFile = join(packagesDir, dirEntry.name, 'package.json')
+      if (!existsSync(pkgFile)) continue
+      let pkg = null
+      try {
+        pkg = JSON.parse(readFileSync(pkgFile, 'utf8'))
+      } catch {
+        problems.push(`could not parse ${pkgFile}`)
+        continue
+      }
+      if (!String(pkg.name ?? '').startsWith('@helmsman/')) continue
+      const rel = pkg.dsh?.bundle?.patch
+      if (typeof rel !== 'string' || rel.length === 0) {
+        problems.push(
+          `packages/${dirEntry.name}/package.json (${pkg.name}) declares no dsh.bundle.patch — a profile referencing it refuses to boot`,
+        )
+        continue
+      }
+      const patchBase = rel.replace(/^\.\//, '')
+      if (!existsSync(join(packagesDir, dirEntry.name, patchBase))) {
+        problems.push(`packages/${dirEntry.name}/${patchBase} is referenced by dsh.bundle.patch but does not exist`)
+      }
+      const files = Array.isArray(pkg.files) ? pkg.files : []
+      if (!files.includes(patchBase)) {
+        problems.push(
+          `packages/${dirEntry.name}/package.json files[] omits "${patchBase}" — the packed tarball would lose its bundle layer`,
+        )
       }
     }
   } else {

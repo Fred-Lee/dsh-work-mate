@@ -58,6 +58,54 @@ test('structural check passes on a clean fixture of the current manifest', () =>
   assert.match(res.stdout, /OK: toolchain\.json is valid and consistent with the docs/)
 })
 
+/**
+ * Fixture with a `packages/` tree, which switches on the monorepo
+ * cross-checks (bundle patch ↔ manifest, per-package.json identity, and the
+ * profile-bundle declaration check added after a package shipped without one).
+ */
+function packagesFixture(widget = {}) {
+  const dir = fixture()
+  const pkgs = join(dir, 'packages')
+  const manifest = readJson(join(dir, 'toolchain.json'))
+  mkdirSync(join(pkgs, 'bundle'), { recursive: true })
+  const names = manifest.helmsman.plugins.map((p) => p.name)
+  writeFileSync(
+    join(pkgs, 'bundle', 'cordis.patch.yml'),
+    names.map((n) => `    - id: ${n}\n      name: '${n}'`).join('\n') + '\n',
+  )
+  const widgetDir = join(pkgs, 'widget')
+  mkdirSync(widgetDir, { recursive: true })
+  writeJson(join(widgetDir, 'package.json'), {
+    name: '@helmsman/widget',
+    version: '0.1.0',
+    files: widget.files ?? ['dist', 'cordis.patch.yml'],
+    ...(widget.declares === false ? {} : { dsh: { bundle: { patch: './cordis.patch.yml' } } }),
+  })
+  if (widget.declares !== false) {
+    writeFileSync(join(widgetDir, 'cordis.patch.yml'), "# @helmsman/widget bundle layer\n- insert:\n    - id: helmsman-widget\n      name: '@helmsman/widget'\n")
+  }
+  return dir
+}
+
+test('a package without dsh.bundle.patch fails the structural check', () => {
+  // Regression: @helmsman/artifacts shipped without the declaration, which made
+  // a real profile refuse to boot — a defect unit tests cannot reach.
+  const res = runStructural(packagesFixture({ declares: false }))
+  assert.equal(res.status, 1, `stdout: ${res.stdout}`)
+  assert.match(res.stdout, /@helmsman\/widget.*declares no dsh\.bundle\.patch/)
+})
+
+test('a package whose files[] omits its bundle patch fails the structural check', () => {
+  const res = runStructural(packagesFixture({ files: ['dist'] }))
+  assert.equal(res.status, 1, `stdout: ${res.stdout}`)
+  assert.match(res.stdout, /files\[\] omits "cordis\.patch\.yml"/)
+})
+
+test('a package with a complete bundle declaration passes', () => {
+  const res = runStructural(packagesFixture())
+  assert.equal(res.status, 0, `stdout: ${res.stdout}\nstderr: ${res.stderr}`)
+})
+
 test('manifest version drift fails fast with an expected-vs-actual diff', () => {
   const dir = fixture()
   const manifest = readJson(join(dir, 'toolchain.json'))
