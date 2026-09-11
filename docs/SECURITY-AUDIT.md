@@ -60,10 +60,20 @@
 ### 1.6 HTTP API 面
 
 - Dashboard/Diff API 挂载在 DSH webserver（默认绑定 **127.0.0.1**）。
-- 风险（中，接受）：插件路由不经过宿主页面的浏览器 token 认证（与社区插件
-  Visual-Workflow 的 GUI API 同一面）。同机任意本地进程可调用 API 触发任务/合并。
-  缓解：默认 loopback + 默认端口仅在 3080；不要以 `--host 0.0.0.0` 暴露
+- 风险（中，缓解）：插件路由不经过宿主页面的浏览器 token 认证（与社区插件
+  Visual-Workflow 的 GUI API 同一面）。同机任意本地进程可调用 API。**本变更已把
+  「任意本机进程都能静默破坏舰队状态」这一部分关掉**：merge / discard / cancel /
+  worktree 清理 / topology 删除等破坏性操作全部经过服务核心的两阶段确认门控
+  （`request → decide → execute(一次性作用域令牌)`，`~/.helmsman/policy.json` 配置每类
+  操作是 `confirm-required` 还是 `auto-grant`）；REST 路由、注册工具与内部服务调用都走
+  同一个门控，无法绕过；令牌一次性、绑定操作+作用域、默认 300s TTL，过期/复用/换作用域
+  均被拒绝。只读操作（任务状态/日志/事件时间线/冲突 dry-run/审计查询）不产生门控开销。
+  剩余缓解：默认 loopback + 默认端口仅在 3080；不要以 `--host 0.0.0.0` 暴露
   （DSH 本身也拒绝 0.0.0.0）。多用户主机上建议用防火墙规则限制 3080 端口。
+- **审计**：每个被门控的决定在副作用发生**之前** fsync 落盘到
+  `~/.helmsman/audit/audit.jsonl`（追加式 JSONL），日志写不进去即中止该操作（fail-closed）；
+  合并裁决载荷、headless 中止冲突清单与每次运行到达终态也追加记录。只有只读查询面
+  （`GET /api/audit`），不存在追加/编辑/删除端点。
 - 请求体上限 5MB（`readJsonBody`）；JSON 解析失败 → 500 JSON 错误，不崩溃。
 - 无 CORS 头 → 浏览器同源策略天然阻止其他源读取响应。
 
@@ -125,9 +135,9 @@
 
 | 威胁 | 缓解 |
 |---|---|
-| 恶意/失控 agent 破坏主仓库 | worktree 隔离 + 显式合并（git apply 原子，冲突不动主仓库）+ `discardTask` 清理 |
+| 恶意/失控 agent 破坏主仓库 | worktree 隔离 + 显式合并（`git apply` 原子，冲突不动主仓库，headless 遇真实冲突整体中止）+ `discardTask` 清理；合并/放弃等破坏性操作经两阶段确认门控并写审计 |
 | 提示词注入让 agent 泄露本机文件 | 文件仍受运行 agent 的常规沙箱/审批约束（DSH 沙箱策略 + 各 CLI 权限系统）；Helmsman 不放大权限（不传 `--dangerously-skip-permissions` 类参数） |
-| 本地非浏览器进程滥用 API | loopback 绑定；文档明确多用户主机限制 |
+| 本地非浏览器进程滥用 API | loopback 绑定 + **代码级确认门控**（confirm-required 操作需一次性作用域令牌，工具/REST/内部调用统一强制）+ 审计日志 fail-closed；文档明确多用户主机限制 |
 | 依赖投毒 | 零第三方运行时依赖；devDeps 锁定 semver 范围；社区插件仅 3 个且经审计 |
 | 路径穿越 / 计划任务注入 | 字符集白名单 + realpath + normalize；无 cron/定时器注册 |
 | 生成引擎递归分叉（生成的 agent 调 helmsman_* 生成工具 → 无限 fork 会话烧 token） | AsyncLocalStorage 递归闸门：生成 turn 内的嵌套调用直接拒绝并返回自解释错误（实测模型收到后改为自己作答）；单 turn 240s 超时熔断 + agent.cancel。实测修复前曾 fork 100+ 会话，修复后单会话稳定完成 |

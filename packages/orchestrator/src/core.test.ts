@@ -40,6 +40,7 @@ function makeWorktree() {
       removeTaskWorktrees: async (taskId: string) => {
         for (const rec of created.filter((r) => r.taskId === taskId)) removed.push(rec.id)
       },
+      mergeDryRun: async () => ({ ok: true, conflictFiles: [] }),
     },
   }
 }
@@ -192,13 +193,14 @@ describe('OrchestratorCore', () => {
     expect(core.getTaskStatus(taskId)?.status).toBe('CANCELLED')
   })
 
-  it('aggregate marks files changed by multiple agents as conflicting', async () => {
+  it('aggregate no longer flags files touched by multiple agents (conflicts are real apply failures, D5)', async () => {
     const wt = makeWorktree()
     const core = new OrchestratorCore({ worktree: wt.impl, delay: async () => undefined })
     core.registerAdapter(adapter('claude', async () => ok()))
     core.registerAdapter(adapter('codex', async () => ok()))
-    // both agents produce a diff for shared.txt via makeWorktree's codex branch? — codex gets codex-only.txt,
-    // so patch the worktree impl inline:
+    // both agents produce a diff for the SAME file — under the pre-D5 heuristic
+    // this used to be flagged as a conflict; now aggregation only collects diffs
+    // and a merge decides conflicts by actual patch-apply failure.
     wt.impl.getDiff = async (id: string) => ({
       worktreeId: id,
       files: [
@@ -216,8 +218,10 @@ describe('OrchestratorCore', () => {
 
     const { taskId } = await runTask(core, ['claude', 'codex'])
     const task = core.getTaskStatus(taskId)!
-    expect(task.agents['claude']?.conflictingFiles).toEqual(['shared.txt'])
-    expect(task.agents['codex']?.conflictingFiles).toEqual(['shared.txt'])
+    expect(task.agents['claude']?.state).toBe('completed')
+    expect(task.agents['claude']?.diffs?.map((d) => d.path)).toEqual(['shared.txt'])
+    expect(task.agents['claude']?.conflictingFiles).toBeUndefined()
+    expect(task.agents['codex']?.conflictingFiles).toBeUndefined()
   })
 
   it('mergeTask and discardTask delegate to the worktree service', async () => {

@@ -18,6 +18,7 @@ Helmsman 是一套构建在 [DeepSeek Harness (DSH)](https://github.com/deepseek
 │   worktree ──▶ orchestrator ◀── adapter-{claude,codex,pi,oh-my-pi}  │
 │   memory-topology ──┘        │                                     │
 │   knowledge-tolaria（vault/检索/图谱）                              │
+│   artifacts（产物注册表：草稿/笔记/拓扑/任务包 下载交付）           │
 │   presets（研究/PRD/拆解/需求分析 预设 + 生成工具）                 │
 │   ui-workbench（DSH client bundle：侧边栏入口 + 抽屉面板）          │
 └────────────────────────────────────────────────────────────────────┘
@@ -36,7 +37,7 @@ Helmsman 是一套构建在 [DeepSeek Harness (DSH)](https://github.com/deepseek
 | [`@helmsman/ui-dashboard`](packages/ui-dashboard)                  | Web UI          | 主控面板 React SPA（PRD 第 4 章规范全量实现；同时导出可嵌入视图模块 `./client/embed`）                                                                  |
 | [`@helmsman/ui-diff`](packages/ui-diff)                            | Web UI          | 多 Agent Diff 对比：split / unified / side-by-side、冲突标注与方案选择、行级评论、合并（同样可嵌入）                                                    |
 | [`@helmsman/ui-workbench`](packages/ui-workbench)                  | Web UI + DSH client | **工作台**：DSH 网页侧边栏「🚀 Helmsman」入口 + 右侧抽屉（研究/PRD/执行/知识 4 面板）+ 生成/草稿/归档/指令库 REST；DSH client bundle 注入 `shell.overlay` |
-| [`@helmsman/bundle`](packages/bundle)                              | Bundle          | 一条命令装入全部 12 个插件                                                                                                                              |
+| [`@helmsman/bundle`](packages/bundle)                              | Bundle          | 一条命令装入全部 13 个插件                                                                                                                              |
 
 文档：[架构说明](docs/ARCHITECTURE.md) · [UI 规范符合性矩阵](docs/UI-COMPLIANCE.md) ·
 [安全审计报告](docs/SECURITY-AUDIT.md) · [使用手册](docs/USAGE.md) ·
@@ -64,7 +65,7 @@ done
 #   或逐个安装后安装 bundle：dsh plugin --profile web add -w ./packages/bundle
 
 # 4) 验证插件树注册成功
-dsh --profile web --dump-config | grep helmsman   # 应看到 12 个 helmsman-* 条目
+dsh --profile web --dump-config | grep helmsman   # 应看到 13 个 helmsman-* 条目
 
 # 5) 启动
 dsh web          # 打开 http://127.0.0.1:3080/helmsman-dashboard/
@@ -84,7 +85,7 @@ dsh web          # 打开 http://127.0.0.1:3080/helmsman-dashboard/
 2. **npm 发布**（正式对外）：`pnpm publish` 各包（含 `@helmsman/bundle`），
    收件人一条命令 `dsh plugin --profile <p> add @helmsman/bundle` 装齐全部插件。
 3. **私有 registry**：Verdaccio/Nexus 等，发布命令与 2 相同。
-4. **tarball 直发**（无 registry）：`pnpm pack` 出 12 个 tgz 分发给收件人，
+4. **tarball 直发**（无 registry）：`pnpm pack` 出 13 个 tgz 分发给收件人，
    `dsh plugin --profile <p> add file:/path/to/helmsman-*.tgz`。
    该路径已在本机 `helmsman-dist` profile 端到端验证（安装 → dump-config →
    启动 → UI 200）。

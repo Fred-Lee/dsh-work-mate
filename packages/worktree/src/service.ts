@@ -237,6 +237,37 @@ export class WorktreeService {
     return { ok: true, committed: true, message: `merged ${selected.length} file(s) from ${rec.agent}`, conflictFiles: [] }
   }
 
+  /**
+   * Dry-run merge check (design D5 / merge-conflict-resolution): concatenates
+   * the selected worktrees' patches and runs `git apply --check` against the
+   * base repo — a pure validation that never modifies anything. `ok:false`
+   * lists the files whose patch does NOT apply cleanly (real conflicts), which
+   * are exactly the files that need per-file user adjudication before a merge.
+   */
+  async mergeDryRun(selection: { worktrees: Array<{ worktreeId: string; files?: string[] }> }): Promise<{ ok: boolean; conflictFiles: string[] }> {
+    await this.ensureLoaded()
+    const records: WorktreeRecord[] = []
+    for (const sel of selection.worktrees) {
+      const rec = this.records.get(sel.worktreeId)
+      if (!rec) throw new WorktreeError(`unknown worktree: ${sel.worktreeId}`)
+      records.push(rec)
+    }
+    if (records.length === 0) return { ok: true, conflictFiles: [] }
+    const baseRepo = records[0]!.baseRepo
+    const patches: string[] = []
+    for (let i = 0; i < selection.worktrees.length; i++) {
+      const sel = selection.worktrees[i]!
+      const diff = await this.getDiff(sel.worktreeId)
+      const files = sel.files ? diff.files.filter((f) => sel.files!.includes(f.path)) : diff.files
+      patches.push(files.map((f) => f.diff).join('\n'))
+    }
+    const patch = patches.join('\n')
+    if (!patch.trim()) return { ok: true, conflictFiles: [] }
+    const result = await runWithInput('git', ['-C', baseRepo, 'apply', '--check', '--whitespace=nowarn'], patch)
+    if (result.code === 0) return { ok: true, conflictFiles: [] }
+    return { ok: false, conflictFiles: parseConflictPaths(result.stderr) }
+  }
+
   /** Lists changed line ranges per file across a set of worktrees (conflict detection input). */
   async getChangedRanges(id: string): Promise<Map<string, Array<{ start: number; end: number }>>> {
     const diff = await this.getDiff(id)

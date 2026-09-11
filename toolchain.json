@@ -1,0 +1,229 @@
+{
+  "manifestVersion": 1,
+  "platform": {
+    "defaultProfile": "web",
+    "harness": {
+      "name": "deepseek-harness",
+      "version": "0.1.2-alpha.5",
+      "source": "source build (github.com/deepseek-ai/deepseek-harness, apps/cli)",
+      "note": "Local workbench runs on the 0.1.2-alpha.5 harness source tree. Community plugins authored against the 0.1.2-rc.1 surface run here on the alpha peer surface, so the pinned @deepseek-ai/dsh-tools must stay on this same alpha line."
+    }
+  },
+  "kernel": {
+    "@deepseek-ai/cordis": {
+      "kind": "peer",
+      "requirement": "resolved to the running host harness instance (peer dependency of every Helmsman package; never bundled as a private copy)",
+      "note": "Peer/API compatibility surface shared by Helmsman and community plugins."
+    },
+    "@deepseek-ai/dsh-tools": {
+      "kind": "pinned",
+      "version": "0.1.2-alpha.5",
+      "note": "MUST stay pinned to the 0.1.2-alpha.5 line (pnpm.overrides in the profile package.json). Bumping to the rc line breaks CallId/ToolCallId imports; see knownIssues[0]."
+    }
+  },
+  "plugins": {
+    "community": [
+      {
+        "name": "dsh-better-sidebar",
+        "version": "0.18.0",
+        "source": "dsh-better-sidebar@0.18.0",
+        "group": "workbench",
+        "note": "Sidebar extension base (right rail + bottom panel), isolated per session."
+      },
+      {
+        "name": "dsh-plugin-check",
+        "version": "0.1.0",
+        "source": "dsh-plugin-check@0.1.0",
+        "group": "workbench",
+        "note": "Plugin health check (manifest protocol / patch format / build pitfalls)."
+      },
+      {
+        "name": "dsh-skill-manager",
+        "version": "0.1.3",
+        "source": "dsh-skill-manager@0.1.3",
+        "group": "workbench",
+        "note": "Skill management panel under Settings."
+      },
+      {
+        "name": "@open-agfs/dsh-agfs",
+        "version": "0.1.9",
+        "source": "@open-agfs/dsh-agfs@0.1.9",
+        "group": "workbench",
+        "note": "Agent file browser."
+      },
+      {
+        "name": "dsh-outline",
+        "version": "0.1.6",
+        "source": "dsh-outline@0.1.6",
+        "group": "workbench",
+        "note": "Live session outline (issue + Markdown heading navigation)."
+      },
+      {
+        "name": "dsh-vision-router",
+        "version": "2.1.2",
+        "source": "dsh-vision-router@2.1.2",
+        "group": "workbench",
+        "note": "Vision routing (keyless vision chain + pixel-level vision tools)."
+      },
+      {
+        "name": "dsh-mnemon",
+        "version": "0.5.2",
+        "source": "dsh-mnemon@0.5.2",
+        "group": "workbench",
+        "note": "Three-tier memory control plane."
+      },
+      {
+        "name": "dsh-mcp-adapter",
+        "version": "0.6.3",
+        "source": "dsh-mcp-adapter@0.6.3",
+        "group": "workbench",
+        "note": "MCP adapter (single proxy tool, on-demand discovery)."
+      },
+      {
+        "name": "dsh-auto-review",
+        "version": "0.10.4",
+        "source": "dsh-auto-review@0.10.4",
+        "group": "workbench",
+        "note": "Second-model review on the approval chain, fail-closed."
+      },
+      {
+        "name": "@changfenhuang/dsh-annotation",
+        "version": "1.4.8",
+        "source": "@changfenhuang/dsh-annotation@1.4.8",
+        "group": "workbench",
+        "note": "Selected-text annotation attached to outgoing messages."
+      },
+      {
+        "name": "dsh-virtual-workspace",
+        "version": "1.2.2",
+        "source": "github:KevinWen7415/dsh-virtual-workspace",
+        "group": "reused",
+        "optional": true,
+        "note": "Reused lazily by @helmsman/worktree (graceful degradation when absent). README quick-start installs the GitHub default; 1.2.2 is the version audited in docs/SECURITY-AUDIT.md §2.1 and therefore the verified pin."
+      },
+      {
+        "name": "dsh-memory-manager",
+        "version": "1.2.0",
+        "source": "https://github.com/MoonlitDropOfBlood/dsh-memory-manager/releases/download/v1.2.0/dsh-memory-manager-1.2.0.tgz",
+        "group": "reused",
+        "optional": true,
+        "note": "Reused by @helmsman/memory-topology (best-effort mirror). Version pinned by the README quick-start tgz URL; v1.3.3 exists but requires a re-audit before upgrade."
+      },
+      {
+        "name": "dsh-memory-palace",
+        "version": "1.6.2-alpha.4",
+        "source": "github:lovezi0/dsh-memory-palace",
+        "group": "reused",
+        "optional": true,
+        "note": "Used through agent tools only, per its design. README quick-start installs the GitHub default; 1.6.2-alpha.4 is the version audited in docs/SECURITY-AUDIT.md §2.3 and therefore the verified pin."
+      }
+    ]
+  },
+  "engines": {
+    "node": "^22.19 || >=24",
+    "pnpm": ">=10"
+  },
+  "helmsman": {
+    "bundle": {
+      "name": "@helmsman/bundle",
+      "version": "0.1.0",
+      "source": "./packages/bundle (registry: @helmsman/bundle@0.1.0)"
+    },
+    "plugins": [
+      {
+        "name": "@helmsman/worktree",
+        "dir": "worktree",
+        "version": "0.1.0",
+        "source": "./packages/worktree"
+      },
+      {
+        "name": "@helmsman/memory-topology",
+        "dir": "memory-topology",
+        "version": "0.1.0",
+        "source": "./packages/memory-topology"
+      },
+      {
+        "name": "@helmsman/knowledge-tolaria",
+        "dir": "knowledge-tolaria",
+        "version": "0.1.0",
+        "source": "./packages/knowledge-tolaria"
+      },
+      {
+        "name": "@helmsman/artifacts",
+        "dir": "artifacts",
+        "version": "0.1.0",
+        "source": "./packages/artifacts"
+      },
+      {
+        "name": "@helmsman/orchestrator",
+        "dir": "orchestrator",
+        "version": "0.1.0",
+        "source": "./packages/orchestrator"
+      },
+      {
+        "name": "@helmsman/adapter-claude",
+        "dir": "adapter-claude",
+        "version": "0.1.0",
+        "source": "./packages/adapter-claude"
+      },
+      {
+        "name": "@helmsman/adapter-codex",
+        "dir": "adapter-codex",
+        "version": "0.1.0",
+        "source": "./packages/adapter-codex"
+      },
+      {
+        "name": "@helmsman/adapter-pi",
+        "dir": "adapter-pi",
+        "version": "0.1.0",
+        "source": "./packages/adapter-pi"
+      },
+      {
+        "name": "@helmsman/adapter-oh-my-pi",
+        "dir": "adapter-oh-my-pi",
+        "version": "0.1.0",
+        "source": "./packages/adapter-oh-my-pi"
+      },
+      {
+        "name": "@helmsman/presets",
+        "dir": "presets",
+        "version": "0.1.0",
+        "source": "./packages/presets"
+      },
+      {
+        "name": "@helmsman/ui-dashboard",
+        "dir": "ui-dashboard",
+        "version": "0.1.0",
+        "source": "./packages/ui-dashboard"
+      },
+      {
+        "name": "@helmsman/ui-diff",
+        "dir": "ui-diff",
+        "version": "0.1.0",
+        "source": "./packages/ui-diff"
+      },
+      {
+        "name": "@helmsman/ui-workbench",
+        "dir": "ui-workbench",
+        "version": "0.1.0",
+        "source": "./packages/ui-workbench"
+      }
+    ]
+  },
+  "knownIssues": [
+    {
+      "id": "dsh-tools-rc8-callid-toolcallid",
+      "summary": "@deepseek-ai/dsh-tools rc line breaks CallId/ToolCallId imports",
+      "detail": "The 0.1.2-rc.8 line of @deepseek-ai/dsh-tools imports the legacy CallId export from @deepseek-ai/dsh-llm, which the alpha line renamed to ToolCallId. A dsh-tools on the rc line running against the 0.1.2-alpha.5 harness makes plugins importing the shared call-id type fail at module load.",
+      "symptom": "@deepseek-ai/dsh-llm does not provide an export named 'CallId'",
+      "affected": [
+        "dsh-better-sidebar",
+        "dsh-plugin-check",
+        "@open-agfs/dsh-agfs",
+        "dsh-mcp-adapter",
+        "dsh-auto-review"
+      ],
+      "resolution": "Keep @deepseek-ai/dsh-tools pinned to 0.1.2-alpha.5 (pnpm.overrides in the profile package.json). Do not move to the rc line without re-verifying the affected imports."
+    }
+  ]
+}

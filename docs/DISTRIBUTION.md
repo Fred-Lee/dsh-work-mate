@@ -9,6 +9,14 @@ Helmsman 是一组标准 DSH 第三方插件。本文给出 4 种让其他人安
 > （12 行 insert）为准，且发布前应重跑一遍验证（新增了 DSH client bundle
 > 与预设同步，见 §方式 D 验证记录的口径）。
 
+> **版本权威源**：本文件提到的 Node/pnpm engines、DSH 平台与
+> `@deepseek-ai/dsh-tools` 钉版、社区插件、Helmsman 包版本，一律以仓库根
+> [toolchain.json](../toolchain.json) 为唯一权威（Helmsman 包的实际版本以
+> 各 `packages/*/package.json` 为准并与 `toolchain.json` 交叉核对）。
+> 运行 `pnpm verify:toolchain` 校验本文件与清单无漂移；改版本 = 改清单 +
+> `node scripts/check-toolchain.mjs --generate-compat` 重生成
+> `docs/COMPATIBILITY.md`。
+
 ## 方式 A：直接克隆源码（最简单，零发布）
 
 收件人克隆本仓库，在仓库根目录执行：
@@ -107,14 +115,17 @@ Dashboard/Diff 路由 200、API 正常。这是目前唯一**不依赖 registry*
 
 ## 版本管理与兼容性
 
-- **版本同步**：10 个包统一版本号（当前 0.1.0），升级时全部 bump，
-  避免 bundle 依赖漂移。可用 changesets 或手动同步。
+- **版本同步**：Helmsman 各包统一版本号，升级时全部 bump，避免 bundle 依赖漂移。
+  当前版本与 13 个插件清单以 `toolchain.json` `helmsman` 节为权威，并与
+  `packages/*/package.json`、`packages/bundle/cordis.patch.yml` 交叉核对
+  （`pnpm verify:toolchain` 自动执行）。可用 changesets 或手动同步。
 - **peer 依赖策略**：`@deepseek-ai/cordis` 与 `@deepseek-ai/dsh-tools`
   （仅 memory-topology / orchestrator 使用，且为**可选 peer**）指向宿主
   harness 提供的实例，**绝不打包私有副本**——这是为了避免 `dsh-tools`
   与宿主 `dsh-llm` 的 `CallId` 等导出漂移导致运行时崩溃
   （已在 helmsman-dist 验证中遇到并修复：错误
-  `'@deepseek-ai/dsh-llm' does not provide an export named 'CallId'`）。
+  `'@deepseek-ai/dsh-llm' does not provide an export named 'CallId'`；
+  损坏配对与症状记录见 `toolchain.json` knownIssues / `docs/COMPATIBILITY.md`）。
   收件人 profile 需要 `@deepseek-ai/dsh-base`（自带 dsh-tools），
   因此 `dsh plugin add` 前 profile 应已能跑 `dsh web`。
 

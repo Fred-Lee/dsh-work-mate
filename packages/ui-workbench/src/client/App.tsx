@@ -15,13 +15,14 @@ import { injectStyles } from './styles'
 
 injectStyles()
 
-export type PanelKind = 'research' | 'prd' | 'execution' | 'knowledge'
+export type PanelKind = 'research' | 'prd' | 'execution' | 'knowledge' | 'artifacts'
 
 const PANELS: Array<{ kind: PanelKind; label: string }> = [
   { kind: 'research', label: '📚 研究' },
   { kind: 'prd', label: '📋 PRD' },
   { kind: 'execution', label: '⚡ 执行' },
   { kind: 'knowledge', label: '🕸️ 知识' },
+  { kind: 'artifacts', label: '📦 交付物' },
 ]
 
 const WORKBENCH_MOUNT = '/helmsman-workbench'
@@ -59,6 +60,38 @@ interface CommandItem {
   name: string
   prompt: string
   preset?: string
+}
+
+/** One entry of the delivery registry (mirror of ArtifactMeta, server side). */
+interface ArtifactItem {
+  id: string
+  type: string
+  fileName: string
+  mime: string
+  size: number
+  createdAt: string
+  meta: Record<string, unknown>
+  producers: string[]
+}
+
+const ARTIFACT_TYPE_LABELS: Record<string, string> = {
+  draft: '草稿',
+  'archived-note': '归档笔记',
+  topology: '拓扑导出',
+  'task-bundle': '任务产物包',
+}
+
+function artifactTypeLabel(type: string): string {
+  return ARTIFACT_TYPE_LABELS[type] ?? type
+}
+
+/** Full artifact download URL (server streams it with an attachment header). */
+function artifactDownloadUrl(id: string): string {
+  return `${WORKBENCH_MOUNT}/api/artifacts/${encodeURIComponent(id)}`
+}
+
+function fmtSize(bytes: number): string {
+  return bytes >= 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes} B`
 }
 
 interface GraphNode {
@@ -113,6 +146,8 @@ function WorkbenchPanel() {
   const [records, setRecords] = useState<GenerateRecord[]>([])
   const [drafts, setDrafts] = useState<DraftMeta[]>([])
   const [commands, setCommands] = useState<CommandItem[]>([])
+  const [artifacts, setArtifacts] = useState<ArtifactItem[]>([])
+  const [artifactsAvailable, setArtifactsAvailable] = useState(true)
   const [viewDraft, setViewDraft] = useState<{ id: string; content: string } | null>(null)
   const [graph, setGraph] = useState<{ nodes: GraphNode[]; edges: GraphEdge[] } | null>(null)
   const [prompt, setPrompt] = useState('')
@@ -121,14 +156,17 @@ function WorkbenchPanel() {
 
   const refresh = async (): Promise<void> => {
     try {
-      const [r, d, c] = await Promise.all([
+      const [r, d, c, a] = await Promise.all([
         api<{ records: GenerateRecord[] }>('/records'),
         api<{ drafts: DraftMeta[] }>('/drafts'),
         api<{ commands: CommandItem[] }>('/commands'),
+        api<{ artifacts: ArtifactItem[]; available?: boolean }>('/artifacts').catch(() => ({ artifacts: [], available: false })),
       ])
       setRecords(r.records)
       setDrafts(d.drafts)
       setCommands(c.commands)
+      setArtifacts(a.artifacts ?? [])
+      setArtifactsAvailable(a.available !== false)
     } catch (err) {
       setToast(err instanceof Error ? err.message : String(err))
     }
@@ -310,6 +348,17 @@ function WorkbenchPanel() {
         </section>
       )}
 
+      {panel === 'artifacts' && (
+        <section className="hls-panel">
+          <h3>📦 交付物</h3>
+          {!artifactsAvailable ? (
+            <p className="hls-empty">产物注册表未启用（未安装 @helmsman/artifacts）。草稿/归档仍保存在本地文件。</p>
+          ) : (
+            <ArtifactList artifacts={artifacts} onDownload={(a) => { setToast(`开始下载: ${a.fileName}`) }} />
+          )}
+        </section>
+      )}
+
       {viewDraft !== null && (
         <div className="hls-modal" onClick={() => setViewDraft(null)}>
           <div className="hls-modal-box" onClick={(e) => e.stopPropagation()}>
@@ -398,4 +447,36 @@ async function loadGraph(
   } catch (err) {
     setToast(err instanceof Error ? err.message : String(err))
   }
+}
+
+function ArtifactList({ artifacts, onDownload }: {
+  artifacts: ArtifactItem[]
+  onDownload: (a: ArtifactItem) => void
+}): React.ReactNode {
+  if (artifacts.length === 0) return <p className="hls-empty">暂无交付物。生成草稿、归档笔记或导出 topology 后在此出现。</p>
+  return (
+    <div>
+      <h4 className="hls-sub">已注册 {artifacts.length} 项 · 内容寻址去重</h4>
+      <ul className="hls-records">
+        {artifacts.map((a) => (
+          <li key={a.id}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+              <strong style={{ fontSize: 12, wordBreak: 'break-all' }} title={a.id}>{a.fileName}</strong>
+              <a
+                className="hls-mini"
+                href={artifactDownloadUrl(a.id)}
+                onClick={() => onDownload(a)}
+                download={a.fileName}
+              >下载</a>
+            </div>
+            <div style={{ opacity: 0.6, fontSize: 11, lineHeight: 1.5 }}>
+              {artifactTypeLabel(a.type)} · {fmtSize(a.size)} · {a.createdAt.slice(0, 16).replace('T', ' ')}
+              {a.producers.length > 0 ? ` · 生产者: ${a.producers.join(', ')}` : ''}
+              {typeof a.meta.title === 'string' ? ` · ${a.meta.title}` : ''}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
 }

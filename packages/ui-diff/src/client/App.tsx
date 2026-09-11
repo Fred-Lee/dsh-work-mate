@@ -1,10 +1,25 @@
 /**
  * Helmsman Diff View — PRD §4.3.2 / §4.6:
  * 三种视图模式 (split / unified / side-by-side), 行级交互 (悬停评论, 行号复制),
- * ⚡ 冲突标注与方案选择, 单 Agent 合并 / 部分合并 / 全部放弃。
+ * ⚡ 冲突标注与逐文件裁决, 单 Agent 合并 / 部分合并 / 全部放弃。
+ *
+ * Conflict semantics (merge-conflict-resolution): conflicts are REAL apply
+ * failures only — no "touched by ≥2 agents" heuristic. The file list is
+ * labelled from the read-only `GET /conflicts` dry-run, and a merge request
+ * carries the operator's per-file `resolutions` so clean patches default-merge
+ * and genuine conflicts are adjudicated before anything is written.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AGENT_LABELS, api, parseHunks, type DiffLine, type DiffTaskPayload, type FileDiff } from './api'
+import {
+  AGENT_LABELS,
+  api,
+  parseHunks,
+  runGatedAction,
+  type ClientResolution,
+  type DiffLine,
+  type DiffTaskPayload,
+  type FileDiff,
+} from './api'
 import { injectDiffStyles } from './inject-styles'
 
 // Embedded mounts get their stylesheet from this injection (idempotent).
@@ -36,10 +51,21 @@ export function App() {
   const [mode, setMode] = useState<ViewMode>('split')
   const [file, setFile] = useState<string | null>(null)
   const [selectedFiles, setSelectedFiles] = useState<Record<string, boolean>>({})
-  const [conflictChoice, setConflictChoice] = useState<Record<string, string>>({})
+  // Per-file adjudication for REAL conflict files (adopt agent / manual-keep /
+  // skip). Persisted on merge as the `resolutions` payload.
+  const [conflictChoice, setConflictChoice] = useState<Record<string, ClientResolution>>({})
+  /** Files whose combined agent patch does NOT apply cleanly (real conflicts). */
+  const [conflictFiles, setConflictFiles] = useState<string[]>([])
   const [comments, setComments] = useState<Comment[]>(loadComments)
   const [toast, setToast] = useState<{ kind: 'success' | 'error' | 'info'; text: string } | null>(null)
   const [merging, setMerging] = useState(false)
+
+  const refreshConflicts = useCallback((id: string) => {
+    void api
+      .getConflicts(id)
+      .then((res) => setConflictFiles(res.conflictFiles))
+      .catch(() => setConflictFiles([]))
+  }, [])
 
   useEffect(() => {
     void api
@@ -53,13 +79,15 @@ export function App() {
 
   useEffect(() => {
     if (!taskId) return
+    setTask(null)
     void api
       .getTask(taskId)
       .then((res) => {
         if (res.found && res.task) setTask(res.task)
       })
       .catch((err) => setToast({ kind: 'error', text: err instanceof Error ? err.message : String(err) }))
-  }, [taskId, merging])
+    refreshConflicts(taskId)
+  }, [taskId, merging, refreshConflicts])
 
   useEffect(() => {
     if (!toast) return
@@ -86,11 +114,7 @@ export function App() {
     return [...set].sort()
   }, [filesByAgent])
 
-  const conflictingFiles = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const diffs of filesByAgent.values()) for (const f of diffs) counts.set(f.path, (counts.get(f.path) ?? 0) + 1)
-    return new Set([...counts.entries()].filter(([, n]) => n > 1).map(([p]) => p))
-  }, [filesByAgent])
+  const realConflictSet = useMemo(() => new Set(conflictFiles), [conflictFiles])
 
   const currentFile = file ?? allFiles[0] ?? null
 
@@ -102,17 +126,43 @@ export function App() {
     })
   }, [])
 
-  const doMerge = async (agents: string[], files: string[] | undefined, discardAfterMerge = false): Promise<void> => {
+  const doMerge = async (
+    agents: string[],
+    files: string[] | undefined,
+    discardAfterMerge: boolean,
+    resolutions?: Record<string, ClientResolution>,
+  ): Promise<void> => {
     if (!taskId) return
     setMerging(true)
     try {
-      const res = await api.merge(taskId, { agents, files, discardAfterMerge })
-      const failed = res.results.filter((r) => !r.ok)
-      if (failed.length > 0) {
-        setToast({ kind: 'error', text: `合并失败: ${failed.map((r) => `${r.agent}: ${r.message}`).join('; ')}` })
-      } else {
-        setToast({ kind: 'success', text: `✅ 合并成功 (${res.results.filter((r) => r.committed).length} 个 agent 已提交)` })
-      }
+      const executed = await runGatedAction(
+        'merge',
+        { taskId },
+        `确认合并（${agents.join(', ') || '全部已完成 agent'}）到基础仓库？真实冲突文件会在裁决后才写入。`,
+        (token) =>
+          api.merge(taskId!, {
+            agents,
+            ...(files ? { files } : {}),
+            discardAfterMerge,
+            ...(token ? { confirmationToken: token } : {}),
+            ...(resolutions ? { resolutions } : {}),
+          }).then((res) => {
+            const failed = res.results.filter((r) => !r.ok)
+            if (failed.length > 0) {
+              const conflicts = failed.flatMap((r) => r.conflictFiles)
+              setToast({
+                kind: 'error',
+                text: conflicts.length > 0
+                  ? `合并中止：存在真实冲突文件 ${[...new Set(conflicts)].join(', ')}。基础仓库未被改动 — 请在下方逐文件裁决后重新「合并所选」。`
+                  : `合并失败: ${failed.map((r) => `${r.agent}: ${r.message}`).join('; ')}`,
+              })
+              refreshConflicts(taskId!)
+            } else {
+              setToast({ kind: 'success', text: `✅ 合并成功 (${res.results.filter((r) => r.committed).length} 个 agent 已提交)` })
+            }
+          }),
+      )
+      if (executed === false) setToast({ kind: 'info', text: '已取消合并' })
     } catch (err) {
       setToast({ kind: 'error', text: err instanceof Error ? err.message : String(err) })
     } finally {
@@ -174,7 +224,7 @@ export function App() {
               />
               <button className="file-link" onClick={() => setFile(f)}>
                 📄 {f}
-                {conflictingFiles.has(f) && <span className="conflict-badge">⚡ 冲突</span>}
+                {realConflictSet.has(f) && <span className="conflict-badge">⚡ 冲突</span>}
               </button>
             </label>
           ))}
@@ -184,11 +234,11 @@ export function App() {
         <section className="diff-viewer">
           {currentFile && <FileDiffView
             file={currentFile}
-            conflicted={conflictingFiles.has(currentFile)}
+            conflicted={realConflictSet.has(currentFile)}
             filesByAgent={filesByAgent}
             mode={mode}
             conflictChoice={conflictChoice[currentFile] ?? null}
-            onChooseConflict={(agent) => setConflictChoice({ ...conflictChoice, [currentFile]: agent })}
+            onChooseConflict={(choice: ClientResolution) => setConflictChoice({ ...conflictChoice, [currentFile]: choice })}
             comments={comments.filter((c) => c.file === currentFile)}
             onComment={(agent, line, body) => addComment(agent, currentFile, line, body)}
           />}
@@ -197,7 +247,7 @@ export function App() {
 
       <footer className="merge-bar">
         {completedAgents.map(([agent]) => (
-          <button key={agent} className="btn btn-primary" disabled={merging} onClick={() => void doMerge([agent], undefined, true)}>
+          <button key={agent} className="btn btn-primary" disabled={merging} onClick={() => void doMerge([agent], undefined, true, {})}>
             ✅ 合并 {AGENT_LABELS[agent] ?? agent}
           </button>
         ))}
@@ -205,22 +255,29 @@ export function App() {
           className="btn"
           disabled={merging || allFiles.every((f) => selectedFiles[f] === false)}
           onClick={() => {
-            // 冲突文件遵循用户选择的「采纳方案」，未冲突文件取所有改过它的 agent
-            const chosen: string[] = []
+            // 冲突文件遵循用户的逐文件裁决；未冲突文件取所有改过它的 agent
             const files: string[] = []
             for (const f of allFiles) {
               if (selectedFiles[f] === false) continue
-              const choice = conflictChoice[f]
-              if (choice && !chosen.includes(choice)) chosen.push(choice)
               files.push(f)
             }
-            const agentsForFiles = new Set<string>(chosen)
+            const resolutions: Record<string, ClientResolution> = {}
+            for (const f of files) {
+              if (!realConflictSet.has(f)) continue
+              const choice = conflictChoice[f]
+              if (!choice) {
+                setToast({ kind: 'error', text: `请先裁决冲突文件 "${f}"（采用某个 Agent 方案 / 手动保留 / 跳过），或取消勾选以跳过。` })
+                return
+              }
+              resolutions[f] = choice
+            }
+            const agentsForFiles = new Set<string>()
             for (const f of files) {
               for (const [agent, diffs] of filesByAgent) {
                 if (diffs.some((d) => d.path === f)) agentsForFiles.add(agent)
               }
             }
-            void doMerge([...agentsForFiles], files)
+            void doMerge([...agentsForFiles], files, false, resolutions)
           }}
         >
           🔀 合并所选
@@ -229,9 +286,14 @@ export function App() {
           className="btn danger"
           disabled={merging}
           onClick={async () => {
-            if (!window.confirm('确认放弃全部 worktree 变更？此操作不可撤销。')) return
             try {
-              await api.discard(task.id)
+              const executed = await runGatedAction(
+                'discard',
+                { taskId: task.id },
+                '确认放弃全部 worktree 变更？此操作需要代码级确认，不可撤销。',
+                (token) => api.discard(task.id, token),
+              )
+              if (!executed) return
               setToast({ kind: 'info', text: '已放弃全部变更' })
             } catch (err) {
               setToast({ kind: 'error', text: err instanceof Error ? err.message : String(err) })
@@ -262,8 +324,8 @@ function FileDiffView(props: {
   conflicted: boolean
   filesByAgent: Map<string, Array<FileDiff>>
   mode: ViewMode
-  conflictChoice: string | null
-  onChooseConflict: (agent: string) => void
+  conflictChoice: ClientResolution | null
+  onChooseConflict: (choice: ClientResolution) => void
   comments: Array<{ agent: string; file: string; line: number; body: string }>
   onComment: (agent: string, line: number, body: string) => void
 }) {
@@ -274,28 +336,44 @@ function FileDiffView(props: {
 
   if (agentDiffs.length === 0) return <p className="muted">该文件暂无已完成 Agent 的变更。</p>
 
+  const selectedAgent = conflictChoice && conflictChoice.kind === 'agent' ? conflictChoice.agent : null
+
   return (
     <div className="file-diff">
       <header className="file-head">
         <h4>📄 {file}</h4>
         {conflicted && (
           <div className="conflict-box" role="dialog" aria-label="代码冲突">
-            <strong>⚡ 代码冲突（{agentDiffs.length} 个 Agent 修改了此文件）</strong>
+            <strong>⚡ 真实冲突（补丁无法干净应用）— 合并前请逐文件裁决：</strong>
             <div className="conflict-options">
               {agentDiffs.map(({ agent, diff }) => (
                 <label key={agent} className="radio">
                   <input
                     type="radio"
                     name={`conflict-${file}`}
-                    checked={conflictChoice === agent}
-                    onChange={() => onChooseConflict(agent)}
+                    checked={selectedAgent === agent}
+                    onChange={() => onChooseConflict({ kind: 'agent', agent })}
                   />
                   采用 {AGENT_LABELS[agent] ?? agent} 的方案 (+{diff.additions}/-{diff.deletions})
                 </label>
               ))}
               <label className="radio">
-                <input type="radio" name={`conflict-${file}`} checked={conflictChoice == null} onChange={() => onChooseConflict('')} />
-                手动编辑（暂保留全部，合并时再决定）
+                <input
+                  type="radio"
+                  name={`conflict-${file}`}
+                  checked={conflictChoice?.kind === 'manual'}
+                  onChange={() => onChooseConflict({ kind: 'manual' })}
+                />
+                手动编辑保留（基础仓库已人工整理，合并时不写入该文件）
+              </label>
+              <label className="radio">
+                <input
+                  type="radio"
+                  name={`conflict-${file}`}
+                  checked={conflictChoice?.kind === 'skip'}
+                  onChange={() => onChooseConflict({ kind: 'skip' })}
+                />
+                跳过该文件（本次不合并）
               </label>
             </div>
           </div>

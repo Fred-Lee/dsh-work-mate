@@ -3,24 +3,56 @@
  * 单向数据流, 任务状态机视觉反馈, 项目群配置面板, 七种边缘状态, 暗色主题,
  * 4px 网格, 响应式 3/2/1 列网格。
  */
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react'
 import {
   AGENTS,
   AGENT_LABELS,
   USAGE_QUOTA,
   api,
+  artifactUrl,
+  subscribeTaskStream,
   type AgentRunPayload,
   type AgentRunState,
+  type AuditEntryPayload,
   type ImportPreviewPayload,
   type StatePayload,
   type TaskPayload,
+  type TaskStreamHandle,
   type TopologyPayload,
 } from './api'
+import {
+  ACTIVE_TASK_STATES,
+  type ClientExecutionEvent,
+  type ClientTaskStatePayload,
+  type TaskStreamStatus,
+} from './event'
 import { injectDashboardStyles } from './inject-styles'
+import { runGatedAction } from './approval'
 
 // Embedded mounts get their stylesheet from this injection (standalone mounts
 // load the same file via index.html <link>; the injection is idempotent).
 injectDashboardStyles()
+
+/** Task states that ended (bundle packaging is offered on these). */
+const TASK_TERMINAL_STATES: ReadonlySet<string> = new Set(['COMPLETED', 'PARTIAL_FAILED', 'ALL_FAILED', 'CANCELLED'])
+
+/** Same-origin download via the artifact endpoint (attachment header server-side). */
+function downloadFromUrl(url: string): void {
+  const a = document.createElement('a')
+  a.href = url
+  a.rel = 'noreferrer'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
 
 // ---------------------------------------------------------------------------
 // state
@@ -44,6 +76,10 @@ interface StateShape {
   configOpen: boolean
   theme: 'light' | 'dark'
   isExecuting: boolean
+  /** `"${taskId}:${agent}"` → streamed log tail (selected task only). */
+  agentLogs: Record<string, string>
+  /** Per-task SSE stream state, for the reconnect/pruned indicators. */
+  streams: Record<string, { status: TaskStreamStatus; pruned: boolean }>
 }
 
 type Action =
@@ -55,13 +91,19 @@ type Action =
   | { type: 'setConfigOpen'; open: boolean }
   | { type: 'toggleTheme' }
   | { type: 'setExecuting'; value: boolean }
+  | { type: 'streamEvent'; event: ClientExecutionEvent }
+  | { type: 'streamPruned'; taskId: string }
+  | { type: 'streamStatus'; taskId: string; status: TaskStreamStatus }
 
 let toastSeq = 1
+
+/** Per-agent log cap while a task is selected (keeps the UI bounded). */
+const MAX_CLIENT_LOG = 512 * 1024
 
 function reducer(state: StateShape, action: Action): StateShape {
   switch (action.type) {
     case 'loaded': {
-      const active = action.payload.tasks.some((t) => ['CREATING_WORKTREES', 'RUNNING', 'AGGREGATING'].includes(t.status))
+      const active = action.payload.tasks.some((t) => ACTIVE_TASK_STATES.has(t.status) && t.interrupted !== true)
       return {
         ...state,
         loading: false,
@@ -75,9 +117,10 @@ function reducer(state: StateShape, action: Action): StateShape {
       }
     }
     case 'selectTask':
-      return { ...state, selectedTaskId: action.taskId }
+      // switching the visible task rebuilds its log from the durable replay
+      return { ...state, selectedTaskId: action.taskId, agentLogs: {} }
     case 'selectGroup':
-      return { ...state, currentGroup: action.group, tasks: [], selectedTaskId: null, loading: true }
+      return { ...state, currentGroup: action.group, tasks: [], selectedTaskId: null, loading: true, agentLogs: {}, streams: {} }
     case 'toast':
       return { ...state, toasts: [...state.toasts, { id: toastSeq++, kind: action.kind, text: action.text }] }
     case 'dismissToast':
@@ -88,6 +131,63 @@ function reducer(state: StateShape, action: Action): StateShape {
       return { ...state, theme: state.theme === 'dark' ? 'light' : 'dark' }
     case 'setExecuting':
       return { ...state, isExecuting: action.value }
+    case 'streamStatus':
+      return {
+        ...state,
+        streams: { ...state.streams, [action.taskId]: { ...(state.streams[action.taskId] ?? { pruned: false }), status: action.status } },
+      }
+    case 'streamPruned':
+      return {
+        ...state,
+        streams: { ...state.streams, [action.taskId]: { status: 'open', pruned: true } },
+      }
+    case 'streamEvent': {
+      const event = action.event
+      let tasks = state.tasks
+      if (event.kind === 'task-state') {
+        const patched = taskFromStateEvent(event.payload)
+        const known = tasks.some((t) => t.id === event.taskId)
+        tasks = known ? tasks.map((t) => (t.id === event.taskId ? patched : t)) : [patched, ...tasks]
+      }
+      let agentLogs = state.agentLogs
+      if (event.kind === 'agent-log' && event.taskId === state.selectedTaskId && event.agent) {
+        const key = `${event.taskId}:${event.agent}`
+        const prev = agentLogs[key] ?? ''
+        const next = (prev + (event.payload.text ?? '')).slice(-MAX_CLIENT_LOG)
+        agentLogs = prev === next ? agentLogs : { ...agentLogs, [key]: next }
+      }
+      return { ...state, tasks, agentLogs }
+    }
+  }
+}
+
+/** Translate a durable `task-state` event payload into the SPA task card shape. */
+function taskFromStateEvent(payload: ClientTaskStatePayload): TaskPayload {
+  const agents: Record<string, AgentRunPayload> = {}
+  for (const [name, r] of Object.entries(payload.agents ?? {})) {
+    agents[name] = {
+      state: r.state,
+      attempts: r.attempts,
+      startedAt: r.startedAt ?? null,
+      endedAt: r.endedAt ?? null,
+      exitCode: r.exitCode ?? null,
+      error: r.error ?? null,
+      stats: r.stats ?? null,
+      conflictingFiles: r.conflictingFiles ?? [],
+      hasDiff: r.hasDiff === true,
+    }
+  }
+  return {
+    id: payload.id,
+    prompt: payload.prompt,
+    status: payload.status,
+    projectGroupId: payload.projectGroupId ?? null,
+    cascade: payload.cascade,
+    timeoutSec: payload.timeoutSec,
+    createdAt: payload.createdAt,
+    endedAt: payload.endedAt ?? null,
+    interrupted: payload.interrupted === true,
+    agents,
   }
 }
 
@@ -109,13 +209,23 @@ export function App() {
     theme: new URLSearchParams(window.location.search).get('theme') === 'dark'
       || window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
     isExecuting: false,
+    agentLogs: {},
+    streams: {},
   })
   const [isOffline, setOffline] = useState(!navigator.onLine)
   const [search, setSearch] = useState('')
+  /** Live pending confirmation count (approval-gates badge). */
+  const [pendingApprovals, setPendingApprovals] = useState(0)
+  const [governanceOpen, setGovernanceOpen] = useState(false)
+  const [governanceAudit, setGovernanceAudit] = useState<AuditEntryPayload[] | null>(null)
   // Own container root: when mounted standalone the ref is null (not yet
   // rendered) and the theme falls through to <html> as before; when embedded,
   // the theme is scoped here so the host page's theme is untouched.
   const rootRef = useRef<HTMLDivElement | null>(null)
+  /** Open per-task SSE controllers, keyed by task id. */
+  const controllersRef = useRef<Map<string, TaskStreamHandle>>(new Map())
+  /** Cursor we will start the next stream at (0 = replay the retained log). */
+  const cursorsRef = useRef<Map<string, number>>(new Map())
 
   useEffect(() => {
     // Scope theme to the dashboard container. As an embedded view (workbench
@@ -144,7 +254,22 @@ export function App() {
     dispatch({ type: 'toast', kind, text })
   }, [])
 
-  // polling — fast while tasks are active, slow otherwise (PRD: 保持可见)
+  const selectTask = useCallback((taskId: string | null) => {
+    dispatch({ type: 'selectTask', taskId })
+    if (taskId) {
+      // Start the visible task's log from scratch: cursor 0 replays whatever
+      // the durable store still retains (per-agent logs rebuild from events).
+      cursorsRef.current.set(taskId, 0)
+      const existing = controllersRef.current.get(taskId)
+      if (existing) {
+        existing.close()
+        controllersRef.current.delete(taskId)
+      }
+    }
+  }, [])
+
+  // coarse state poll — now a safety net + discovery of new task ids (D5).
+  // Live updates ride the per-task SSE streams below.
   const refresh = useCallback(async () => {
     try {
       const payload = await api.getState()
@@ -158,10 +283,79 @@ export function App() {
     void refresh()
   }, [refresh])
 
+  // coarse safety-net poll only; streams keep the visible cards fresh in between
   useEffect(() => {
-    const interval = setInterval(() => void refresh(), state.isExecuting ? 1500 : 5000)
+    const interval = setInterval(() => void refresh(), 5000)
     return () => clearInterval(interval)
-  }, [refresh, state.isExecuting])
+  }, [refresh])
+
+  // Approval-gate badge: keep the pending-confirmation count fresh so headless
+  // (tool-originated) requests are visible to the operator. Best-effort.
+  useEffect(() => {
+    let active = true
+    const tick = async (): Promise<void> => {
+      try {
+        const res = await api.listPendingApprovals()
+        if (!active) return
+        setPendingApprovals((res.approvals ?? []).length)
+      } catch {
+        // transient / unsupported → keep last known badge
+      }
+    }
+    void tick()
+    const id = setInterval(() => void tick(), 5000)
+    return () => {
+      active = false
+      clearInterval(id)
+    }
+  }, [])
+
+  const openGovernance = useCallback(async () => {
+    setGovernanceOpen(true)
+    try {
+      setGovernanceAudit((await api.audit({})).entries)
+    } catch {
+      setGovernanceAudit([])
+    }
+  }, [])
+
+  const activeTaskIds = useMemo(
+    () => new Set(state.tasks.filter((t) => ACTIVE_TASK_STATES.has(t.status) && t.interrupted !== true).map((t) => t.id)),
+    [state.tasks],
+  )
+
+  // One SSE stream per active task: subscribe with the last cursor we stored;
+  // reconnects are cursor-based (server replays from the durable store).
+  useEffect(() => {
+    for (const id of activeTaskIds) {
+      if (controllersRef.current.has(id)) continue
+      const handle = subscribeTaskStream(id, cursorsRef.current.get(id) ?? 0, {
+        onEvent: (event) => {
+          // remember where we are so a re-open after retry/terminal can resume
+          cursorsRef.current.set(event.taskId, event.seq)
+          dispatch({ type: 'streamEvent', event })
+        },
+        onPruned: () => dispatch({ type: 'streamPruned', taskId: id }),
+        onStatus: (status) => dispatch({ type: 'streamStatus', taskId: id, status }),
+      })
+      controllersRef.current.set(id, handle)
+    }
+    for (const [id, handle] of [...controllersRef.current]) {
+      if (!activeTaskIds.has(id) || !handle.active) {
+        handle.close()
+        controllersRef.current.delete(id)
+      }
+    }
+  }, [activeTaskIds, state.selectedTaskId])
+
+  // Unmount: tear every stream down (separate effect so per-change re-runs of
+  // the reconciliation above never churn connections).
+  useEffect(() => {
+    return () => {
+      for (const handle of controllersRef.current.values()) handle.close()
+      controllersRef.current.clear()
+    }
+  }, [])
 
   useEffect(() => {
     if (state.toasts.length === 0) return
@@ -175,6 +369,8 @@ export function App() {
     () => state.tasks.find((t) => t.id === state.selectedTaskId) ?? state.tasks[0] ?? null,
     [state.tasks, state.selectedTaskId],
   )
+
+  const selectedStream = selectedTask ? state.streams[selectedTask.id] : undefined
 
   const filteredTasks = useMemo(() => {
     if (!search.trim()) return state.tasks
@@ -218,21 +414,46 @@ export function App() {
               isOffline={isOffline}
               onToast={toast}
               onSubmitted={(taskId) => {
-                dispatch({ type: 'selectTask', taskId })
+                selectTask(taskId)
                 void refresh()
               }}
             />
             {selectedTask != null && (
               <section className="task-section" aria-label="任务卡片">
+                {selectedStream?.pruned && (
+                  <div className="history-pruned-banner" role="alert">
+                    ⚠️ 该任务的部分历史早于当前游标，已被清理（history-pruned）；下方为仍保留的事件。
+                  </div>
+                )}
+                {(selectedStream?.status === 'reconnecting' || selectedStream?.status === 'connecting') && (
+                  <div className="stream-status" role="status">
+                    {selectedStream.status === 'reconnecting' ? '🔄 断线重连中，正在按游标重新同步…' : '📡 连接任务事件流…'}
+                  </div>
+                )}
                 <TaskHeader
                   tasks={filteredTasks}
                   selectedTask={selectedTask}
-                  onSelect={(id) => dispatch({ type: 'selectTask', taskId: id })}
+                  onSelect={selectTask}
                   onDiscard={async (id) => {
                     try {
-                      await api.discard(id)
+                      const executed = await runGatedAction(
+                        'discard',
+                        { taskId: id },
+                        `确认放弃任务 ${id} 的全部 worktree 变更？此操作需要代码级确认。`,
+                        (token) => api.discard(id, token),
+                      )
+                      if (!executed) return
                       toast('success', '已放弃全部 worktree')
                       void refresh()
+                    } catch (err) {
+                      toast('error', err instanceof Error ? err.message : String(err))
+                    }
+                  }}
+                  onBundle={async (id) => {
+                    try {
+                      const res = await api.buildTaskBundle(id)
+                      toast('info', `产物包已生成 → ${res.patch.fileName}`)
+                      downloadFromUrl(artifactUrl(res.patch.id))
                     } catch (err) {
                       toast('error', err instanceof Error ? err.message : String(err))
                     }
@@ -245,6 +466,8 @@ export function App() {
                       agent={agent}
                       run={run}
                       task={selectedTask}
+                      liveLog={state.agentLogs[`${selectedTask.id}:${agent}`] ?? ''}
+                      logLive={selectedStream != null && selectedStream.status !== 'closed'}
                       onToast={toast}
                       onRefresh={() => void refresh()}
                     />
@@ -266,6 +489,36 @@ export function App() {
         />
       )}
       <Toasts toasts={state.toasts} onDismiss={(id) => dispatch({ type: 'dismissToast', id })} />
+      <GovernanceFab
+        pendingCount={pendingApprovals}
+        onOpen={() => void openGovernance()}
+      />
+      {governanceOpen && (
+        <GovernancePanel
+          onClose={() => setGovernanceOpen(false)}
+          onDecided={() => {
+            void (async () => {
+              try {
+                setGovernanceAudit((await api.audit({})).entries)
+              } catch {
+                setGovernanceAudit([])
+              }
+            })()
+            void api
+              .listPendingApprovals()
+              .then((r) => setPendingApprovals((r.approvals ?? []).length))
+              .catch(() => undefined)
+          }}
+          audit={governanceAudit}
+          onRefreshAudit={async () => {
+            try {
+              setGovernanceAudit((await api.audit({})).entries)
+            } catch {
+              setGovernanceAudit([])
+            }
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -546,16 +799,24 @@ function TaskHeader(props: {
   selectedTask: TaskPayload
   onSelect: (id: string) => void
   onDiscard: (id: string) => Promise<void>
+  /** Package the terminal task's agent diffs into a downloadable artifact. */
+  onBundle?: (id: string) => Promise<void>
 }) {
   const t = props.selectedTask
+  const [bundling, setBundling] = useState(false)
   const completed = Object.values(t.agents).filter((r) => r.state === 'completed').length
   const total = Object.values(t.agents).length
+  const interruptedBanner = t.interrupted === true
+    ? <div className="degraded-banner">⚠️ 该任务在宿主重启前未完成，当前为最后已知状态</div>
+    : null
   const banner =
     t.status === 'AGGREGATING' ? <div className="aggregating-banner">📊 正在对比结果...</div>
     : t.status === 'PARTIAL_FAILED' ? <div className="degraded-banner">⚠️ 部分 Agent 执行失败 ({completed}/{total} 成功)</div>
     : t.status === 'ALL_FAILED' ? <div className="degraded-banner error">❌ 全部 Agent 执行失败</div>
     : t.status === 'CANCELLED' ? <div className="degraded-banner">⏹ 任务已取消</div>
     : null
+  const terminal = TASK_TERMINAL_STATES.has(t.status)
+  const onBundle = props.onBundle
   return (
     <div className="task-header">
       <div className="task-meta">
@@ -570,6 +831,27 @@ function TaskHeader(props: {
         <span className={`badge status-${t.status}`}>{t.status}</span>
         {t.cascade && <span className="badge">🕸️ 级联</span>}
       </div>
+      {terminal && onBundle && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
+          <button
+            className="btn btn-sm"
+            disabled={bundling}
+            onClick={async () => {
+              setBundling(true)
+              try {
+                await onBundle(t.id)
+              } finally {
+                setBundling(false)
+              }
+            }}
+            title="把各 Agent 的 worktree diff 打包为可下载 .patch + .json 产物"
+          >
+            {bundling ? '⏳ 打包中…' : '📦 下载产物包'}
+          </button>
+          <span className="muted small">终态任务的各 Agent diff 打成统一 .patch,可 git apply 复现</span>
+        </div>
+      )}
+      {interruptedBanner}
       {banner}
     </div>
   )
@@ -590,6 +872,10 @@ function AgentCard(props: {
   agent: string
   run: AgentRunPayload
   task: TaskPayload
+  /** Streamed log text for this agent (from the task's SSE timeline). */
+  liveLog: string
+  /** True while the task has a live stream feeding `liveLog`. */
+  logLive: boolean
   onToast: (kind: Toast['kind'], text: string) => void
   onRefresh: () => void
 }) {
@@ -598,7 +884,6 @@ function AgentCard(props: {
   const [elapsed, setElapsed] = useState(0)
   const [logOpen, setLogOpen] = useState(false)
   const [log, setLog] = useState('')
-  const [logOffset, setLogOffset] = useState(0)
 
   useEffect(() => {
     if (run.state !== 'running' || run.startedAt == null) return
@@ -607,31 +892,42 @@ function AgentCard(props: {
     return () => clearInterval(tick)
   }, [run.state, run.startedAt])
 
+  // Keep a best-effort copy of the streamed log so a terminal task still shows
+  // its content once its live stream has closed.
   useEffect(() => {
-    if (!logOpen || !run) return
+    setLog((prev) => (props.liveLog.length > prev.length ? props.liveLog : prev))
+  }, [props.liveLog])
+
+  // Polling safety net only — used when no live stream is feeding this agent
+  // (terminal tasks / tasks that never got a stream). Live tasks render the
+  // streamed `liveLog` prop instead and never poll (D5).
+  useEffect(() => {
+    if (props.logLive || !logOpen) return
     let active = true
     const poll = async (): Promise<void> => {
       try {
         const res = await api.getLog(task.id, agent)
         if (!active) return
-        setLog((prev) => {
-          if (res.log.length >= logOffset) {
-            setLogOffset(res.log.length)
-            return res.log
-          }
-          return prev
-        })
+        setLog((prev) => (res.log.length >= prev.length ? res.log : prev))
       } catch {
         // transient
       }
     }
     void poll()
-    const id = setInterval(() => void poll(), 1500)
+    const id = setInterval(() => void poll(), 5000)
     return () => {
       active = false
       clearInterval(id)
     }
-  }, [logOpen, task.id, agent, logOffset, run])
+  }, [logOpen, task.id, agent, props.logLive])
+
+  // Reset local state when the visible task changes (the card is keyed by agent).
+  useEffect(() => {
+    setLog('')
+    setLogOpen(false)
+  }, [task.id])
+
+  const shownLog = props.logLive ? props.liveLog : log
 
   const progress = run.state === 'completed' ? 100
     : run.state === 'timeout' ? 80
@@ -692,7 +988,15 @@ function AgentCard(props: {
             className="btn btn-sm danger"
             onClick={async () => {
               try {
-                await api.cancelTask(task.id)
+                // cancel is auto-grant by default policy (runs directly); a
+                // strict operator policy prompts through the approval gate.
+                const executed = await runGatedAction(
+                  'cancel',
+                  { taskId: task.id },
+                  `确认取消任务 ${task.id}？取消后该任务的 agent 会被中止。`,
+                  (token) => api.cancelTask(task.id, token),
+                )
+                if (!executed) return
                 props.onToast('info', '已发送取消信号')
                 props.onRefresh()
               } catch (err) {
@@ -709,7 +1013,7 @@ function AgentCard(props: {
       </div>
       {logOpen && (
         <pre className="card-log" aria-label={`${agent} 日志`}>
-          {log || '（暂无输出）'}
+          {shownLog || '（暂无输出）'}
         </pre>
       )}
     </article>
@@ -834,12 +1138,21 @@ export function ConfigPanel(props: {
           <button
             className="btn btn-sm danger"
             onClick={async () => {
-              if (!window.confirm(`确认删除项目群 "${group}"？`)) return
-              await api.deleteGroup(group)
-              onToast('success', '已删除')
-              setGroup(null)
-              setTopology(null)
-              setBaseline(null)
+              try {
+                const executed = await runGatedAction(
+                  'topology-delete',
+                  { group },
+                  `确认删除项目群 "${group}"？此操作需要代码级确认令牌。`,
+                  (token) => api.deleteGroup(group, token),
+                )
+                if (!executed) return
+                onToast('success', '已删除')
+                setGroup(null)
+                setTopology(null)
+                setBaseline(null)
+              } catch (err) {
+                onToast('error', err instanceof Error ? err.message : String(err))
+              }
             }}
           >
             🗑️ 删除
@@ -980,8 +1293,15 @@ export function ConfigPanel(props: {
               onClick={async () => {
                 if (!group) return
                 try {
-                  const yaml = await api.exportYaml(group)
-                  downloadText(`helmsman-topology-${group}.yaml`, yaml)
+                  // export registers the YAML and serves it via the artifact
+                  // endpoint (.yaml real-name fix); legacy fallback streams the
+                  // file directly when the registry is absent.
+                  const res = await api.exportYaml(group)
+                  if (typeof res === 'object' && res !== null && typeof res.artifactId === 'string') {
+                    downloadFromUrl(artifactUrl(res.artifactId))
+                  } else {
+                    downloadText(`helmsman-topology-${group}.yaml`, String(res ?? ''))
+                  }
                 } catch (err) {
                   props.onToast('error', err instanceof Error ? err.message : String(err))
                 }
@@ -1303,6 +1623,144 @@ function ImportModal(props: {
           </button>
           <button className="btn" onClick={props.onClose}>取消</button>
         </footer>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// approval gate + audit panel (approval-gates / audit-trail)
+// ---------------------------------------------------------------------------
+
+const govOverlayStyle: CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(0,0,0,.45)',
+  zIndex: 200,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+}
+
+const govPanelStyle: CSSProperties = {
+  background: 'var(--bg, #fff)',
+  color: 'var(--fg, #1a1a1a)',
+  border: '1px solid var(--border, #ddd)',
+  borderRadius: 10,
+  width: 'min(680px, 92vw)',
+  maxHeight: '80vh',
+  overflow: 'auto',
+  padding: 16,
+}
+
+/** Floating governance button with the live pending-confirmation count. */
+function GovernanceFab(props: { pendingCount: number; onOpen: () => void }) {
+  return (
+    <button
+      className="gov-fab"
+      style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 150, borderRadius: 999, padding: '10px 14px', cursor: 'pointer' }}
+      onClick={props.onOpen}
+      title="待处理确认与审计"
+    >
+      🛡️ 治理
+      {props.pendingCount > 0 && <strong style={{ marginLeft: 6, color: '#c62828' }}>({props.pendingCount})</strong>}
+    </button>
+  )
+}
+
+function fmtTime(ts: number): string {
+  return new Date(ts).toLocaleString()
+}
+
+/** Pending approvals (approve/deny) + read-only audit journal view. */
+function GovernancePanel(props: {
+  onClose: () => void
+  onDecided: () => void
+  onRefreshAudit: () => Promise<void>
+  audit: AuditEntryPayload[] | null
+}) {
+  const [approvals, setApprovals] = useState<Array<{ approvalId: string; op: string; scope: string; source: string; requestedAt: number; expiresAt: number }>>([])
+  const [busy, setBusy] = useState<string | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const reload = useCallback(async () => {
+    try {
+      const res = await api.listPendingApprovals()
+      setApprovals(res.approvals ?? [])
+    } catch {
+      setApprovals([])
+    }
+  }, [])
+
+  useEffect(() => {
+    void reload()
+  }, [reload])
+
+  const decide = async (approvalId: string, approve: boolean): Promise<void> => {
+    setBusy(approvalId)
+    try {
+      const decision = await api.decideApproval(approvalId, approve)
+      if (approve && decision.granted) {
+        setMsg(`已批准。一次性令牌：${decision.token}（5 分钟内有效，单次使用）`)
+      } else if (!approve) {
+        setMsg('已拒绝该确认请求')
+      } else if (!decision.granted) {
+        setMsg(decision.reason === 'not-found' ? '该确认请求已过期或不存在' : '已拒绝')
+      }
+      void reload()
+      props.onDecided()
+      void props.onRefreshAudit()
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div style={govOverlayStyle} role="dialog" aria-label="审批与审计" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
+      <div style={govPanelStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3 style={{ margin: 0 }}>🛡️ 待确认与审计</h3>
+          <button className="icon-btn" aria-label="关闭" onClick={props.onClose}>✕</button>
+        </div>
+        {msg && <p className="toast toast-info" role="status" style={{ padding: 8 }}>{msg}</p>}
+
+        <h4 style={{ marginBottom: 6 }}>待处理确认（{approvals.length}）</h4>
+        {approvals.length === 0 ? (
+          <p className="muted small">没有挂起的确认请求。</p>
+        ) : (
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+            {approvals.map((a) => (
+              <li key={a.approvalId} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--border,#eee)' }}>
+                <code style={{ flex: 1 }}>{a.op}</code>
+                <span className="muted small" style={{ flex: 2 }}>{a.scope}</span>
+                <span className="muted small">{a.source}</span>
+                <button className="btn btn-sm btn-primary" disabled={busy === a.approvalId} onClick={() => void decide(a.approvalId, true)}>批准</button>
+                <button className="btn btn-sm danger" disabled={busy === a.approvalId} onClick={() => void decide(a.approvalId, false)}>拒绝</button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <h4 style={{ marginBottom: 6 }}>审计日志（只读，追加式 JSONL）</h4>
+        <button className="btn btn-sm" onClick={() => void props.onRefreshAudit()}>刷新</button>
+        {props.audit === null ? (
+          <p className="muted small">加载中…</p>
+        ) : props.audit.length === 0 ? (
+          <p className="muted small">暂无审计条目。</p>
+        ) : (
+          <ol style={{ fontSize: 12, maxHeight: '40vh', overflow: 'auto', paddingLeft: 20 }}>
+            {[...props.audit].reverse().map((e, i) => (
+              <li key={`${e.ts}-${i}`} style={{ marginBottom: 6 }}>
+                <span className="muted small">[{fmtTime(e.ts)}]</span>{' '}
+                <code>{e.type}:{e.operation}</code> <span className="muted small">{e.scope}</span>
+                {e.decision && <em style={{ marginLeft: 6 }}>{e.decision}</em>}
+                {e.outcome && <em style={{ marginLeft: 6 }}>{e.outcome}</em>}
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
     </div>
   )

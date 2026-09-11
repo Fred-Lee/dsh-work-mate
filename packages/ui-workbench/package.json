@@ -47,6 +47,9 @@
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
+  "dependencies": {
+    "@helmsman/artifacts": "workspace:*"
+  },
   "license": "MIT",
   "author": "Helmsman Team",
   "keywords": [

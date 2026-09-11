@@ -56,6 +56,12 @@ export interface TaskRecord {
   createdAt: number
   endedAt?: number
   repoPath?: string
+  /**
+   * True only for records restored from durable history after a host restart
+   * while the task had not reached a terminal state — i.e. an interrupted run
+   * shown at its last-known state. Cleared as soon as the task runs again.
+   */
+  interrupted?: boolean
   agents: Record<string, AgentRun>
 }
 
@@ -95,6 +101,17 @@ export interface RunParallelParams {
   timeoutSec?: number
 }
 
+/**
+ * Per-file human adjudication for a real (apply-failed) conflict file, carried
+ * by a merge request (spec merge-conflict-resolution): adopt one agent's plan,
+ * keep a manual edit (base content already resolved by the operator), or skip
+ * the file (leave it unmerged).
+ */
+export type MergeResolution =
+  | { kind: 'agent'; agent: string }
+  | { kind: 'manual' }
+  | { kind: 'skip' }
+
 export interface MergeTaskParams {
   taskId: string
   /** Agents to merge from; omit for "all completed agents". */
@@ -102,6 +119,19 @@ export interface MergeTaskParams {
   /** Repo-relative file paths to restrict the merge to. */
   files?: string[]
   discardAfterMerge?: boolean
+  /**
+   * Code-level confirmation token issued by the confirmation gate (design D1).
+   * Required when the merge operation is policy-`confirm-required`.
+   */
+  confirmationToken?: string
+  /**
+   * User's per-file adjudication for real conflict files
+   * `Record<file, MergeResolution>`. Persisted to the run timeline
+   * (`merge-decision` event) and the audit journal.
+   */
+  resolutions?: Record<string, MergeResolution>
+  /** Attribution source for the audit trail. @default 'ui' */
+  source?: 'ui' | 'tool'
 }
 
 export interface MergeTaskResult {
@@ -125,6 +155,18 @@ export interface WorktreeLike {
   getDiff(id: string): Promise<{ worktreeId: string; files: FileDiffSummary[]; additions: number; deletions: number }>
   mergeWorktree(selection: { worktreeId: string; files?: string[]; commitMessage?: string }): Promise<{ ok: boolean; committed: boolean; message: string; conflictFiles: string[] }>
   removeTaskWorktrees(taskId: string): Promise<void>
+  /**
+   * Atomic dry-run (spec merge-conflict-resolution): checks whether the
+   * concatenated patches of the selected worktree files apply cleanly onto the
+   * base repo WITHOUT modifying it. `ok: false` reports the real conflict
+   * files.
+   *
+   * REQUIRED: the engine refuses to merge (or preview conflicts) without this
+   * seam — silently applying per-agent patches without a combined dry-run is a
+   * non-atomic degrade. The worktree plugin always provides it; integrators
+   * with a custom host must implement it (unit-test fakes carry a stub).
+   */
+  mergeDryRun(selection: { worktrees: Array<{ worktreeId: string; files?: string[] }> }): Promise<{ ok: boolean; conflictFiles: string[] }>
 }
 
 /** Shape of @helmsman/memory-topology used by the engine (optional). */

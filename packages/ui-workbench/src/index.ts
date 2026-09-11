@@ -7,17 +7,23 @@
  *   POST /api/generate   { preset, input } → kick a generation task
  *   GET  /api/records    → list recent generate records
  *   GET  /api/graph      → knowledge graph (knowledge-tolaria)
+ *   GET  /api/artifacts  → registered delivery artifacts (helmsman.artifacts)
+ *   GET  /api/artifacts/:id      → download one artifact (CJK-safe headers)
+ *   GET  /api/artifacts/:id/meta → delivery metadata of one artifact
  *
  * The DSH client-module inject (client half) is in src/client/index.ts.
  */
-import { join, dirname, normalize, extname, sep } from 'node:path'
+import { join, dirname, normalize, extname, sep, basename } from 'node:path'
 import { readFile, stat, readdir, writeFile, mkdir, rename, copyFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
+import { downloadHeaders } from '@helmsman/artifacts'
+import type { ArtifactService } from '@helmsman/artifacts'
 import type { GenerateRecord } from './host-types.ts'
 import { createGenerator, draftsDir } from './generator.ts'
+import type { RegisteredArtifact } from './generator.ts'
 
 export const name = '@helmsman/ui-workbench'
 // agents/agentDefaultModel/sessions: generation engine (same contract as the
@@ -29,14 +35,28 @@ export interface Config {
   mountPath?: string
 }
 
-/** Minimal method+path router (same contract as the other UI plugins). */
+/** Minimal method+path router (same contract as the other UI plugins). A route
+ * handler that returns `undefined` has written the response itself (binary
+ * download streams); every other handler returns a JSON body. */
 class MiniRouter {
-  private routes: Array<{ method: string; parts: string[]; handler: (params: Record<string, string>, query: URLSearchParams, req: IncomingMessage) => Promise<unknown> }> = []
-  add(method: string, pattern: string, handler: (params: Record<string, string>, query: URLSearchParams, req: IncomingMessage) => Promise<unknown>): this {
+  private routes: Array<{
+    method: string
+    parts: string[]
+    handler: (params: Record<string, string>, query: URLSearchParams, req: IncomingMessage, res: ServerResponse) => Promise<unknown>
+  }> = []
+  add(
+    method: string,
+    pattern: string,
+    handler: (params: Record<string, string>, query: URLSearchParams, req: IncomingMessage, res: ServerResponse) => Promise<unknown>,
+  ): this {
     this.routes.push({ method: method.toUpperCase(), parts: pattern.split('/').filter(Boolean), handler })
     return this
   }
-  async handle(req: IncomingMessage, pathname: string): Promise<{ ok: false } | { ok: true; status: number; body: unknown }> {
+  async handle(
+    req: IncomingMessage,
+    res: ServerResponse,
+    pathname: string,
+  ): Promise<{ ok: false } | { ok: true; status: number; body?: unknown }> {
     const url = new URL(pathname, 'http://localhost')
     const actual = url.pathname.split('/').filter(Boolean)
     for (const route of this.routes) {
@@ -52,7 +72,7 @@ class MiniRouter {
       }
       if (!match) continue
       try {
-        return { ok: true, status: 200, body: await route.handler(params, url.searchParams, req) }
+        return { ok: true, status: 200, body: await route.handler(params, url.searchParams, req, res) }
       } catch (err) {
         // Real error contract: 4xx/5xx so the client's !res.ok branch fires.
         const message = err instanceof Error ? err.message : String(err)
@@ -108,6 +128,11 @@ export function apply(ctx: Context, config: Config = {}): void {
         archive?: (note: { id: string; title: string; kind: string; createdAt: string; body: string; frontmatter: Record<string, unknown>; linkedProjects?: string[] }) => Promise<{ id: string; path: string }>
       }
     | undefined
+
+  // Artifact registry is OPTIONAL (design D1): resolve lazily at request time
+  // so drafts/notes degrade to plain files when the plugin is not installed.
+  const getArtifacts = (): ArtifactService | undefined =>
+    ctx.get('helmsman.artifacts') as ArtifactService | undefined
 
   const mountPath = (config.mountPath ?? '/helmsman-workbench').replace(/\/+$/, '')
   const assetsDir = join(dirname(fileURLToPath(import.meta.url)), 'client')
@@ -223,7 +248,14 @@ export function apply(ctx: Context, config: Config = {}): void {
       frontmatter: { keywords: [] },
       ...(linkedProjects.length > 0 ? { linkedProjects } : {}),
     })
-    return { ok: true, ...archived }
+    // Register the archived note bytes as a delivery artifact (best-effort —
+    // the vault file is the source of truth; a missing registry is fine).
+    const registered = await registerArchivedNote(getArtifacts(), archived, { id, title, kind })
+    return {
+      ok: true,
+      ...archived,
+      ...(registered ? { artifactId: registered.id, artifact: registered } : {}),
+    }
   })
 
   // ── Custom commands (个人指令库) ────────────────────────────────────────
@@ -271,6 +303,50 @@ export function apply(ctx: Context, config: Config = {}): void {
     return await knowledge.buildGraph()
   })
 
+  // ── Delivery artifacts (add-artifact-delivery-endpoints) ────────────────
+  // Registered drafts / archived notes become discoverable, downloadable
+  // artifacts. All three routes degrade when `helmsman.artifacts` is absent.
+  router.add('GET', '/api/artifacts', async () => {
+    const artifacts = getArtifacts()
+    if (!artifacts) return { artifacts: [], available: false }
+    return { artifacts: await artifacts.list(), available: true }
+  })
+
+  router.add('GET', '/api/artifacts/:id/meta', async (params) => {
+    const artifacts = getArtifacts()
+    if (!artifacts) throw new Error('artifact registry unavailable (artifacts plugin not installed)')
+    const id = params.id ?? ''
+    const resolved = await artifacts.resolve(id)
+    if (!resolved) throw new Error(`artifact not found: ${id}`)
+    return { artifact: resolved.meta }
+  })
+
+  router.add('GET', '/api/artifacts/:id', async (params, query, req, res) => {
+    const artifacts = getArtifacts()
+    const id = params.id ?? ''
+    if (!artifacts) {
+      res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({ error: 'artifact registry unavailable' }))
+      return undefined
+    }
+    const found = await artifacts.resolve(id)
+    if (!found) {
+      res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({ error: `artifact not found: ${id}` }))
+      return undefined
+    }
+    // CJK-safe delivery headers (design D4): ASCII fallback + RFC 5987 filename*.
+    const headers = downloadHeaders(found.meta.fileName)
+    res.writeHead(200, {
+      'content-type': headers['content-type'],
+      'content-disposition': headers['content-disposition'],
+      'content-length': String(found.bytes.byteLength),
+      'cache-control': 'no-store',
+    })
+    res.end(found.bytes)
+    return undefined
+  })
+
   const staticHandler = createStaticHandler(`${mountPath}/`, assetsDir)
 
   webServer.register({
@@ -288,12 +364,13 @@ export function apply(ctx: Context, config: Config = {}): void {
         ? url.pathname.slice(mountPath.length) + url.search
         : req.url ?? url.pathname
       if (relative.startsWith('/api/') || relative === '/api') {
-        const result = await router.handle(req, relative)
+        const result = await router.handle(req, res, relative)
         if (!result.ok) {
           res.writeHead(404, { 'content-type': 'application/json; charset=utf-8' })
           res.end(JSON.stringify({ error: 'not found' }))
           return
         }
+        if (result.body === undefined) return // handler streamed the response itself
         res.writeHead(result.status, { 'content-type': 'application/json; charset=utf-8' })
         res.end(JSON.stringify(result.body))
         return
@@ -317,4 +394,39 @@ async function readJson(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<R
   const text = Buffer.concat(chunks).toString('utf8')
   if (!text) return {}
   try { return JSON.parse(text) as Record<string, unknown> } catch { return {} }
+}
+
+/**
+ * Registers the vault note that an archive flow just wrote (design D5): bytes
+ * are read back from the vault path so the artifact equals what Tolaria sees.
+ * Best-effort — archive still succeeds when the registry is absent/failing.
+ */
+async function registerArchivedNote(
+  artifacts: ArtifactService | undefined,
+  archived: { id: string; path: string },
+  note: { id: string; title: string; kind: string },
+): Promise<RegisteredArtifact | undefined> {
+  if (!artifacts) return undefined
+  try {
+    const bytes = await readFile(archived.path)
+    const fileName = basename(archived.path)
+    const result = await artifacts.register({
+      type: 'archived-note',
+      fileName,
+      bytes,
+      meta: {
+        producer: 'workbench:archive',
+        noteId: note.id,
+        title: note.title,
+        kind: note.kind,
+        archivedPath: archived.path,
+      },
+    })
+    return { id: result.id, fileName, type: 'archived-note', duplicate: result.duplicate }
+  } catch (err) {
+    console.warn(
+      `[helmsman/ui-workbench] archived-note artifact registration failed (note kept in vault): ${err instanceof Error ? err.message : String(err)}`,
+    )
+    return undefined
+  }
 }

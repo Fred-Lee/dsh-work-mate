@@ -9,7 +9,8 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type { OrchestratorService } from '@helmsman/orchestrator'
-import type { TopologyServiceLike } from './api.ts'
+import type { ArtifactService } from '@helmsman/artifacts'
+import type { TopologyServiceLike, WorktreeServiceLike } from './api.ts'
 import { createApiRouter } from './api.ts'
 import { createStaticHandler } from './http.ts'
 
@@ -31,7 +32,15 @@ export function apply(ctx: Context, config: Config = {}) {
 
   const mountPath = (config.mountPath ?? '/helmsman-dashboard').replace(/\/+$/, '')
   const assetsDir = join(dirname(fileURLToPath(import.meta.url)), 'client')
-  const api = createApiRouter({ orchestrator, topology })
+  // artifacts / worktree are OPTIONAL service dependencies: resolve lazily at
+  // request time (ARCHITECTURE §4), so the host boots without the plugins and
+  // the artifact/bundle routes degrade instead of failing.
+  const api = createApiRouter({
+    orchestrator,
+    topology,
+    artifacts: () => ctx.get('helmsman.artifacts') as ArtifactService | undefined,
+    worktree: () => ctx.get('helmsman.worktree') as WorktreeServiceLike | undefined,
+  })
   const staticHandler = createStaticHandler(`${mountPath}/`, assetsDir)
 
   webServer.register({

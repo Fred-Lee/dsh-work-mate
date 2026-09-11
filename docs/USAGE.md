@@ -8,13 +8,23 @@
    也可以 📥 导入 docker-compose.yml / K8s manifest / OpenAPI JSON 批量创建。
 3. **派发并行任务**：新任务卡输入 Prompt → 勾选 Agent（未安装的会标注 ⚠️）→
    ▶ 并行执行。每个 Agent 在主仓库的独立 `git worktree` 中执行互不干扰。
-4. **观察执行**：Agent 卡片实时显示状态机（准备环境 → 执行中(计时+日志) →
-   完成/失败/超时/限流），进度条与超时倒计时同步。
+4. **观察执行**：每个活动任务通过 SSE 事件流实时推送（`/api/task/:id/stream`），
+   Agent 卡片状态机与日志由流事件驱动（准备环境 → 执行中(计时+日志) → 完成/
+   失败/超时/限流），不再逐条轮询；断线会自动按最后的事件游标重连补拉，不丢不重。
+   卡片上方若显示「断线重连中/正在按游标重新同步」即正在补拉；若历史早于游标已被
+   清理，会显示 `history-pruned` 横幅。任务全部结束（终态）后流自动关闭。
 5. **对比与合并**：完成的卡片点击「查看Diff」进入对比视图：
    - 左右并排 / 统一格式 / 多 Agent 并排三种视图；
-   - ⚡ 冲突文件给出方案选择（采用某个 Agent / 手动）；
+   - ⚡ 冲突文件按**真实冲突**标注（补丁无法干净应用，读取自 `GET /api/task/:id/conflicts` 的只读 dry-run），
+     并给出逐文件裁决（采用某个 Agent 方案 / 手动编辑保留 / 跳过该文件）；
    - 💬 行级评论（存本地 localStorage）；
    - 底部操作：✅ 合并单个 Agent、🔀 合并所选文件、❌ 全部放弃。
+   - merge / discard 是敏感操作，默认需要**代码级确认**：合并/放弃前会弹出确认，
+     通过 `POST /api/approvals`（请求）→ `POST /api/approvals/:id/decision`（批准签发一次性令牌）
+     拿到令牌后才执行；把对应操作策略改为 `auto-grant` 可回到无确认直跑。
+   - 干净变更（含多 Agent 对同一文件的不重叠改动）默认直接合并；**真实冲突会使整次合并中止、
+     基础仓库保持原状**，需在下方逐文件裁决后重新「合并所选」。每个合并决定的裁决载荷
+     （`resolutions`）会写入 run 时间线（`merge-decision` 事件）与审计日志。
 
 ## 2. 工作台（Helmsman Workbench）
 
@@ -59,8 +69,15 @@ Helmsman 同时注册了一组 agent 工具，可以在 `dsh --profile <p> "…"
 
 - `helmsman_run_parallel {prompt, agents, projectGroupId?, repoPath?, cascade?, timeoutSec?}`
 - `helmsman_task_status {taskId, withLog?}`
-- `helmsman_cancel_task {taskId}`
-- `helmsman_merge_task {taskId, mode?: merge|discard, agents?, files?, discardAfterMerge?}`
+- `helmsman_cancel_task {taskId, confirmationToken?}` — 默认策略 `cancel` 为 auto-grant（无令牌直跑，仍记审计）
+- `helmsman_merge_task {taskId, mode?: merge|discard, agents?, files?, discardAfterMerge?, confirmationToken?, resolutions?}`
+  — `mode: merge` 默认需要确认令牌（策略默认 confirm-required）；`confirmationToken` 由
+  `helmsman_request_confirmation` + `helmsman_decide_confirmation` 签发；`resolutions` 为可选 JSON 字符串，
+  表示每个真实冲突文件的逐文件裁决（`{"<file>":{"kind":"agent","agent":"claude"}}` / `{"kind":"manual"}` / `{"kind":"skip"}`）。
+  headless 合并只允许全干净：任一真实冲突即整体中止并返回冲突文件清单，不做静默单侧合并。
+- `helmsman_request_confirmation {op, taskId?, group?}` — 门控第一阶段：为 merge/discard/cancel/
+  worktree-cleanup/topology-delete 记录挂起审批请求，返回 `approvalId`
+- `helmsman_decide_confirmation {approvalId, approve}` — 门控第二阶段：批准签发一次性作用域令牌（默认 300s 有效），拒绝则关闭该请求
 - `helmsman_topology_get_downstream {projectGroupId, serviceId}`
 - `helmsman_topology_scan_rest_apis {localPath}`
 - `helmsman_topology_list_groups`
@@ -70,6 +87,12 @@ Helmsman 同时注册了一组 agent 工具，可以在 `dsh --profile <p> "…"
 - `helmsman_require_analyze {requirement, projectGroupId?}` — 知识库复用/新建评估
 
 示例：`dsh --profile headless "使用 Helmsman 执行任务：用 claude 和 codex 并行给 user-service 加一个修改密码接口，然后合并 claude 的结果"`。
+
+Headless 合并需要两步（默认策略）：
+1. 先用 `helmsman_request_confirmation {op:"merge", taskId}` 拿到 `approvalId`；
+2. 再让操作者确认（如在仪表盘治理面板批准，或本机调用 `helmsman_decide_confirmation {approvalId, approve:true}`）拿到一次性令牌；
+3. 最后 `helmsman_merge_task {taskId, confirmationToken:"<token>"}` 执行。
+若合并遇真实冲突，会整体中止并返回冲突清单与「请在 diff 界面逐文件裁决后重试」指引（裁决以 `resolutions` 随合并提交）。
 
 ## 5. 配置
 
@@ -91,6 +114,14 @@ Helmsman 同时注册了一组 agent 工具，可以在 `dsh --profile <p> "…"
     maxRateLimitAttempts: 3
     circuitBreakerThreshold: 5
     circuitBreakerCooldownMs: 30000
+    # 执行历史保留策略（host 重启后任务列表/详情/事件时间线仍可审计）
+    historyDir: ~/.helmsman/history   # 可选：历史目录（默认取 HELMSMAN_HOME/history）
+    retention:
+      maxTasks: 50                    # 保留最近 N 个任务记录（默认 50）
+      maxEventRowsPerTask: 2000       # 每任务事件行数上限，更早的会被清理（默认 2000）
+    # 可选：覆盖确认策略文件/审计日志路径（默认取 HELMSMAN_HOME 下 policy.json / audit/audit.jsonl）
+    policyPath: ~/.helmsman/policy.json
+    auditPath: ~/.helmsman/audit/audit.jsonl
 
 # worktree 存储位置
 - id: helmsman-worktree
@@ -103,8 +134,53 @@ Helmsman 同时注册了一组 agent 工具，可以在 `dsh --profile <p> "…"
     mountPath: /helmsman-dashboard
 ```
 
+### 敏感操作确认策略 `~/.helmsman/policy.json`
+
+merge / discard / cancel / worktree 清理 / topology 删除是敏感（破坏性）操作，由
+服务核心的**两阶段门控**把关（request → decide → execute(一次性作用域令牌)，默认 TTL 300s）。
+策略文件按操作分类为 `confirm-required`（需确认，默认）或 `auto-grant`（自动放行，仍记审计）：
+
+```json
+{
+  "operations": {
+    "merge": "confirm-required",
+    "discard": "confirm-required",
+    "cancel": "auto-grant",
+    "worktree-cleanup": "confirm-required",
+    "topology-delete": "confirm-required"
+  },
+  "tokenTtlSec": 300
+}
+```
+
+- 文件缺失 → 使用以上默认值（保持「破坏性变更前需确认」的既有行为）。
+- 想恢复 headless 便利：把 `merge` / `discard` 改为 `auto-grant`（仍会写入审计）。
+- 未知操作键 / 非法模式值 / 非法 `tokenTtlSec` 会被拒绝并回退到默认策略（fail-closed）。
+
+### 审计日志
+
+每个被门控的决定（granted / denied / auto-grant）在副作用发生**之前** fsync 落盘，
+写不进去即中止该操作；合并执行（含裁决载荷与真实冲突清单）、放弃与每次运行到达终态
+都会追加 `run-completion` 条目。文件为追加式 JSONL（只读查询面，无任何变更端点）：
+`~/.helmsman/audit/audit.jsonl`（可用 `HELMSMAN_HOME` 覆盖）。
+仪表盘右下角 🛡️ **治理** 面板可查看待确认列表（批准/拒绝）与审计日志。
+
 数据目录：`~/.helmsman/topologies/`（项目群 JSON）、`~/.helmsman/worktrees/`
-（任务 worktree，任务合并/放弃后自动清理）。
+（任务 worktree，任务合并/放弃后自动清理）、`~/.helmsman/history/`
+（任务生命周期摘要 `tasks.json` + 每任务事件时间线 `tasks/<taskId>.jsonl`，
+宿主重启后任务列表与详情仍可见，被打断的任务以其最后已知状态展示）、
+`~/.helmsman/audit/`（审计 JSONL）。
+
+REST/SSE 补充端点（供脚本/调试）：
+- `GET /api/task/:id/events?after=<seq>` — 有序事件 + `nextCursor`；cursor 已是最新时为空；命中已清理区间返回 `pruned: true`。
+- `GET /api/task/:id/stream?after=<seq>` — SSE：先重放持久化历史再实时 tail，15s 心跳，任务进终态即关闭。
+- `GET /api/task/:id/conflicts` — 只读 dry-run：返回该任务当前真实冲突文件清单（`git apply --check`）。
+- `GET /api/approvals/policy?op=<op>` — 该操作当前模式（confirm-required / auto-grant）。
+- `GET /api/approvals/pending` — 挂起的确认请求列表。
+- `POST /api/approvals` — 请求确认（`{op, taskId?, group?}`）→ `approvalId`。
+- `POST /api/approvals/:id/decision` — 决定（`{approve}`）；批准签发一次性令牌。
+- `GET /api/audit?op=&taskId=&from=&to=` — 只读审计查询（无变更面）。
+- merge/discard/cancel 与 `POST /api/topology/delete` 均需携带 `confirmationToken`（confirm-required 时）。
 
 ## 6. 验证安装
 
@@ -124,5 +200,12 @@ open http://127.0.0.1:3080/helmsman-dashboard/
   `oh-my-pi`）；安装后刷新页面。
 - **限流**：被限流 Agent 自动退避重试；也可在配置面板调整策略，或先只勾选
   未限流的 Agent。
-- **合并冲突**：`git apply` 失败时主仓库保持原状；在 Diff 视图用冲突方案选择
-  （只采纳一个 Agent 的冲突文件）后重新「合并所选」。
+- **合并冲突**：冲突以**实际补丁应用失败**为准（`git apply --check`），不再按「某文件被多个
+  Agent 修改」推断。真实冲突时整次合并中止、主仓库保持原状；在 Diff 视图按真实冲突文件
+  逐文件裁决（采用某个 Agent 方案 / 手动编辑保留 / 跳过该文件）后重新「合并所选」，
+  裁决载荷会写入 run 时间线与审计日志。
+- **「gate-denied: ... requires confirmation」**：该敏感操作处于 `confirm-required`
+  而未携带令牌。用 `helmsman_request_confirmation` + `helmsman_decide_confirmation`（或仪表盘
+  治理面板）获取一次性令牌后带上执行；或按需在 `policy.json` 里将该操作改为 `auto-grant`。
+- **「audit-unavailable」**：审计日志目录不可写，按 fail-closed 中止了操作；检查
+  `~/.helmsman/audit/` 权限后重试。

@@ -1,8 +1,13 @@
 /**
- * Diff view REST API — exposes per-agent diffs, merge and discard operations
- * from the orchestrator. Pure factory for unit testing.
+ * Diff view REST API — exposes per-agent diffs, real conflict detection, merge
+ * and discard operations from the orchestrator. Pure factory for unit testing.
+ *
+ * Merge/discard are gated in the service core: the caller passes a
+ * confirmation token minted through the approval endpoints below, and merges
+ * may carry a per-file `resolutions` adjudication payload for real conflict
+ * files (spec merge-conflict-resolution).
  */
-import type { OrchestratorService } from '@helmsman/orchestrator'
+import type { GateOp, MergeResolution, OrchestratorService } from '@helmsman/orchestrator'
 import { readJsonBody, Router } from './http.ts'
 
 export function createDiffApiRouter(orchestrator: OrchestratorService): Router {
@@ -51,6 +56,13 @@ export function createDiffApiRouter(orchestrator: OrchestratorService): Router {
     }
   })
 
+  // Real conflicts for the current task: files whose combined agent patches
+  // fail a dry-run `git apply --check` (read-only; base repo untouched).
+  router.get('api/task/:id/conflicts', async ({ params }) => {
+    const conflictFiles = await orchestrator.getRealConflicts(params.id!)
+    return { taskId: params.id, conflictFiles }
+  })
+
   router.post('api/task/:id/merge', async ({ req, params }) => {
     const body = await readJsonBody(req)
     return await orchestrator.mergeTask({
@@ -58,12 +70,52 @@ export function createDiffApiRouter(orchestrator: OrchestratorService): Router {
       ...(Array.isArray(body.agents) && body.agents.length > 0 ? { agents: body.agents.map(String) } : {}),
       ...(Array.isArray(body.files) && body.files.length > 0 ? { files: body.files.map(String) } : {}),
       ...(body.discardAfterMerge === true ? { discardAfterMerge: true } : {}),
+      ...(typeof body.confirmationToken === 'string' ? { confirmationToken: body.confirmationToken } : {}),
+      ...(body.resolutions != null && typeof body.resolutions === 'object'
+        ? { resolutions: body.resolutions as Record<string, MergeResolution> }
+        : {}),
+      source: 'ui',
     })
   })
 
-  router.post('api/task/:id/discard', async ({ params }) => {
-    await orchestrator.discardTask(params.id!)
+  router.post('api/task/:id/discard', async ({ req, params }) => {
+    const body = await readJsonBody(req)
+    // UI-originated discard → attribute the audit decision to 'ui' (not 'tool').
+    await orchestrator.discardTask(params.id!, typeof body.confirmationToken === 'string' ? body.confirmationToken : undefined, 'ui')
     return { ok: true }
+  })
+
+  // ---- approval gate endpoints (mirror of the dashboard's) ----------------
+  router.get('api/approvals/policy', async ({ query }) => {
+    const op = String(query.get('op') ?? '')
+    return { op, mode: orchestrator.policyMode(op as GateOp), confirmRequired: orchestrator.isConfirmRequired(op as GateOp) }
+  })
+
+  router.post('api/approvals', async ({ req }) => {
+    const body = await readJsonBody(req)
+    const op = String(body.op ?? '')
+    if (!op) throw new Error('op is required (merge | discard | cancel | worktree-cleanup | topology-delete)')
+    const approval = orchestrator.requestConfirmation(
+      {
+        op: op as GateOp,
+        ...(typeof body.taskId === 'string' && body.taskId ? { taskId: body.taskId } : {}),
+        ...(typeof body.group === 'string' && body.group ? { group: body.group } : {}),
+      },
+      'ui',
+    )
+    return {
+      approvalId: approval.approvalId,
+      op: approval.op,
+      scope: approval.scope,
+      source: approval.source,
+      requestedAt: approval.requestedAt,
+      expiresAt: approval.expiresAt,
+    }
+  })
+
+  router.post('api/approvals/:id/decision', async ({ req, params }) => {
+    const body = await readJsonBody(req)
+    return orchestrator.decideConfirmation(params.id!, body.approve !== false)
   })
 
   return router

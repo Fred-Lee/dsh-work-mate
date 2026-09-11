@@ -51,22 +51,44 @@ webServer (DSH 内置) ←─ inject ── ui-dashboard, ui-diff
 
 ```
 Dashboard (React, 单向数据流 useReducer)
-  │ 1.5s/5s 轮询 GET /api/state          ← 降级：失败保留上次数据
+  │ SSE：GET /api/task/:id/stream?after=<seq>   每个活动任务一条流
+  │  ├ 先订阅→缓冲，再从持久化时间线重放 seq 之后的事件→合并→实时 tail（D4）
+  │  ├ 每 15s 心跳（`: hb`）；任务到终态服务端关流
+  │  └ 断线按最后 cursor 手动重连（不丢不重）；history-pruned 显示横幅
+  │ 5s 兜底轮询 GET /api/state（发现新任务 + 整体刷新安全网）
   ▼
-dashboard host (Router + REST façade) ──进程内──▶ orchestrator / topology
-  ▼                                          │
-orchestrator.runParallelTask()                │ helmsman/task-updated 事件
-  ├ worktree.createWorktree × N agent         ▼
-  ├ adapter.execute（spawn CLI，流式日志）     UI 卡片状态机渲染
+dashboard host (Router + REST/SSE façade) ──进程内──▶ orchestrator / topology
+  ▼                                              │
+orchestrator.runParallelTask()                    │ helmsman/task-updated 事件
+  ├ notify()/touch() 汇聚点 ─▶ HistoryStore       │ 仍照常广播
+  │   （upsert 任务摘要 + 追加 task-state 事件）    ▼
+  ├ adapter.execute（onOutput → agent-log 事件）    UI 卡片状态机渲染
+  │   └ JsonlHistoryStore：~/.helmsman/history/    （优先由流事件驱动）
+  │       tasks/<taskId>.jsonl（追加式）+ tasks.json（原子快照）
   ├ worktree.getDiff → 冲突文件标注
   └ mergeTask → git apply patch → commit
 ```
 
 ## 4. 已知设计权衡
 
-- **轮询 vs SSE**：v1 用 1.5s/5s 自适应轮询（活跃任务快、空闲慢），
-  与 Visual-Workflow 的 600ms 轮询同思路；`helmsman/task-updated` 事件已就绪，
-  后续可加 SSE 端点而不动核心。
+- **实时性：SSE + cursor，轮询仅兜底**：v1 用 1.5s/5s 自适应轮询；现在每个活动任务
+  一条 `GET /api/task/:id/stream?after=<seq>` SSE。连接**先订阅**（此间事件进内存
+  缓冲），再从事务持久化时间线**重放** cursor 之后的事件并合并，随后实时下发，
+  从根上消除「重放终点 ↔ 实时起点」之间的竞态（D4）。服务端每 15s 发 `: hb`
+  心跳行保活；任务进入终态即关流。客户端 EventSource 出错后**手动**以最后收到的
+  seq 重连（cursor 续传，重连不丢不重）；`/api/state` 轮询降为 5s 粗粒度安全网，
+  只负责发现新任务 id 与整体兜底刷新。引擎仍广播 `helmsman/task-updated`——持久化
+  只是挂在该汇聚点上的副作用，不替换事件。
+- **执行历史 = 追加式 JSONL + 原子快照**：每个任务的生命周期记录与事件时间线持久化
+  到 `~/.helmsman/history/`（`HELMSMAN_HOME` 可覆盖）：事件逐行追加到
+  `tasks/<taskId>.jsonl`（每行一个 `{v:1,seq,ts,taskId,kind,agent?,payload}`），
+  任务摘要统一 upsert 到单文件 `tasks.json`（tmp+rename 原子写，崩溃不落半截）。
+  JSONL 崩溃安全（读到撕裂的尾行直接忽略）；`seq` 即每任务单调 cursor，支持
+  `?after=` 向前翻页与重同步。保留/清理（`retention`）只删除 Helmsman 自己的
+  事件/摘要文件，绝不触碰 worktree 或基础仓库产物；被清理的历史对持有旧 cursor
+  的客户端返回显式 `history-pruned` 信号（REST 字段 / SSE 命名事件），而不是静默
+  返回残缺数据。存储与流式都是注入式接口：编排核心默认用内存实现，引擎单测
+  从不触碰文件系统（换 JSONL 后端只需插件装配时注入 + 启动 prune）。
 - **可选依赖竞态**：orchestrator 对 topology 是可选依赖，不能 `inject`（否则
   未装 topology 时永久 PENDING），而 `ctx.get` 在 apply 期立即解析会因服务
   未 ACTIVE 拿到 undefined——因此传入**惰性 getter**，运行时再解析。

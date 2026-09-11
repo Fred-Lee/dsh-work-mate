@@ -4,6 +4,10 @@
 
 **核心底座 + 能力插件（10 个社区插件，已装入 `~/.dsh/profiles/web`）：**
 
+> 版本权威源：下表与仓库根 [toolchain.json](../toolchain.json) 的 `plugins.community`
+> 一一对应，由 `pnpm verify:toolchain` 校验；改版本只改 `toolchain.json`，仅改本表
+> 不改清单会被校验判为漂移。
+
 | 插件 | 版本 | 角色 |
 |---|---|---|
 | dsh-better-sidebar | 0.18.0 | 侧边栏扩展底座：右侧栏（文件/编辑器/终端/Git/浏览器）+ 底部面板，按会话隔离 |
@@ -17,7 +21,7 @@
 | dsh-auto-review | 0.10.4 | **第二模型复核**：审批链上只读 reviewer subagent 决定 allow/deny，fail-closed |
 | @changfenhuang/dsh-annotation | 1.4.8 | 选中文字→批注→随消息发送 |
 
-**Helmsman 自研 12 个插件**（worktree/memory-topology/knowledge-tolaria/orchestrator/
+**Helmsman 自研 13 个插件**（worktree/memory-topology/knowledge-tolaria/artifacts/orchestrator/
 adapter-*4/presets/ui-dashboard/ui-diff/ui-workbench）同 profile 共存。
 
 ## 工作流
@@ -30,11 +34,15 @@ adapter-*4/presets/ui-dashboard/ui-diff/ui-workbench）同 profile 共存。
 
 ## 版本对齐要点（重要）
 
-- 本地 harness 为 **0.1.2-alpha.5 源码**。社区插件按 `0.1.2-rc.1` 编写的部分以 peer
-  兼容面运行；**`@deepseek-ai/dsh-tools` 必须钉在 `0.1.2-alpha.5`**
-  （`pnpm.overrides` 已写入 profile package.json）——rc.8 版的 dsh-tools 引用
-  `dsh-llm` 的旧导出 `CallId`（alpha 线已更名 `ToolCallId`），会导致
-  better-sidebar/plugin-check/agfs/mcp-adapter/auto-review 导入失败。
+- 本地 harness 为 **0.1.2-alpha.5 源码**；`@deepseek-ai/cordis`（peer）与
+  `@deepseek-ai/dsh-tools`（钉版）的约束见根目录 **`toolchain.json`** 的
+  `platform`/`kernel` 节（`pnpm.overrides` 已写入 profile package.json）。
+  `pnpm verify:toolchain` 会校验本文件版本表与 `toolchain.json` 一致。
+- **`@deepseek-ai/dsh-tools` 不能升到 rc 线**：rc 线（自 rc.8 起）引用 `dsh-llm`
+  已更名的 `CallId`/`ToolCallId` 导出，会导致 better-sidebar/plugin-check/
+  agfs/mcp-adapter/auto-review 导入失败。该损坏配对与症状记录在
+  `docs/COMPATIBILITY.md` 的 knownIssues；所有版本只以 `toolchain.json` 为准，
+  不要在文档或命令里另立版本。
 - 原生依赖（node-pty/koffi/@deepseek-ai/dsh-subprocess-local）已加入
   `pnpm.onlyBuiltDependencies` 白名单并完成构建（better-sidebar 终端面板依赖）。
 

@@ -78,7 +78,7 @@ function fakeOrchestrator(): OrchestratorService {
     registerAdapter: () => undefined,
     checkAgents: async () => ({}),
     runParallelTask: async () => ({ taskId: 't' }),
-    cancelTask: () => undefined,
+    cancelTask: async () => undefined,
     getTaskStatus: (id: string) => (id === 't-1' ? task : undefined),
     listTasks: () => [task],
     retryTask: async () => ({ taskId: 't' }),
@@ -88,7 +88,30 @@ function fakeOrchestrator(): OrchestratorService {
     })),
     discardTask: vi.fn(async () => undefined),
     getUsage: () => ({}),
-  }
+    // approval gate / conflicts surface (additive)
+    isConfirmRequired: vi.fn((op: string) => op === 'merge'),
+    policyMode: vi.fn(() => 'confirm-required'),
+    requestConfirmation: vi.fn((req: { op: string; taskId?: string; group?: string }, source = 'ui') => ({
+      approvalId: 'ap-diff',
+      op: req.op,
+      scope: `${req.op}:task:${req.taskId ?? ''}`,
+      source,
+      requestedAt: 1,
+      expiresAt: 2,
+    })),
+    decideConfirmation: vi.fn((_id: string, approve: boolean) =>
+      approve ? { granted: true, token: 'tok', expiresAt: 2 } : { granted: false, reason: 'denied' }),
+    listPendingConfirmations: vi.fn(() => []),
+    assertApproved: vi.fn(async () => undefined),
+    scopeKey: vi.fn((op: string) => op),
+    getAudit: vi.fn(async () => []),
+    getRealConflicts: vi.fn(async () => ['src/LoginForm.tsx']),
+    history: {
+      getTask: async () => undefined,
+      getEvents: async () => ({ events: [], pruned: false }),
+      subscribe: () => () => undefined,
+    },
+  } as unknown as OrchestratorService
 }
 
 describe('diff API router', () => {
@@ -111,27 +134,48 @@ describe('diff API router', () => {
     expect(JSON.parse(body()).found).toBe(false)
   })
 
-  it('POST merge forwards agents/files and returns results', async () => {
+  it('GET api/task/:id/conflicts returns REAL conflicts from the dry-run', async () => {
     const orch = fakeOrchestrator()
     const router = createDiffApiRouter(orch)
     const { res, body } = fakeRes()
-    await router.handle(fakeReq('POST', { agents: ['claude'], files: ['src/LoginForm.tsx'] }), res, '/api/task/t-1/merge')
+    await router.handle(fakeReq('GET'), res, '/api/task/t-1/conflicts')
+    expect(orch.getRealConflicts).toHaveBeenCalledWith('t-1')
+    expect(JSON.parse(body()).conflictFiles).toEqual(['src/LoginForm.tsx'])
+  })
+
+  it('POST merge forwards agents/files, confirmationToken and resolutions', async () => {
+    const orch = fakeOrchestrator()
+    const router = createDiffApiRouter(orch)
+    const { res, body } = fakeRes()
+    await router.handle(
+      fakeReq('POST', {
+        agents: ['claude'],
+        files: ['src/LoginForm.tsx'],
+        confirmationToken: 'tok',
+        resolutions: { 'src/LoginForm.tsx': { kind: 'agent', agent: 'claude' } },
+      }),
+      res,
+      '/api/task/t-1/merge',
+    )
     expect(orch.mergeTask).toHaveBeenCalledWith({
       taskId: 't-1',
       agents: ['claude'],
       files: ['src/LoginForm.tsx'],
+      confirmationToken: 'tok',
+      resolutions: { 'src/LoginForm.tsx': { kind: 'agent', agent: 'claude' } },
+      source: 'ui',
     })
     const data = JSON.parse(body())
     expect(data.results).toHaveLength(1)
     expect(data.results[0].committed).toBe(true)
   })
 
-  it('POST discard routes to discardTask', async () => {
+  it('POST discard forwards the confirmation token with ui source', async () => {
     const orch = fakeOrchestrator()
     const router = createDiffApiRouter(orch)
     const { res, body } = fakeRes()
-    await router.handle(fakeReq('POST'), res, '/api/task/t-1/discard')
-    expect(orch.discardTask).toHaveBeenCalledWith('t-1')
+    await router.handle(fakeReq('POST', { confirmationToken: 'd' }), res, '/api/task/t-1/discard')
+    expect(orch.discardTask).toHaveBeenCalledWith('t-1', 'd', 'ui')
     expect(JSON.parse(body()).ok).toBe(true)
   })
 
@@ -142,5 +186,21 @@ describe('diff API router', () => {
     const data = JSON.parse(body())
     expect(data.tasks).toHaveLength(1)
     expect(data.tasks[0].prompt).toBe('修复登录验证')
+  })
+
+  it('approval endpoints: request, decision, policy', async () => {
+    const orch = fakeOrchestrator()
+    const router = createDiffApiRouter(orch)
+    let r = fakeRes()
+    await router.handle(fakeReq('POST', { op: 'merge', taskId: 't-1' }), r.res, '/api/approvals')
+    expect(orch.requestConfirmation).toHaveBeenCalledWith({ op: 'merge', taskId: 't-1' }, 'ui')
+    expect(JSON.parse(r.body()).approvalId).toBe('ap-diff')
+    r = fakeRes()
+    await router.handle(fakeReq('POST', { approve: true }), r.res, '/api/approvals/ap-diff/decision')
+    expect(JSON.parse(r.body()).granted).toBe(true)
+    r = fakeRes()
+    await router.handle(fakeReq('GET'), r.res, '/api/approvals/policy?op=merge')
+    expect(orch.policyMode).toHaveBeenCalledWith('merge')
+    expect(JSON.parse(r.body()).confirmRequired).toBe(true)
   })
 })
