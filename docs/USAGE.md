@@ -30,16 +30,34 @@
 
 装入 `@helmsman/ui-workbench` 后，DSH 网页侧边栏底部出现 **🚀 Helmsman** 按钮：
 
-1. 点击打开右侧抽屉，四个面板随时切换：
+1. 点击打开右侧抽屉，五个面板随时切换：
    - **📚 研究**：输入主题 → ▶ 生成研究笔记（走 DSH 预设会话 + 当前模型，约 30s~2min）。
    - **📋 PRD**：从需求/研究笔记生成 PRD 草稿。
    - **⚡ 执行**：内嵌执行看板；也可「↗ 在新页面打开完整看板」。
    - **🕸️ 知识**：加载项目知识图谱（拓扑 + 已归档文档）。
+   - **📦 交付物**：已注册产物（草稿/归档笔记/拓扑导出/任务包）列表与下载链接。
 2. **📄 草稿**：生成产物列在面板下方，「查看」读全文，「✅ 归档」把定稿写入
    Tolaria vault（`~/.helmsman/vault/`）——未归档的草稿只留在本地。
 3. **自定义指令**：输入框上方的指令 chips（「＋ 指令」新建），一键填入并运行；
    存储于 `~/.helmsman/workbench/commands.json`。
-4. 独立页：`/helmsman-workbench/`（不带斜杠会自动 301 跳转）。
+4. **对话 → 任务卡片**：把一段对话「保存为任务」，在**任务工作项**里继续推进
+   （模型/四阶段/关联/WIP 详见 `docs/TASK-MODEL.md`）：
+   - `GET /helmsman-workbench/api/sessions[?limit=20]` — 最近 DSH 会话门面（`id` + 标题），
+     供选择器列候选；没有可用会话缝隙时返回 `{ sessions: [], available: false }`（不是报错）。
+   - `POST /helmsman-workbench/api/task-from-conversation`
+     `{ title, sessionId?, repo?, projectGroup?, stage?, summary? }` → 建档并返回
+     `{ ok, id, stage, summary, associations, item, context, warnings }`：
+     读该会话最近消息 → 生成 **2–4 行中文摘要**（`generatedBy: model`）→
+     调 `helmsman.board.create(...)` → 把来源会话作为 `conversation` 关联挂到卡片。
+     模型不可用或生成失败时摘要退化为最近消息前 ~200 字（`generatedBy: fallback`），
+     **不会因此丢卡**；自带 `summary` 时按原文存为 `manual`，不调用模型。
+   - `repo` / `projectGroup` 至少给一个（卡片按「仓库 × 模块」算 WIP 冲突域）；只给
+     `sessionId` 时会用该会话的 cwd 推断 `baseRepo`，都拿不到则以 `invalid repo` 400 拒绝。
+   - 未安装 `@helmsman/board` 时该接口返回明确错误（「未安装 @helmsman/board 插件」），
+     工作台其余功能不受影响。
+5. **看板页**：`/helmsman-board/`（`@helmsman/ui-board`）按四阶段列展示任务卡片，
+   阶段推进、关联与摘要都在卡片详情里操作；从工作台建档后可直接在这里打开卡片。
+6. 独立页：`/helmsman-workbench/`（不带斜杠会自动 301 跳转）。
 
 生成工具也可在对话/headless 中直接调用（见 §3）；生成过程中模型再次调用
 生成工具会被拒绝（递归闸门），单次生成超 240s 自动取消。
@@ -169,9 +187,13 @@ merge / discard / cancel / worktree 清理 / topology 删除是敏感（破坏�
 （任务 worktree，任务合并/放弃后自动清理）、`~/.helmsman/history/`
 （任务生命周期摘要 `tasks.json` + 每任务事件时间线 `tasks/<taskId>.jsonl`，
 宿主重启后任务列表与详情仍可见，被打断的任务以其最后已知状态展示）、
-`~/.helmsman/audit/`（审计 JSONL）。
+`~/.helmsman/audit/`（审计 JSONL）、`~/.helmsman/board/`
+（**任务工作项**：`items.json` 卡片快照，tmp+rename 原子写；`events.jsonl` 阶段迁移/关联事件。
+`items.json` 损坏时启动报错并保留原文件，不静默重建——模型与四阶段见 `docs/TASK-MODEL.md`）。
 
 REST/SSE 补充端点（供脚本/调试）：
+- `POST /helmsman-workbench/api/task-from-conversation` — 对话 → 任务卡片（见 §2.4）。
+- `GET /helmsman-workbench/api/sessions` — 最近 DSH 会话门面（`id` + 标题）。
 - `GET /api/task/:id/events?after=<seq>` — 有序事件 + `nextCursor`；cursor 已是最新时为空；命中已清理区间返回 `pruned: true`。
 - `GET /api/task/:id/stream?after=<seq>` — SSE：先重放持久化历史再实时 tail，15s 心跳，任务进终态即关闭。
 - `GET /api/task/:id/conflicts` — 只读 dry-run：返回该任务当前真实冲突文件清单（`git apply --check`）。
@@ -185,7 +207,7 @@ REST/SSE 补充端点（供脚本/调试）：
 ## 6. 验证安装
 
 ```bash
-dsh --profile web --dump-config | grep helmsman      # 12 个 helmsman-* 条目
+dsh --profile web --dump-config | grep helmsman      # 15 个 helmsman-* 条目
 curl -s localhost:3080/helmsman-dashboard/api/state  # {"groups":[...],"agents":{...}}
 open http://127.0.0.1:3080/helmsman-dashboard/
 ```

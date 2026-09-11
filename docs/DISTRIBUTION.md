@@ -116,7 +116,7 @@ Dashboard/Diff 路由 200、API 正常。这是目前唯一**不依赖 registry*
 ## 版本管理与兼容性
 
 - **版本同步**：Helmsman 各包统一版本号，升级时全部 bump，避免 bundle 依赖漂移。
-  当前版本与 13 个插件清单以 `toolchain.json` `helmsman` 节为权威，并与
+  当前版本与 15 个插件清单以 `toolchain.json` `helmsman` 节为权威，并与
   `packages/*/package.json`、`packages/bundle/cordis.patch.yml` 交叉核对
   （`pnpm verify:toolchain` 自动执行）。可用 changesets 或手动同步。
 - **peer 依赖策略**：`@deepseek-ai/cordis` 与 `@deepseek-ai/dsh-tools`

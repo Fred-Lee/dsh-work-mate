@@ -31,13 +31,16 @@ Helmsman 是一套构建在 [DeepSeek Harness (DSH)](https://github.com/deepseek
 | [`@helmsman/worktree`](packages/worktree)                          | Service         | Worktree 调度：创建/清理/收集 diff/patch 合并，惰性集成`dsh-virtual-workspace`                                                                       |
 | [`@helmsman/memory-topology`](packages/memory-topology)            | Service + Tools | 项目拓扑记忆（PRD §3.2 数据模型），Maven 父 POM / REST API 扫描，docker-compose / K8s / OpenAPI 导入，YAML 导出，最佳努力镜像到`dsh-memory-manager` |
 | [`@helmsman/knowledge-tolaria`](packages/knowledge-tolaria)        | Service         | **L4 知识层**：Tolaria vault 归档门面（仅定稿）+ 全文检索 + 项目知识图谱（消费 topology）                                                          |
+| [`@helmsman/artifacts`](packages/artifacts)                        | Service         | 产物交付注册表：sha256 内容寻址（同内容去重）+ 原子清单 + CJK 安全下载头；宿主经 `ctx.get` 懒取                                                  |
+| [`@helmsman/board`](packages/board)                                | Service         | **任务工作项层**：跨四阶段聚合根（需求→规格→开发→归档），引用式关联（文档/对话/run/服务/产物），DoR/DoD 门与冲突域 WIP；`~/.helmsman/board` 持久化 |
 | [`@helmsman/orchestrator`](packages/orchestrator)                  | Service + Tools | 多 Agent 并行调度引擎：限流退避重试、断路器、取消、冲突标注、合并/放弃，`helmsman_run_parallel` 等 4 个工具                                          |
 | `@helmsman/adapter-claude` / `-codex` / `-pi` / `-oh-my-pi` | Agent Adapter   | 非交互 CLI 执行（无 shell、argv 数组、超时/取消、流式日志），命令与参数可配置                                                                          |
 | [`@helmsman/presets`](packages/presets)                            | Agent 预设 + Tools | **L1/L2 生成**：研究 / PRD / 拆解 / 需求分析 4 个 agent 预设（同步进 DSH roster）+ `helmsman_research` 等 4 个生成工具（走 `helmsman.generator` 引擎） |
 | [`@helmsman/ui-dashboard`](packages/ui-dashboard)                  | Web UI          | 主控面板 React SPA（PRD 第 4 章规范全量实现；同时导出可嵌入视图模块 `./client/embed`）                                                                  |
 | [`@helmsman/ui-diff`](packages/ui-diff)                            | Web UI          | 多 Agent Diff 对比：split / unified / side-by-side、冲突标注与方案选择、行级评论、合并（同样可嵌入）                                                    |
-| [`@helmsman/ui-workbench`](packages/ui-workbench)                  | Web UI + DSH client | **工作台**：DSH 网页侧边栏「🚀 Helmsman」入口 + 右侧抽屉（研究/PRD/执行/知识 4 面板）+ 生成/草稿/归档/指令库 REST；DSH client bundle 注入 `shell.overlay` |
-| [`@helmsman/bundle`](packages/bundle)                              | Bundle          | 一条命令装入全部 13 个插件                                                                                                                              |
+| [`@helmsman/ui-workbench`](packages/ui-workbench)                  | Web UI + DSH client | **工作台**：DSH 网页侧边栏「🚀 Helmsman」入口 + 右侧抽屉（研究/PRD/执行/知识/交付物 5 面板）+ 生成/草稿/归档/指令库 REST；DSH client bundle 注入 `shell.overlay` |
+| [`@helmsman/ui-board`](packages/ui-board)                          | Web UI          | **任务看板**（独立页 `/helmsman-board/`）：四列卡片 + 摘要与角标、URL 状态筛选、冲突域 WIP 与排队、详情抽屉（关联跳转 + 推进门）、run 实时面板（冲突只标注并跳 diff，不代裁决） |
+| [`@helmsman/bundle`](packages/bundle)                              | Bundle          | 一条命令装入全部 15 个插件                                                                                                                              |
 
 文档：[架构说明](docs/ARCHITECTURE.md) · [UI 规范符合性矩阵](docs/UI-COMPLIANCE.md) ·
 [安全审计报告](docs/SECURITY-AUDIT.md) · [使用手册](docs/USAGE.md) ·
@@ -65,7 +68,7 @@ done
 #   或逐个安装后安装 bundle：dsh plugin --profile web add -w ./packages/bundle
 
 # 4) 验证插件树注册成功
-dsh --profile web --dump-config | grep helmsman   # 应看到 13 个 helmsman-* 条目
+dsh --profile web --dump-config | grep helmsman   # 应看到 15 个 helmsman-* 条目
 
 # 5) 启动
 dsh web          # 打开 http://127.0.0.1:3080/helmsman-dashboard/
@@ -85,7 +88,7 @@ dsh web          # 打开 http://127.0.0.1:3080/helmsman-dashboard/
 2. **npm 发布**（正式对外）：`pnpm publish` 各包（含 `@helmsman/bundle`），
    收件人一条命令 `dsh plugin --profile <p> add @helmsman/bundle` 装齐全部插件。
 3. **私有 registry**：Verdaccio/Nexus 等，发布命令与 2 相同。
-4. **tarball 直发**（无 registry）：`pnpm pack` 出 13 个 tgz 分发给收件人，
+4. **tarball 直发**（无 registry）：`pnpm pack` 出 15 个 tgz 分发给收件人，
    `dsh plugin --profile <p> add file:/path/to/helmsman-*.tgz`。
    该路径已在本机 `helmsman-dist` profile 端到端验证（安装 → dump-config →
    启动 → UI 200）。

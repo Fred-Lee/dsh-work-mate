@@ -32,7 +32,7 @@ cd ~/Documents/workspace/dsh-Helmsman && pnpm build
 cd ~/Documents/workspace/deepseek-harness && pnpm dsh web
 ```
 
-期望：启动日志里 13 个 Helmsman 插件逐行 ready、**0 error**：
+期望：启动日志里 15 个 Helmsman 插件逐行 ready、**0 error**：
 
 ```
 [helmsman/worktree] service ready (root: /Users/fredlee/.helmsman/worktrees)

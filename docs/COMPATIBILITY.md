@@ -54,7 +54,7 @@ Bundle (installs the whole tree; not a layer itself):
 |---|---|---|
 | @helmsman/bundle | 0.1.0 | ./packages/bundle (registry: @helmsman/bundle@0.1.0) |
 
-Layers (13 plugins):
+Layers (15 plugins):
 
 | package | version | source |
 |---|---|---|
@@ -62,6 +62,7 @@ Layers (13 plugins):
 | @helmsman/memory-topology | 0.1.0 | ./packages/memory-topology |
 | @helmsman/knowledge-tolaria | 0.1.0 | ./packages/knowledge-tolaria |
 | @helmsman/artifacts | 0.1.0 | ./packages/artifacts |
+| @helmsman/board | 0.1.0 | ./packages/board |
 | @helmsman/orchestrator | 0.1.0 | ./packages/orchestrator |
 | @helmsman/adapter-claude | 0.1.0 | ./packages/adapter-claude |
 | @helmsman/adapter-codex | 0.1.0 | ./packages/adapter-codex |
@@ -71,6 +72,7 @@ Layers (13 plugins):
 | @helmsman/ui-dashboard | 0.1.0 | ./packages/ui-dashboard |
 | @helmsman/ui-diff | 0.1.0 | ./packages/ui-diff |
 | @helmsman/ui-workbench | 0.1.0 | ./packages/ui-workbench |
+| @helmsman/ui-board | 0.1.0 | ./packages/ui-board |
 
 ### Toolchain engines
 

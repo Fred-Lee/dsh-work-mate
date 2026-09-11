@@ -23,7 +23,9 @@ export function apply(ctx: Context, config) // 挂载点
 helmsman.worktree   (provide) ←─ inject ── orchestrator
 helmsman.topology   (provide, 自足)           │
 helmsman.orchestrator (provide) ←─ inject ── adapter-{claude,codex,pi,oh-my-pi}
-webServer (DSH 内置) ←─ inject ── ui-dashboard, ui-diff
+helmsman.artifacts  (provide, 自足) ←─ 惰性 ctx.get ── ui-dashboard / ui-workbench / orchestrator
+helmsman.board      (provide, 自足) ←─ 惰性 ctx.get ── ui-workbench(建档) / ui-board(看板)
+webServer (DSH 内置) ←─ inject ── ui-dashboard, ui-diff, ui-workbench, ui-board
 ```
 
 - **worktree**：`git worktree add -b helmsman/<taskId>-<agent>`，记录 baseSha；
@@ -41,13 +43,42 @@ webServer (DSH 内置) ←─ inject ── ui-dashboard, ui-diff
   cordis 装配 + 4 个 agent 工具注册。任务状态机与 PRD §4.2 一致；
   限流(429)按 2s/8s/32s 指数退避重试（默认 3 次），认证失效不重试，
   连续 5 次失败触发 30s 断路器；`helmsman/task-updated` 事件经 `ctx.emit` 广播。
+- **board（任务工作项）**：纯 Service 插件（`inject: []`，无 webServer、无工具），把
+  「一次任务」提升为 orchestrator run **之上**的跨阶段聚合根：
+  `WorkItem{ id, title, summary, repoScope, stage, runs[] }` 持有四阶段
+  （需求分析 → 规格设计 → 开发实施 → 验收归档，仅允许 +1 推进，门数据/门探针校验）
+  与关联集（docs / conversations / worktrees / runs / affectedServices / artifacts，
+  全部存**引用 + label 快照**而非副本）。run 状态不复制：board 需要时经注入的只读
+  `RunStatusReader` 查 orchestrator/change A 的落盘时间线，`taskId` 语义不变。
+  存储 `~/.helmsman/board/items.json`（tmp+rename 原子写）+ `events.jsonl`（迁移/关联事件，
+  供 change C 审计）；模型、四阶段 DoR/DoD、冲突域 WIP 与摘要契约见 `docs/TASK-MODEL.md`。
 - **UI 插件**：host 半区经 `ctx.webServer.register({kind:'prefix'})` 挂载
-  `/helmsman-dashboard` 与 `/helmsman-diff`，同源 REST API + 静态 SPA
+  `/helmsman-dashboard`、`/helmsman-diff` 与 `/helmsman-workbench`，同源 REST API + 静态 SPA
   （esbuild 打包 React 18 为 IIFE，零运行时 npm 依赖）。这是社区插件
   `dsh-Visual-Workflow` 验证过的第三方 UI 模式，不依赖 `dsh.client`
   module roster（后者需要 web-app bundle 深度配合）。
+  - `ui-workbench`：研究/PRD/执行/知识/交付物面板 + 草稿归档 + 自定义指令，并在 host 侧提供
+    **「对话 → 任务卡片」建档通道**（`POST /api/task-from-conversation`、
+    `GET /api/sessions`）：读会话最近消息 → 生成 2–4 行中文摘要（失败退化为最近消息前 ~200 字，
+    标注 `generatedBy: fallback`，**摘要失败不丢卡**）→ `helmsman.board.create`。
+  - `ui-board`：看板页 `/helmsman-board`，按四阶段列展示卡片、推进阶段、查看关联与摘要；
+    与 ui-workbench 一样对 `helmsman.board` 做**惰性 `ctx.get`** 并降级。
 
 ## 3. 数据流
+
+两层「任务」：**WorkItem（跨阶段聚合根，board 拥有）** 在 orchestrator 的 run（`taskId`）**之上**，
+只以引用挂接 run——run 的状态/时间线仍归 orchestrator（change A 落盘），卡片不复制。
+
+```
+WorkItem (board, ~/.helmsman/board/items.json)
+  ├ conversation 关联 ← 建档时由 ui-workbench 写入(会话 id + 摘要, 摘要生成在宿主)
+  ├ runs[]        ──▶ orchestrator taskId(只读引用; 门校验与 WIP 评估在 board 侧)
+  ├ doc/worktree/service/artifact 关联(引用 + label 快照, 不复制内容)
+  └ stage 迁移 ──▶ board/events.jsonl(供 change C 审计)
+        ▲                              │
+        │ 推进(仅 +1, 带门缺口清单)     │ 看板渲染
+   ui-workbench /api/task-from-conversation   ui-board /helmsman-board
+```
 
 ```
 Dashboard (React, 单向数据流 useReducer)
@@ -92,6 +123,9 @@ orchestrator.runParallelTask()                    │ helmsman/task-updated 事�
 - **可选依赖竞态**：orchestrator 对 topology 是可选依赖，不能 `inject`（否则
   未装 topology 时永久 PENDING），而 `ctx.get` 在 apply 期立即解析会因服务
   未 ACTIVE 拿到 undefined——因此传入**惰性 getter**，运行时再解析。
+  `helmsman.artifacts` / `helmsman.board` / `sessionQuery` / `sessionTitle` 同理：
+  UI 宿主的 `inject` 里不出现它们，每个请求才 `ctx.get`，缺失即降级
+  （board 缺失时建档接口返回「未安装 @helmsman/board 插件」的明确错误）。
 - **拓扑提示注入（cascade）**：v1 把下游依赖图作为提示词上下文注入每个 agent
   （不改执行顺序）；服务级级联编排（按拓扑序逐服务执行）留作后续，
   `topology.cascadeOrder()` 已提供拓扑序计算。
@@ -107,10 +141,14 @@ packages/
   worktree/          git worktree 服务（diffparse / service / git）
   memory-topology/   拓扑存储 + 扫描器 + 导入导出 + 3 个 agent 工具
   orchestrator/      core.ts（引擎）+ index.ts（cordis 装配 + 工具）
+  artifacts/         内容寻址产物注册表（helmsman.artifacts 纯 Service）
+  board/             任务工作项聚合根（helmsman.board 纯 Service：模型/四阶段/门/关联/事件）
   adapter-*/         每个适配器独立（spawn 循环 + 参数模板 + README）
   ui-dashboard/      src/*.ts(host) + src/client/*(React SPA + CSS 变量双主题)
   ui-diff/           同上 + 统一 diff 解析/冲突 UI/合并栏
-  bundle/            cordis.patch.yml 聚合 9 行 insert
+  ui-workbench/      host(router.ts / generator.ts / intake.ts) + client 面板；对话→卡片建档
+  ui-board/          看板页 /helmsman-board（四阶段列 + 卡片详情 + 推进）
+  bundle/            cordis.patch.yml 聚合 insert 行
 scripts/build-package.mjs   共享 esbuild 配置（packages:external）
 ```
 

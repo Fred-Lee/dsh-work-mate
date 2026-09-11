@@ -155,6 +155,12 @@
         "source": "./packages/artifacts"
       },
       {
+        "name": "@helmsman/board",
+        "dir": "board",
+        "version": "0.1.0",
+        "source": "./packages/board"
+      },
+      {
         "name": "@helmsman/orchestrator",
         "dir": "orchestrator",
         "version": "0.1.0",
@@ -207,6 +213,12 @@
         "dir": "ui-workbench",
         "version": "0.1.0",
         "source": "./packages/ui-workbench"
+      },
+      {
+        "name": "@helmsman/ui-board",
+        "dir": "ui-board",
+        "version": "0.1.0",
+        "source": "./packages/ui-board"
       }
     ]
   },

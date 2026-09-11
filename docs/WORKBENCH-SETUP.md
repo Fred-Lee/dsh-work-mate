@@ -21,8 +21,8 @@
 | dsh-auto-review | 0.10.4 | **第二模型复核**：审批链上只读 reviewer subagent 决定 allow/deny，fail-closed |
 | @changfenhuang/dsh-annotation | 1.4.8 | 选中文字→批注→随消息发送 |
 
-**Helmsman 自研 13 个插件**（worktree/memory-topology/knowledge-tolaria/artifacts/orchestrator/
-adapter-*4/presets/ui-dashboard/ui-diff/ui-workbench）同 profile 共存。
+**Helmsman 自研 15 个插件**（worktree/memory-topology/knowledge-tolaria/artifacts/board/orchestrator/
+adapter-*4/presets/ui-dashboard/ui-diff/ui-workbench/ui-board）同 profile 共存。
 
 ## 工作流
 

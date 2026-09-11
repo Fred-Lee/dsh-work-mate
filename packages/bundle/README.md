@@ -1,6 +1,6 @@
 # @helmsman/bundle
 
-Helmsman 组合包。把 13 个 Helmsman 插件一次性装入一个 DSH profile：
+Helmsman 组合包。把 15 个 Helmsman 插件一次性装入一个 DSH profile：
 
 ```bash
 # 在本仓库根目录执行
@@ -9,7 +9,7 @@ dsh plugin --profile web add ./packages/bundle
 
 `pnpm` 会解析 bundle 的依赖（所有 `@helmsman/*` 插件互相以 workspace 依赖声明的
 部分会一并装入 profile），随后 `dsh --dump-config --profile web` 应能看到本文件
-列出的全部 13 个 `id`。
+列出的全部 15 个 `id`。
 
 聚合内容：worktree / memory-topology / knowledge-tolaria / artifacts /
 orchestrator / adapter-{claude,codex,pi,oh-my-pi} / presets / ui-dashboard /
