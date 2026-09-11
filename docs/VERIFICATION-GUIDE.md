@@ -79,7 +79,7 @@ dsh web: http://127.0.0.1:3080/?token=...
 **想从干净状态开始**（会清掉历史/审计/产物，谨慎）：
 
 ```bash
-rm -rf ~/.helmsman/{history,audit,artifacts}   # 保留 worktrees/topologies/vault
+rm -rf ~/.helmsman/{history,audit,artifacts,board}   # 保留 worktrees/topologies/vault
 ```
 
 ---
@@ -389,20 +389,159 @@ content-disposition: attachment; filename="helmsman-topology-____.yaml"; filenam
 
 ---
 
-## 6. 任务看板（编写中，落地后补真实输出）
+## 6. 任务看板（已实测，输出为本机真实结果）
 
-以下按 `openspec/changes/add-task-kanban-board/specs/task-kanban/spec.md` 的规格列出**将要验证**的点。
-三个实现车道（`packages/board` / `packages/ui-board` / workbench 建档）正在并行开发，
-落地后我会用真实输出替换本节并标注实测结果——**在此之前不要按本节判定通过**。
+页面：`http://127.0.0.1:3080/helmsman-board/`（独立页；SPA 资源 `app.js` 约 176 KB）。
+看板 API 前缀 `BB=http://127.0.0.1:3080/helmsman-board`。
 
-- 页面 `http://127.0.0.1:3080/helmsman-board/` 呈现四列：需求分析 / 规格设计 / 开发实施 / 验收归档
-- 卡片显示标题 + 对话摘要（2–4 行截断）+ 角标（📄/💬/🧩）+ run 状态点
-- 筛选（仓库/阶段/有无摘要）写入 URL query，刷新与分享保持状态
-- 开发列按**冲突域**（`仓库:模块`）分组显示 `在跑/上限`；同仓库不同模块可并行，同域超限进入排队并给出原因
-- 推进门：`规格→开发` 需 spec 已定稿；`开发→归档` 需 ≥1 个 run 已合并且有审计记录；不满足则列出缺口并**拒绝推进**
-- 详情抽屉：摘要可编辑、关联分区可跳转（文档/对话/服务/worktree/runs/产物），点击不回拷内容
-- run 面板：SSE 实时时间线；冲突**只标注并跳转 diff**，页面内**不存在**自动合并/一键采纳控件
-- 建档：页面「+ 新建任务」与聊天侧「保存为任务」都能建卡，并自动带一段对话摘要
+### 6.1 四列与页面资源
+
+```bash
+BB=http://127.0.0.1:3080/helmsman-board
+curl -s $BB/api/items | python3 -c "
+import sys,json;d=json.load(sys.stdin)
+print('columns:', [(c['stage'], c['label'], c['count']) for c in d['columns']])"
+```
+
+期望（实测）：
+
+```
+columns: [('requirements', '需求分析', 0), ('spec', '规格设计', 0), ('dev', '开发实施', 0), ('done', '验收归档', 0)]
+```
+
+顶层另有 `items`（扁平卡片数组）、`wip`（各冲突域计数）、`repos`、`config`。
+
+```bash
+curl -s -o /dev/null -w "index.html %{http_code} %{content_type}\n" $BB/
+curl -s -o /dev/null -w "app.js     %{http_code} %{size_download}\n" $BB/app.js
+# 实测：index.html 200 text/html; charset=utf-8 / app.js 200 175808
+```
+
+### 6.2 建档
+
+```bash
+A=$(curl -s -X POST $BB/api/item -H 'content-type: application/json' \
+  -d '{"title":"看板冒烟A","baseRepo":"/tmp/helmsman-board-smoke","module":"alpha"}')
+AID=$(echo "$A" | python3 -c "import sys,json;print(json.load(sys.stdin)['item']['id'])")
+```
+
+期望：`{"ok":true,"item":{"id":"wi_...","stage":"requirements","stageLabel":"需求分析",...}}`
+
+### 6.3 门控：未定稿 spec 被拦，置位后放行
+
+```bash
+# ① 需求 → 规格（应放行）
+curl -s -X POST $BB/api/item/$AID/advance -H 'content-type: application/json' -d '{}' \
+  | python3 -c "import sys,json;d=json.load(sys.stdin);print('ok=',d['ok'],'to=',d['to'])"
+# 实测：ok= True to= spec
+
+# ② 规格 → 开发（未定稿，应被拒）
+curl -s -X POST $BB/api/item/$AID/advance -H 'content-type: application/json' -d '{}' \
+  | python3 -c "
+import sys,json;d=json.load(sys.stdin)
+print('ok=',d['ok'],'moved=',d['moved'],'stage=',d['item']['stageLabel'])
+[print('   gap:',g['key'],'|',g['label']) for g in d['gaps']]"
+# 实测：ok= False moved= False stage= 规格设计
+#       gap: spec-finalized | 缺少已定稿的 spec
+
+# ③ 置位 specFinalized
+curl -s -X PATCH $BB/api/item/$AID -H 'content-type: application/json' -d '{"specFinalized":true}' >/dev/null
+
+# ④ 再推进（应放行进开发）
+curl -s -X POST $BB/api/item/$AID/advance -H 'content-type: application/json' -d '{}' \
+  | python3 -c "import sys,json;d=json.load(sys.stdin);print('ok=',d['ok'],'moved=',d['moved'],'stage=',d['item']['stageLabel'])"
+# 实测：ok= True moved= True stage= 开发实施
+```
+
+**要点**：被拒时 `moved=false` 且卡片阶段不变——看板不会本地移动卡片。
+
+### 6.4 冲突域 WIP：同仓不同模块并行，同域排队（核心场景）
+
+```bash
+R=/tmp/helmsman-board-smoke
+mk() { curl -s -X POST $BB/api/item -H 'content-type: application/json' \
+  -d "{\"title\":\"$1\",\"baseRepo\":\"$R\",\"module\":\"$2\"}" \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['item']['id'])"; }
+toDev() { curl -s -X POST $BB/api/item/$1/advance -H 'content-type: application/json' -d '{}' >/dev/null
+  curl -s -X PATCH $BB/api/item/$1 -H 'content-type: application/json' -d '{"specFinalized":true}' >/dev/null
+  curl -s -X POST $BB/api/item/$1/advance -H 'content-type: application/json' -d '{}' \
+  | python3 -c "import sys,json;d=json.load(sys.stdin);print('  ok=',d['ok'],'moved=',d['moved'],'stage=',d['item']['stageLabel'],'queue=',d.get('queueingReason'))"; }
+
+BID=$(mk "看板冒烟B" beta); toDev "$BID"    # 同仓、不同模块 → 应放行
+CID=$(mk "看板冒烟C" alpha); toDev "$CID"   # 同仓、同模块 alpha → 应被拒
+```
+
+期望（实测）：
+
+```
+  ok= True  moved= True  stage= 开发实施 queue= None
+  ok= False moved= False stage= 规格设计 queue= 冲突域 "/tmp/helmsman-board-smoke:alpha" 已达 WIP 上限(1/1)
+```
+
+各域计数：
+
+```bash
+curl -s $BB/api/board/wip | python3 -c "
+import sys,json;d=json.load(sys.stdin)
+print('source=',d['source'])
+for x in d['domains']: print('  %-44s running=%s/%s' % (x['key'], x['running'], x['limit']))"
+# 实测（节选）：
+#   source= service
+#     /tmp/helmsman-board-smoke:alpha            running=1/1
+#     /tmp/helmsman-board-smoke:beta             running=1/1
+```
+
+**这就是"一个仓库可以并行跑不同需求"的落地**：同仓库不同模块各自计数并放行；同域达上限则拒绝，并给出含域名与计数的中文排队原因。
+
+### 6.5 归档门：无已合并 run 被拦
+
+```bash
+curl -s -X POST $BB/api/item/$AID/advance -H 'content-type: application/json' -d '{}' \
+  | python3 -c "
+import sys,json;d=json.load(sys.stdin)
+print('ok=',d['ok'],'moved=',d['moved'],'stage=',d['item']['stageLabel'])
+[print('   gap:',g['key'],'|',g['label']) for g in d['gaps']]"
+# 实测：ok= False moved= False stage= 开发实施
+#       gap: run-merged       | 该卡片尚未关联任何 run
+#       gap: audit-on-record  | 无法确认合并审计记录:未配置 gate probe
+```
+
+### 6.6 会话建档（真实模型摘要）
+
+```bash
+SID=$(curl -s http://127.0.0.1:3080/helmsman-workbench/api/sessions \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['sessions'][0]['id'])")
+curl -s -X POST http://127.0.0.1:3080/helmsman-workbench/api/task-from-conversation \
+  -H 'content-type: application/json' \
+  -d "{\"title\":\"会话建档冒烟\",\"repo\":\"/tmp/helmsman-board-smoke\",\"sessionId\":\"$SID\"}" \
+  | python3 -c "
+import sys,json;d=json.load(sys.stdin);it=d['item'];s=it['summary']
+print('ok=',d['ok'],'id=',it['id'],'stage=',it['stageLabel'])
+print('generatedBy=',s['generatedBy'],'chars=',len(s['text']))
+print('head=',s['text'][:110].replace(chr(10),' '))"
+```
+
+期望（实测，摘要内容随会话而变）：
+
+```
+ok= True id= wi_26aaab310c534863 stage= 需求分析
+generatedBy= model chars= 257
+head= 对话主题是用 Helmsman 深度研究工作流为"MCP 协议一句话解释"产出结构化行业研究笔记。…
+```
+
+**要点**：`generatedBy=model` 表示走了真实模型摘要；模型不可用时退化为 `fallback`（最近消息前 ~200 字），**卡片仍会被创建**（不因摘要失败丢卡）。
+该路由的仓库字段名是 `repo`（不是 `baseRepo`）；缺仓库且无法从会话 cwd 推导时返回 400
+`invalid repo: 需要 repo 或 projectGroup(或提供能解析出 cwd 的 sessionId)`。
+
+### 6.7 冲突裁决仍由人决定（设计约束，非功能缺失）
+
+看板 run 面板对冲突**只标注并跳转 `/helmsman-diff/`**，页面内没有自动合并或一键采纳控件；
+`packages/ui-board/src/client/run-panel.test.tsx` 有专门断言守护这一点，防止回归成系统代选。
+
+### 6.8 已知未实现（如实记录）
+
+**聊天消息侧「保存为任务」按钮**未实现：当前建档入口是看板页「+ 新建任务」表单，以及上面
+可直接调用的 `POST api/task-from-conversation`。聊天消息动作属 DSH client slot 增强，留待后续。
 
 ---
 
@@ -419,7 +558,7 @@ rm -rf /tmp/helmsman-smoke /tmp/topo.yaml /tmp/m?.json /tmp/b?.json /tmp/appr.js
 若要连状态一起清干净（谨慎，会丢历史/审计/产物）：
 
 ```bash
-rm -rf ~/.helmsman/{history,audit,artifacts}
+rm -rf ~/.helmsman/{history,audit,artifacts,board}
 ```
 
 ---
