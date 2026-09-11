@@ -71,7 +71,14 @@ export interface TaskBundleManifest {
   taskId: string
   prompt: string
   status: string
+  /**
+   * Task start time (ISO). Derived from the task record, NEVER from the
+   * packaging moment: the manifest is content-addressed, so any per-request
+   * timestamp would defeat deduplication (spec artifact-delivery).
+   */
   createdAt: string
+  /** Terminal time (ISO) when the task reached its final state, else null. */
+  endedAt: string | null
   baseSha: string | null
   /** merge/discard outcome: which agents' changes are still in their worktrees. */
   notes: string[]
@@ -473,6 +480,10 @@ interface BundleTaskShape {
   id: string
   prompt: string
   status: string
+  /** Task start time (epoch ms) — stable across requests, so bundle bytes dedupe. */
+  createdAt: number
+  /** Terminal time (epoch ms) when reached; absent while running. */
+  endedAt?: number
   agents: Record<string, {
     state: string
     diffs?: Array<{ path: string; status: string; additions: number; deletions: number; diff: string }>
@@ -520,7 +531,9 @@ async function collectTaskBundle(
     taskId: task.id,
     prompt: task.prompt,
     status: task.status,
-    createdAt: new Date().toISOString(),
+    // Stable inputs only — see the TaskBundleManifest doc comment.
+    createdAt: new Date(task.createdAt).toISOString(),
+    endedAt: typeof task.endedAt === 'number' ? new Date(task.endedAt).toISOString() : null,
     baseSha: first?.baseSha ?? null,
     notes,
     agents: sections.map((s) => ({

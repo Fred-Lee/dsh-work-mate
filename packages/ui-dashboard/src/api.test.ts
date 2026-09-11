@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { EventEmitter } from 'node:events'
+import { createHash } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createApiRouter, type TopologyServiceLike } from './api.ts'
 
@@ -491,5 +492,226 @@ describe('history timeline + SSE routes', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Delivery artifacts (add-artifact-delivery-endpoints)
+// ---------------------------------------------------------------------------
+
+/** Response stub that records status + headers + a string/binary body. */
+function resWithHeaders(): {
+  res: ServerResponse
+  status: () => number
+  headers: () => Record<string, string>
+  out: () => string
+} {
+  let status = 0
+  let headers: Record<string, string> = {}
+  let body = ''
+  const res = {
+    writeHead: (code: number, h?: Record<string, string>) => {
+      status = code
+      headers = h ?? {}
+      return res
+    },
+    end: (b?: unknown) => {
+      body = b === undefined ? '' : Buffer.from(b as Uint8Array | string).toString()
+    },
+  } as unknown as ServerResponse
+  return { res, status: () => status, headers: () => headers, out: () => body }
+}
+
+/**
+ * Faithful in-memory stand-in for `@helmsman/artifacts`: sha256 content
+ * addressing + dedupe, so route tests exercise the REAL dedupe contract
+ * instead of a stub that always reports `duplicate: false`.
+ */
+function fakeArtifacts() {
+  const blobs = new Map<string, string>()
+  const files = new Map<string, string>()
+  const kinds = new Map<string, string>()
+  return {
+    register: vi.fn(async (input: { type: string; fileName: string; bytes: Uint8Array }) => {
+      const id = createHash('sha256').update(input.bytes).digest('hex')
+      const duplicate = blobs.has(id)
+      if (!duplicate) {
+        blobs.set(id, Buffer.from(input.bytes).toString())
+        files.set(id, input.fileName)
+        kinds.set(id, input.type)
+      }
+      return { id, duplicate }
+    }),
+    resolve: vi.fn(async (id: string) => {
+      const text = blobs.get(id)
+      if (text === undefined) return null
+      return {
+        meta: {
+          id,
+          type: kinds.get(id)!,
+          fileName: files.get(id)!,
+          mime: 'application/octet-stream',
+          size: Buffer.byteLength(text),
+          createdAt: '2026-01-01T00:00:00.000Z',
+          meta: {},
+          producers: [],
+        },
+        bytes: Buffer.from(text),
+      }
+    }),
+    list: vi.fn(async () =>
+      [...blobs.keys()].map((id) => ({
+        id,
+        type: kinds.get(id)!,
+        fileName: files.get(id)!,
+        mime: 'application/octet-stream',
+        size: Buffer.byteLength(blobs.get(id)!),
+        createdAt: '2026-01-01T00:00:00.000Z',
+        meta: {},
+        producers: [],
+      })),
+    ),
+  }
+}
+
+/** Terminal task whose single agent left a file diff (so a bundle has content). */
+function terminalTaskWithDiff() {
+  return {
+    ...terminalRecord,
+    agents: {
+      claude: {
+        agent: 'claude',
+        state: 'completed',
+        attempts: 1,
+        log: '',
+        diffs: [
+          {
+            path: 'SMOKE.md',
+            status: 'added',
+            additions: 1,
+            deletions: 0,
+            diff: '--- /dev/null\n+++ b/SMOKE.md\n@@ -0,0 +1 @@\n+helmsman smoke ok\n',
+          },
+        ],
+      },
+    },
+  }
+}
+
+describe('delivery artifact routes', () => {
+  it('GET api/artifacts reports unavailable when the registry is absent', async () => {
+    const router = createApiRouter({ orchestrator: fakeOrchestrator() })
+    const { res, body } = fakeRes()
+    await router.handle(fakeReq('GET'), res, '/api/artifacts')
+    expect(JSON.parse(body())).toEqual({ artifacts: [], available: false })
+  })
+
+  it('GET api/artifacts lists registered artifacts', async () => {
+    const artifacts = fakeArtifacts()
+    await artifacts.register({ type: 'draft', fileName: 'a.md', bytes: Buffer.from('one') })
+    const router = createApiRouter({ orchestrator: fakeOrchestrator(), artifacts: () => artifacts })
+    const { res, body } = fakeRes()
+    await router.handle(fakeReq('GET'), res, '/api/artifacts')
+    const data = JSON.parse(body())
+    expect(data.available).toBe(true)
+    expect(data.artifacts).toHaveLength(1)
+    expect(data.artifacts[0].fileName).toBe('a.md')
+  })
+
+  it('GET api/artifacts/:id serves bytes with a CJK-safe disposition', async () => {
+    const artifacts = fakeArtifacts()
+    const { id } = await artifacts.register({
+      type: 'topology',
+      fileName: 'topology-作业服务.yaml',
+      bytes: Buffer.from('projectGroup:\n  name: x\n'),
+    })
+    const router = createApiRouter({ orchestrator: fakeOrchestrator(), artifacts: () => artifacts })
+    const { res, status, headers, out } = resWithHeaders()
+    await router.handle(fakeReq('GET'), res, `/api/artifacts/${id}`)
+    expect(status()).toBe(200)
+    expect(headers()['content-type']).toBe('application/yaml')
+    // ASCII fallback stays ASCII-only; the real name rides in RFC 5987 filename*.
+    expect(headers()['content-disposition']).toContain('filename*')
+    expect(headers()['content-disposition']).toContain(encodeURIComponent('作业服务'))
+    expect(out()).toContain('projectGroup')
+  })
+
+  it('GET api/artifacts/:id returns 404 for an unknown id', async () => {
+    const router = createApiRouter({ orchestrator: fakeOrchestrator(), artifacts: () => fakeArtifacts() })
+    const { res, status, out } = resWithHeaders()
+    await router.handle(fakeReq('GET'), res, '/api/artifacts/deadbeef')
+    expect(status()).toBe(404)
+    expect(out()).toContain('not found')
+  })
+
+  it('POST api/task/:id/bundle registers a patch + companion json', async () => {
+    const artifacts = fakeArtifacts()
+    const orchestrator = { ...fakeOrchestrator(), getTaskStatus: () => terminalTaskWithDiff() }
+    const router = createApiRouter({ orchestrator, artifacts: () => artifacts })
+    const { res, status, body } = fakeRes()
+    await router.handle(fakeReq('POST', {}), res, '/api/task/t1/bundle')
+    expect(status()).toBe(200)
+    const data = JSON.parse(body())
+    expect(data.patch.fileName).toBe('t1.bundle.patch')
+    expect(data.bundle.fileName).toBe('t1.bundle.json')
+    // git-applyable patch carries the agent diff; companion json carries metadata.
+    const patch = await artifacts.resolve(data.patch.id)
+    expect(patch!.bytes.toString()).toContain('helmsman smoke ok')
+    const manifest = JSON.parse((await artifacts.resolve(data.bundle.id))!.bytes.toString())
+    expect(manifest.taskId).toBe('t1')
+    expect(manifest.baseSha).toBeNull()
+    expect(manifest.agents[0].files[0].path).toBe('SMOKE.md')
+  })
+
+  it('re-requesting a task bundle dedupes to the SAME artifact ids (regression)', async () => {
+    const artifacts = fakeArtifacts()
+    const orchestrator = { ...fakeOrchestrator(), getTaskStatus: () => terminalTaskWithDiff() }
+    const router = createApiRouter({ orchestrator, artifacts: () => artifacts })
+    const first = fakeRes()
+    await router.handle(fakeReq('POST', {}), first.res, '/api/task/t1/bundle')
+    const second = fakeRes()
+    await router.handle(fakeReq('POST', {}), second.res, '/api/task/t1/bundle')
+    const a = JSON.parse(first.body())
+    const b = JSON.parse(second.body())
+    // Bundle content must be a pure function of task state — no per-request
+    // timestamp — otherwise content addressing can never dedupe.
+    expect(b.patch.id).toBe(a.patch.id)
+    expect(b.bundle.id).toBe(a.bundle.id)
+    expect(a.patch.duplicate).toBe(false)
+    expect(b.patch.duplicate).toBe(true)
+    expect(b.bundle.duplicate).toBe(true)
+    // Both requests land on the same two stored blobs — no accumulation.
+    expect((await artifacts.list()).length).toBe(2)
+  })
+
+  it('POST api/task/:id/bundle rejects a non-terminal task', async () => {
+    const orchestrator = {
+      ...fakeOrchestrator(),
+      getTaskStatus: () => ({ ...terminalRecord, status: 'RUNNING' }),
+    }
+    const router = createApiRouter({ orchestrator, artifacts: () => fakeArtifacts() })
+    const { res, status, body } = fakeRes()
+    await router.handle(fakeReq('POST', {}), res, '/api/task/t1/bundle')
+    // Route errors surface as a 500 JSON envelope, not a rejected handler.
+    expect(status()).toBe(500)
+    expect(body()).toMatch(/terminal/i)
+  })
+
+  it('GET api/topology/export registers the YAML and returns artifact metadata', async () => {
+    const artifacts = fakeArtifacts()
+    const router = createApiRouter({
+      orchestrator: fakeOrchestrator(),
+      topology: fakeTopology,
+      artifacts: () => artifacts,
+    })
+    const { res, status, body } = fakeRes()
+    await router.handle(fakeReq('GET'), res, '/api/topology/export?group=' + encodeURIComponent('订单中台'))
+    expect(status()).toBe(200)
+    const data = JSON.parse(body())
+    expect(data.fileName).toBe('helmsman-topology-订单中台.yaml')
+    expect(data.mime).toBe('application/yaml')
+    const stored = await artifacts.resolve(data.artifactId)
+    expect(stored!.meta.fileName).toBe('helmsman-topology-订单中台.yaml')
+    expect(stored!.bytes.toString()).toContain('projectGroup')
   })
 })
