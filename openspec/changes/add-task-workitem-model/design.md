@@ -51,6 +51,24 @@ Helmsman 目前"任务"即 orchestrator 的一次 fleet run(`taskId` 为 run id)
 - **理由**:用户明确指出同一仓库会有并行不同需求——按 repo 一刀切会错误阻塞无关模块;真正的风险是**同一变更面在 merge 阶段冲突**(change A 已把冲突标注做兜底),模块级冲突域是"能表达这种并行、又不放过同域竞争"的最小粒度。
 - **替代**:纯 repo 上限(过粗,阻塞无关并行);动态按"运行中 diff 实际重叠文件"预测(精确但需 run 期间持续扫描,复杂度高)。选声明式 module 域:进 dev 时一次声明即可,未声明给回退与提示。
 
+### D8. 借鉴输入：会话/工作区绑定与归档形状(证据等级 B，落地时验证)
+相关做法来自相邻项目 DSH-Work-Buddy(MIT, v0.1.998)的生产代码，已集中记录在
+`docs/DSH-INTEGRATION-NOTES.md` 的 B 级条目。本变更采纳其中三项作为设计输入，并约定
+**落地时逐条验证后升级为 A 级**：
+- **会话/工作区绑定序列**：`prepare-session`(写 per-task `AGENTS.md`/`MEMORY.md`、套人格)→
+  幂等 `workspace.create({path: 任务目录})`(把任务目录登记为 agent 的 cwd)→
+  `session.create({workspaceId})` → 绑定并把 `{sessionId, v:1}` 快照落盘。这正好落进本变更的
+  `conversations[]`：对话引用不只是 id，还带工作区绑定，使"任务 = 一个隔离的 agent 工作目录
+  + 一段对话"成为稳定形态。
+- **per-task 目录即 cwd + per-task 记忆**：任务目录承载 `AGENTS.md`/`MEMORY.md`，人格
+  (对应本变更的关联集)与长期记忆分离存放——比"只存对话 id"更能解释"这个任务当时被怎么指挥的"。
+- **归档 manifest 形状**：`{taskId, title, startedAt, endedAt, agentIntro, messages, tokens,
+  sizeBytes, fileCount, archivedAt, sessionId, files[], conversation[{role,text,time}]}`，
+  作为本变更 `artifacts[]` + 归档联动的字段参考。
+- **理由**：这三项把"关联"从"存个引用"提升为"可复现当时的工作环境"，且都是别人已在同类宿主
+  上跑通的形状；标 B 级是因为尚未在本机 Helmsman 上验证，等 `board` 落地时一并证明。
+- **边界**：只借鉴形状与序列，不引入其代码；其内置 harness(rc.7)与本项目目标版本不同，不可用于验证。
+
 ## 风险 / 取舍(Risks / Trade-offs)
 
 - [关联对象被删除导致引用悬空] → resolve 时返回"目标不存在",看板显示悬空徽标;卡片仍可编辑/删除关联。
