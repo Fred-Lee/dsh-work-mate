@@ -92,6 +92,24 @@ function asString(v: YamlValue | undefined): string {
 }
 
 /**
+ * Strips a trailing inline comment (` # ...`) from a scalar value. Hand-edited
+ * YAML routinely annotates lines (`- to: internal-homework  # 主要依赖`), and
+ * the subset parser keeps the comment as part of the value — which turned a
+ * service id into `"internal-homework      # 真实依赖"`, made every such edge
+ * miss its code evidence (everything looks stale) and would land garbage ids
+ * in the topology if applied. Only a WHITESPACE-preceded `#` starts a comment,
+ * so a fragment like `/path#anchor` (no space) is untouched.
+ */
+function stripInlineComment(v: string): string {
+  return v.replace(/\s+#.*$/, '').trim()
+}
+
+/** Scalar read for declaration fields: string value with inline comments removed. */
+function scalarOf(v: YamlValue | undefined): string {
+  return stripInlineComment(asString(v))
+}
+
+/**
  * Parses a declaration file. Purely textual — it never touches the filesystem
  * (that is `readDeclaration`), so it is also the validator behind the import
  * preview and the round-trip tests.
@@ -128,7 +146,7 @@ export function parseDeclaration(text: string): DeclarationParseResult {
   }
 
   // ---- service: REQUIRED (it is the `from` of every edge) ------------------
-  const service = asString(doc.service)
+  const service = scalarOf(doc.service)
   if (!service) {
     errors.push('缺少必填字段 service（本服务在项目群中的 id，是每条依赖边的调用方）')
   }
@@ -149,7 +167,7 @@ export function parseDeclaration(text: string): DeclarationParseResult {
         errors.push(`dependencies[${i}] 必须是映射（含必填 to）`)
         return
       }
-      const to = asString(dep.to)
+      const to = scalarOf(dep.to)
       if (!to) {
         errors.push(`dependencies[${i}] 缺少必填字段 to（被调用的服务 id）`)
         return
@@ -164,13 +182,13 @@ export function parseDeclaration(text: string): DeclarationParseResult {
         } else {
           const malformed = dep.endpoints.some((e) => typeof e !== 'string' && typeof e !== 'number')
           if (malformed) errors.push(`dependencies[${i}]（to: ${to}）的 endpoints 只能包含字符串`)
-          endpoints = dep.endpoints.map((e) => String(e).trim()).filter((e) => e !== '')
+          endpoints = dep.endpoints.map((e) => stripInlineComment(String(e))).filter((e) => e !== '')
         }
       }
       if (dep.critical !== undefined && dep.critical !== null && typeof dep.critical !== 'boolean') {
         errors.push(`dependencies[${i}]（to: ${to}）的 critical 必须是布尔值`)
       }
-      const method = asString(dep.method).toUpperCase()
+      const method = scalarOf(dep.method).toUpperCase()
       edges.push({
         toServiceId: to,
         endpoints,

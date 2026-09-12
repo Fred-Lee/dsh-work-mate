@@ -27,7 +27,9 @@ import {
   parseDeclaration,
   readDeclaration,
   renderDeclaration,
+  type DeclarationReadResult,
 } from './declaration.ts'
+import { checkDeclarationDrift, type DeclarationDriftResult } from './declaration-drift.ts'
 import {
   applyDeclaration,
   applyPreview,
@@ -79,6 +81,20 @@ export {
 export type { DeclarationParseFailure, DeclarationParseResult, DeclarationParseSuccess, DeclarationReadResult } from './declaration.ts'
 export { applyDeclaration, previewDeclaration, reconcileDeclaredEdges } from './import.ts'
 export type { DeclarationPreviewOptions } from './import.ts'
+export { MEDIUM_TIER_NOTE, STALE_ACTION, STALE_CAVEAT, STALE_REASON, checkDeclarationDrift } from './declaration-drift.ts'
+export type {
+  ConsistentEntry,
+  DeclarationDriftInput,
+  DeclarationDriftInputStatus,
+  DeclarationDriftResult,
+  DeclarationDriftStatus,
+  DriftCounts,
+  DriftDeclarationShape,
+  DriftEntryBase,
+  MediumConfidenceEntry,
+  StaleDeclaredEntry,
+  UndeclaredEntry,
+} from './declaration-drift.ts'
 
 export interface Config {
   /** Directory that holds <group>.json topology files. @default ~/.helmsman/topologies */
@@ -137,6 +153,21 @@ export interface TopologyService {
    * "commit this to the repo" hint. Performs NO git operation and writes nothing.
    */
   declarationRender(group: string, service: string): Promise<DeclarationRenderResult>
+  /**
+   * Declaration drift check (`detect-declaration-drift`): compares the
+   * declaration the repository carries (`<repo>/.helmsman/dependencies.yml`) with
+   * the evidence the code scanner finds for the same service, keyed by the
+   * (from, to) service pair. READ-ONLY: it reads one declaration file and scans
+   * local trees; neither the declaration file nor the topology is written, and no
+   * edge is added or removed. Handling a finding means navigating into the
+   * EXISTING candidate-confirmation flow (`applyCandidates`).
+   *
+   * `status: 'no-declaration'` (no declaration file) is the explicit starting
+   * point, NOT an error: every code-evidence pair is listed as undeclared and the
+   * message guides the user towards writing a baseline. `status:
+   * 'invalid-declaration'` reports the parse problems and issues NO verdict.
+   */
+  checkDeclarationDrift(group: string, service?: string): Promise<DeclarationDriftResult & { group: string }>
 }
 
 /** Result of `declarationPreview` (see `readDeclaration` for the status semantics). */
@@ -452,6 +483,57 @@ export function apply(ctx: Context, config: Config = {}) {
         hint: file
           ? `建议把内容写入 ${DECLARATION_RELATIVE_PATH} 并随代码提交（Helmsman 不执行任何 git 操作）。`
           : `该服务未配置本地路径，无法给出目标文件路径；仓库内位置固定为 ${DECLARATION_RELATIVE_PATH}。`,
+      }
+    },
+
+    async checkDeclarationDrift(group, service) {
+      const topology = await store.load(group)
+      if (!topology) throw new Error(`unknown project group: ${group}`)
+      const serviceId = String(service ?? '').trim() || firstServiceWithRepoPath(topology)
+      if (!serviceId) throw new Error('该项目群还没有任何服务，无法核对声明漂移')
+      const node = topology.services[serviceId]
+      if (!node) throw new Error(`service not found in group: ${serviceId}`)
+      const localPath = typeof node.localPath === 'string' ? node.localPath.trim() : ''
+
+      // No working copy: the declaration cannot be read and the code cannot be
+      // scanned, so the honest result is "nothing was compared" — never an empty
+      // drift list that reads like "everything agrees".
+      if (!localPath) {
+        return {
+          group,
+          ...checkDeclarationDrift({
+            service: serviceId,
+            declaration: {
+              status: 'no-repo-path',
+              file: null,
+              edges: [],
+              errors: [`服务 ${serviceId} 未配置本地路径（localPath），无法读取声明或扫描代码`],
+            },
+          }),
+        }
+      }
+
+      const read: DeclarationReadResult = await readDeclaration(localPath)
+      // A corrupt file must not turn into an "everything is undeclared" verdict,
+      // so the code side is not even scanned in that case (design D2 honesty).
+      if (read.status === 'invalid') {
+        return { group, ...checkDeclarationDrift({ service: serviceId, declaration: read, candidates: [] }) }
+      }
+
+      // Read-only by construction: the derivation only READS local trees plus the
+      // already-loaded topology, and nothing in this path touches the store.
+      const derived = await deriveFromTopology(topology, { serviceIds: [serviceId] })
+      return {
+        group,
+        ...checkDeclarationDrift({
+          service: serviceId,
+          declaration: read,
+          candidates: derived.candidates,
+          registeredServices: Object.keys(topology.services),
+          scanned: derived.scanned,
+          skipped: derived.skipped,
+          scannedAt: derived.scannedAt,
+        }),
       }
     },
   }

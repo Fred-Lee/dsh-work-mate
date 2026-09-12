@@ -8,7 +8,14 @@
 import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConfigPanel } from './App'
-import type { DeriveCandidatePayload, DeriveOutcomePayload, GraphHealthPayload, TopologyPayload } from './api'
+import type {
+  DeclarationDriftPayload,
+  DeriveCandidatePayload,
+  DeriveOutcomePayload,
+  DriftEntryPayload,
+  GraphHealthPayload,
+  TopologyPayload,
+} from './api'
 
 const toast = vi.fn()
 const onClose = vi.fn()
@@ -634,5 +641,280 @@ describe('ConfigPanel 仓库依赖声明（抓取 + 写回）', () => {
     const content = (dialog.querySelector('textarea[aria-label="声明文件内容"]') as HTMLTextAreaElement).value
     expect(content).toContain('- to: order-service')
     expect(content).not.toContain('derived')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// detect-declaration-drift：🔎 漂移核对结果区（三组 + 中置信分列 + 保留措辞 +
+// 只读引导；无声明文件时是引导态；与图体检并列而不合并）
+// ---------------------------------------------------------------------------
+
+/** 一致的条目：声明了且代码有证据。 */
+const driftConsistent: DriftEntryPayload = {
+  from: 'user-service',
+  to: 'order-service',
+  evidence: [{ kind: 'config', file: 'src/main/resources/application.yml', line: 8, detail: 'order-service.base-url = http://order-service:8080' }],
+  endpoints: [],
+  confidence: 'high',
+  targetDeclared: true,
+  declared: { method: '*', endpoints: [] },
+}
+
+/** 陈旧声明：仅声明有，代码里没找到证据（不得表述为「不存在」）。 */
+const driftStale: DriftEntryPayload = {
+  from: 'user-service',
+  to: 'internal-legacy',
+  evidence: [],
+  endpoints: [],
+  targetDeclared: true,
+  declared: { method: '*', endpoints: [] },
+  reason: '未在代码中找到证据（可能确实已删除，也可能是动态构造的调用未被识别）',
+  caveat: '扫描为静态且启发式：动态拼接的 URL、配置驱动的路径都可能未被识别，因此这一条表示「需要人工确认」。',
+  action: '请人工确认该调用是否还在，再决定是否从声明文件里删除；Helmsman 不会代为修改声明文件。',
+}
+
+/** 未声明：高置信（名称档）代码证据但声明没提，目标还没登记。 */
+const driftUndeclared: DriftEntryPayload = {
+  from: 'user-service',
+  to: 'internal-bc-es',
+  evidence: [{ kind: 'feign', file: 'src/main/java/com/example/InternalBcEsClient.java', line: 3, detail: '@FeignClient(name = "internal-bc-es")' }],
+  endpoints: [],
+  confidence: 'high',
+  targetDeclared: false,
+  declared: null,
+}
+
+/** 中置信（路径档）单列：不计入未声明判定。 */
+const driftMedium: DriftEntryPayload = {
+  from: 'user-service',
+  to: 'internal-qp',
+  evidence: [{ kind: 'endpoint', file: 'src/client/qp.ts', line: 5, detail: '/qp/list ↔ GET /api/qp/list（internal-qp 已声明该端点）', note: '按路径后缀匹配' }],
+  endpoints: ['/api/qp/list'],
+  method: 'GET',
+  confidence: 'medium',
+  targetDeclared: true,
+  declared: null,
+  tierNote: '中置信（路径档）：调用路径经模板归一化后可能命中多个服务，故只作参考、不计入漂移判定。',
+}
+
+const driftFixture: DeclarationDriftPayload = {
+  group: 'demo',
+  service: 'user-service',
+  status: 'ok',
+  file: '/tmp/user-service/.helmsman/dependencies.yml',
+  consistent: [driftConsistent],
+  staleDeclared: [driftStale],
+  undeclared: [driftUndeclared],
+  mediumConfidence: [driftMedium],
+  counts: { declared: 2, codeEvidence: 3, consistent: 1, staleDeclared: 1, undeclared: 1, mediumConfidence: 1, drift: 2 },
+  hasDrift: true,
+  message: '核对完成：声明 2 对 / 代码证据 3 对 —— 一致 1 对，需人工确认的陈旧声明 1 对（未在代码中找到证据），未声明 1 对。',
+  errors: [],
+  scanned: ['user-service'],
+  skipped: [],
+  scannedAt: 1_700_000_000_000,
+  available: true,
+}
+
+let driftReply: DeclarationDriftPayload | { error: string } = driftFixture
+let driftCalls: string[] = []
+let writeCalls: string[] = []
+let deriveCalls = 0
+
+describe('ConfigPanel 漂移核对', () => {
+  beforeEach(() => {
+    driftReply = driftFixture
+    driftCalls = []
+    writeCalls = []
+    deriveCalls = 0
+    topologyFixture = twoServices
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/topology?')) return jsonResponse({ group: 'demo', topology: topologyFixture })
+      if (url.includes('/api/topology/health')) return jsonResponse({ group: 'demo', health: cleanHealth, available: true })
+      if (url.includes('/api/topology/drift')) {
+        driftCalls.push(url)
+        if ('error' in driftReply) {
+          return { ok: false, status: 500, headers: { get: () => 'application/json' }, json: async () => driftReply } as unknown as Response
+        }
+        return jsonResponse(driftReply)
+      }
+      if (url.includes('/api/topology/derive')) {
+        deriveCalls++
+        return jsonResponse({ group: 'demo', result: deriveOutcome, available: true })
+      }
+      if (url.includes('/api/topology/declaration/render')) {
+        return jsonResponse({
+          group: 'demo',
+          service: 'user-service',
+          file: '/tmp/user-service/.helmsman/dependencies.yml',
+          content: 'version: 1\nservice: user-service\ndependencies:\n  - to: order-service\n',
+          declared: 1,
+          derived: 0,
+          hint: '建议把内容写入 .helmsman/dependencies.yml 并随代码提交（Helmsman 不执行任何 git 操作）。',
+          available: true,
+        })
+      }
+      // 任何写入路径都被记录下来：漂移核对绝不允许走这些入口。
+      if (init?.method === 'POST' || url.includes('/save') || url.includes('apply-candidates') || url.includes('import-apply')) {
+        writeCalls.push(`${init?.method ?? 'GET'} ${url}`)
+      }
+      return jsonResponse({ ok: true })
+    }))
+  })
+
+  async function runDriftCheck(): Promise<ReturnType<typeof render>> {
+    const view = renderPanel(['demo'])
+    await act(async () => {})
+    fireEvent.click(view.getByRole('button', { name: '🔎 漂移核对' }))
+    await act(async () => {})
+    return view
+  }
+
+  it('渲染三组 + 中置信分列，带服务对、证据、计数与陈旧声明的保留措辞', async () => {
+    const view = await runDriftCheck()
+    expect(driftCalls).toHaveLength(1)
+    expect(driftCalls[0]).toContain('group=demo')
+    expect(driftCalls[0]).toContain('service=user-service')
+
+    const block = view.container.querySelector('.drift-block') as HTMLElement
+    expect(block).not.toBeNull()
+    // 三组标题（一致 / 陈旧声明 / 未声明）+ 中置信单列
+    expect(block.textContent).toContain('一致（1）')
+    expect(block.textContent).toContain('陈旧声明 · 需要人工确认（1）')
+    expect(block.textContent).toContain('未声明（1）')
+    expect(block.textContent).toContain('可能未声明（中置信）（1）')
+    // 每条显示服务对与证据
+    expect(block.textContent).toContain('user-service ──▶ order-service')
+    expect(block.textContent).toContain('order-service.base-url = http://order-service:8080')
+    expect(block.textContent).toContain('@FeignClient(name = "internal-bc-es")')
+    expect(block.textContent).toContain('/qp/list ↔ GET /api/qp/list')
+    // 陈旧声明的保留措辞：只说「未在代码中找到证据」+ 静态扫描的局限
+    expect(block.textContent).toContain('未在代码中找到证据')
+    expect(block.textContent).toContain('扫描为静态且启发式')
+    expect(block.textContent).toContain('需要人工确认')
+    expect(block.textContent).not.toContain('不存在')
+    expect(block.textContent).not.toContain('已失效')
+    // 不提供「一键删除陈旧声明」
+    expect(block.textContent).not.toContain('删除陈旧声明')
+    // 未声明条目的目标未登记标记 + 计数
+    expect(block.textContent).toContain('目标未登记')
+    const counts = block.querySelector('[data-drift-counts]') as HTMLElement
+    expect(counts.textContent).toContain('声明 2 对')
+    expect(counts.textContent).toContain('一致 1')
+    expect(counts.textContent).toContain('未声明 1')
+    // 中置信不计入未声明：中置信条目不在「未声明」组里
+    const groups = [...block.querySelectorAll('.candidate-group')]
+    const undeclaredGroup = groups.find((g) => g.textContent?.includes('未声明（1）'))!
+    expect(undeclaredGroup.textContent).toContain('internal-bc-es')
+    expect(undeclaredGroup.textContent).not.toContain('internal-qp')
+    const mediumGroup = groups.find((g) => g.textContent?.includes('可能未声明（中置信）'))!
+    expect(mediumGroup.textContent).toContain('internal-qp')
+    expect(mediumGroup.textContent).toContain('不计入漂移判定')
+    // 与图体检并列、不合并：告警条是独立的一块（图干净时它不渲染）
+    expect(view.container.querySelector('.health-strip')).toBeNull()
+  })
+
+  it('「去处理」只跳进既有候选确认流程（推导候选），不在此处写入任何东西', async () => {
+    const view = await runDriftCheck()
+    const undeclaredEntry = view.container.querySelector('[data-drift="internal-bc-es"]') as HTMLElement
+    fireEvent.click(within(undeclaredEntry).getByRole('button', { name: '➡️ 去候选确认' }))
+    await act(async () => {})
+
+    // 走到既有推导候选流程（GET 只读），候选行出现并可继续用「确认/登记并确认」处理
+    expect(deriveCalls).toBe(1)
+    expect(view.container.querySelector('[data-candidate="user-service → internal-bc-es"]')).not.toBeNull()
+    // 核对界面本身没有任何写入动作
+    expect(writeCalls).toEqual([])
+  })
+
+  it('声明与代码一致时不显示漂移结果区（无漂移不显示告警）', async () => {
+    driftReply = {
+      ...driftFixture,
+      status: 'ok',
+      staleDeclared: [],
+      undeclared: [],
+      mediumConfidence: [],
+      counts: { declared: 1, codeEvidence: 1, consistent: 1, staleDeclared: 0, undeclared: 0, mediumConfidence: 0, drift: 0 },
+      hasDrift: false,
+      message: '核对完成：声明与代码证据一致（一致 1 对，声明 1 对 / 代码证据 1 对）。',
+    }
+    const view = await runDriftCheck()
+    expect(view.container.querySelector('.drift-block')).toBeNull()
+    expect(toast).toHaveBeenCalledWith('success', expect.stringContaining('未发现漂移'))
+  })
+
+  it('无声明文件时是引导态：说明尚未声明、列出全部代码证据、引导写回基线', async () => {
+    driftReply = {
+      ...driftFixture,
+      status: 'no-declaration',
+      file: '/tmp/user-service/.helmsman/dependencies.yml',
+      consistent: [],
+      staleDeclared: [],
+      counts: { declared: 0, codeEvidence: 2, consistent: 0, staleDeclared: 0, undeclared: 1, mediumConfidence: 1, drift: 1 },
+      hasDrift: false,
+      message: '服务 user-service 尚未声明依赖（未找到 .helmsman/dependencies.yml）：以下 2 条代码证据均未经声明（高置信 1 条、中置信 1 条单列）。',
+    }
+    const view = await runDriftCheck()
+
+    const block = view.container.querySelector('.drift-block') as HTMLElement
+    expect(block.textContent).toContain('尚未声明依赖')
+    expect(block.textContent).toContain('均未经声明')
+    expect(block.textContent).toContain('未声明（1）')
+    expect(block.textContent).toContain('可能未声明（中置信）（1）')
+    // 引导写回一份基线（复用既有写回对话框，不执行任何 git 操作）
+    fireEvent.click(within(block).getByRole('button', { name: '💾 写回声明文件（建立基线）' }))
+    await act(async () => {})
+    expect(view.getByRole('dialog', { name: '写回声明文件' })).toBeTruthy()
+    expect(writeCalls).toEqual([])
+  })
+
+  it('声明文件解析失败时列出问题、不产出判定（明确报错而非静默）', async () => {
+    driftReply = {
+      ...driftFixture,
+      status: 'invalid-declaration',
+      consistent: [],
+      staleDeclared: [],
+      undeclared: [],
+      mediumConfidence: [],
+      counts: { declared: 0, codeEvidence: 0, consistent: 0, staleDeclared: 0, undeclared: 0, mediumConfidence: 0, drift: 0 },
+      hasDrift: false,
+      message: '声明文件无法解析，未做任何比对、未产出部分结论；请先修正声明文件再核对。',
+      errors: ['缺少必填字段 service（本服务在项目群中的 id，是每条依赖边的调用方）'],
+    }
+    const view = await runDriftCheck()
+    const block = view.container.querySelector('.drift-block') as HTMLElement
+    expect(block.textContent).toContain('未做任何比对')
+    expect(block.textContent).toContain('缺少必填字段 service')
+    // 没有判定可展示：三组都不渲染
+    expect(block.textContent).not.toContain('未声明（')
+    expect(view.container.querySelectorAll('.candidate-group')).toHaveLength(0)
+  })
+
+  it('老版本拓扑服务（available:false）给出升级提示而不是报错', async () => {
+    driftReply = { ...driftFixture, status: 'unavailable', consistent: [], staleDeclared: [], undeclared: [], mediumConfidence: [], hasDrift: false, available: false, message: '' }
+    const view = await runDriftCheck()
+    expect(view.container.textContent).toContain('当前拓扑服务版本不支持漂移核对')
+    expect(view.container.querySelector('.drift-block')).toBeNull()
+    expect(toast).not.toHaveBeenCalledWith('error', expect.anything())
+  })
+
+  it('核对失败时走错误提示，不显示半截结果', async () => {
+    driftReply = { error: 'service not found in group: ghost' }
+    const view = await runDriftCheck()
+    expect(toast).toHaveBeenCalledWith('error', expect.stringContaining('service not found in group: ghost'))
+    expect(view.container.querySelector('.drift-block')).toBeNull()
+  })
+
+  it('核对的服务可在依赖拓扑里选择（默认挑有工作副本的服务）', async () => {
+    const view = await runDriftCheck()
+    const select = view.container.querySelector('select[aria-label="漂移核对的服务"]') as HTMLSelectElement
+    expect(select.value).toBe('user-service')
+    fireEvent.change(select, { target: { value: 'order-service' } })
+    await act(async () => {})
+    fireEvent.click(view.getByRole('button', { name: '🔎 漂移核对' }))
+    await act(async () => {})
+    expect(driftCalls).toHaveLength(2)
+    expect(driftCalls[1]).toContain('service=order-service')
   })
 })

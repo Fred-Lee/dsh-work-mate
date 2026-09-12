@@ -503,6 +503,119 @@ describe('dashboard API router', () => {
     const router = createApiRouter({ orchestrator: fakeOrchestrator() })
     expect(await router.handle(fakeReq('GET'), fakeRes().res, '/api/topology/declaration/render?group=g&service=s')).toBe(false)
   })
+
+  // 声明漂移核对（detect-declaration-drift）：只读 GET，语义与 declaration/health 一致。
+  it('GET api/topology/drift forwards group + service and returns the comparison', async () => {
+    const drift = {
+      service: 'homework-server',
+      status: 'ok' as const,
+      file: '/repo/.helmsman/dependencies.yml',
+      consistent: [
+        {
+          from: 'homework-server',
+          to: 'internal-homework',
+          evidence: [
+            {
+              kind: 'config',
+              file: 'src/main/resources/application.yml',
+              line: 1,
+              detail: 'internal-homework.base-url = http://internal-homework:8080',
+            },
+          ],
+          endpoints: [],
+          confidence: 'high' as const,
+          targetDeclared: true,
+          declared: { method: '*', endpoints: [] },
+        },
+      ],
+      staleDeclared: [
+        {
+          from: 'homework-server',
+          to: 'internal-legacy',
+          evidence: [],
+          endpoints: [],
+          targetDeclared: true,
+          declared: { method: '*', endpoints: [] },
+          reason: '未在代码中找到证据（可能确实已删除，也可能是动态构造的调用未被识别）',
+          caveat: '扫描为静态且启发式……',
+          action: '请人工确认该调用是否还在……',
+        },
+      ],
+      undeclared: [],
+      mediumConfidence: [],
+      counts: { declared: 2, codeEvidence: 1, consistent: 1, staleDeclared: 1, undeclared: 0, mediumConfidence: 0, drift: 1 },
+      hasDrift: true,
+      message: '核对完成……',
+      errors: [],
+      scanned: ['homework-server'],
+      skipped: [],
+      scannedAt: 1_700_000_000_000,
+    }
+    const checkDeclarationDrift = vi.fn(async () => drift)
+    const router = createApiRouter({ orchestrator: fakeOrchestrator(), topology: { ...fakeTopology, checkDeclarationDrift } })
+
+    const { res, status, body } = fakeRes()
+    const handled = await router.handle(
+      fakeReq('GET'),
+      res,
+      `/api/topology/drift?group=${encodeURIComponent('作业服务群')}&service=homework-server`,
+    )
+
+    expect(handled).toBe(true)
+    expect(status()).toBe(200)
+    expect(checkDeclarationDrift).toHaveBeenCalledWith('作业服务群', 'homework-server')
+    expect(JSON.parse(body())).toEqual({ ...drift, group: '作业服务群', available: true })
+  })
+
+  it('drift route requires a group and a service, and degrades to available:false for an older service', async () => {
+    const router = createApiRouter({ orchestrator: fakeOrchestrator(), topology: fakeTopology })
+    const bad = fakeRes()
+    await router.handle(fakeReq('GET'), bad.res, '/api/topology/drift?service=s')
+    expect(bad.status()).toBe(500)
+    expect(JSON.parse(bad.body()).error).toContain('group is required')
+
+    const noService = fakeRes()
+    await router.handle(fakeReq('GET'), noService.res, '/api/topology/drift?group=g')
+    expect(noService.status()).toBe(500)
+    expect(JSON.parse(noService.body()).error).toContain('service is required')
+
+    const missing = fakeRes()
+    await router.handle(fakeReq('GET'), missing.res, '/api/topology/drift?group=g&service=s')
+    expect(JSON.parse(missing.body())).toEqual({
+      group: 'g',
+      service: 's',
+      status: 'unavailable',
+      file: null,
+      consistent: [],
+      staleDeclared: [],
+      undeclared: [],
+      mediumConfidence: [],
+      counts: { declared: 0, codeEvidence: 0, consistent: 0, staleDeclared: 0, undeclared: 0, mediumConfidence: 0, drift: 0 },
+      hasDrift: false,
+      message: '',
+      errors: [],
+      scanned: [],
+      skipped: [],
+      scannedAt: 0,
+      available: false,
+    })
+  })
+
+  it('drift route is not mounted without the topology plugin (host answers 404)', async () => {
+    const router = createApiRouter({ orchestrator: fakeOrchestrator() })
+    expect(await router.handle(fakeReq('GET'), fakeRes().res, '/api/topology/drift?group=g&service=s')).toBe(false)
+  })
+
+  it('drift route surfaces a service-side failure as a 500 with the message', async () => {
+    const checkDeclarationDrift = vi.fn(async () => {
+      throw new Error('service not found in group: ghost')
+    })
+    const router = createApiRouter({ orchestrator: fakeOrchestrator(), topology: { ...fakeTopology, checkDeclarationDrift } })
+    const { res, status, body } = fakeRes()
+    await router.handle(fakeReq('GET'), res, '/api/topology/drift?group=g&service=ghost')
+    expect(status()).toBe(500)
+    expect(JSON.parse(body()).error).toContain('service not found in group: ghost')
+  })
 })
 
 describe('approval gate + audit routes', () => {

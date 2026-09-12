@@ -26,8 +26,10 @@ import {
   type AuditEntryPayload,
   type DeriveCandidatePayload,
   type DeriveOutcomePayload,
+  type DeclarationDriftPayload,
   type DeclarationPayload,
   type DeclarationRenderPayload,
+  type DriftEntryPayload,
   type GraphHealthPayload,
   type ImportPreviewPayload,
   type StatePayload,
@@ -1177,6 +1179,147 @@ function CandidateGroup(props: {
   )
 }
 
+/** 漂移核对的一条：服务对 + 声明侧形状 + 代码侧证据 + 置信度。 */
+function DriftEntry(props: {
+  entry: DriftEntryPayload
+  /** 中置信条目显示档位（判定不依赖它）。 */
+  showConfidence?: boolean
+  /** 未声明条目：目标未登记与「去处理」引导（跳进既有候选确认流程）。 */
+  undeclared?: boolean
+  onHandle?: (entry: DriftEntryPayload) => void
+}) {
+  const { entry } = props
+  const confidenceLabel = entry.confidence === 'high' ? '高' : entry.confidence === 'medium' ? '中' : ''
+  return (
+    <article className="service-row" data-drift={entry.to}>
+      <p className="dep-label">
+        {entry.from} ──▶ {entry.to}
+        {props.showConfidence && confidenceLabel && <span className={`badge${entry.confidence === 'high' ? ' ok' : ''}`}>置信度 {confidenceLabel}</span>}
+        {props.undeclared && !entry.targetDeclared && <span className="badge warn">目标未登记</span>}
+      </p>
+      {entry.declared && (
+        <p className="muted small">
+          声明：{entry.declared.endpoints.length > 0 ? `${entry.declared.method} ${entry.declared.endpoints.join('、')}` : '服务级边（未细分接口）'}
+        </p>
+      )}
+      {/* 陈旧声明的措辞必须如实：只说「未在代码中找到证据」，并带上静态扫描的局限说明。 */}
+      {entry.reason && <p className="muted small">⚠️ {entry.reason}</p>}
+      {entry.caveat && <p className="muted small">{entry.caveat}</p>}
+      {entry.action && <p className="muted small">{entry.action}</p>}
+      {entry.tierNote && <p className="muted small">{entry.tierNote}</p>}
+      {entry.evidence.length > 0 && (
+        <ul style={{ margin: '2px 0', paddingLeft: 18 }}>
+          {entry.evidence.map((evidence, i) => (
+            <li key={`${evidence.file}-${evidence.line ?? 0}-${i}`} className="muted small">
+              {EVIDENCE_ICON[evidence.kind] ?? '📄'} {evidence.file}
+              {evidence.line ? `:${evidence.line}` : ''} · {evidence.detail}
+              {evidence.note ? `（${evidence.note}）` : ''}
+            </li>
+          ))}
+        </ul>
+      )}
+      {props.undeclared && props.onHandle && (
+        <div className="service-actions">
+          {/* 只读：这里不写入任何东西，跳进既有的候选确认流程（登记 / 确认都在那边）。 */}
+          <button className="btn btn-sm" onClick={() => props.onHandle?.(entry)}>
+            ➡️ 去候选确认
+          </button>
+        </div>
+      )}
+    </article>
+  )
+}
+
+/** 漂移结果里的一组（空组不渲染）。 */
+function DriftGroup(props: {
+  title: string
+  entries: DriftEntryPayload[]
+  showConfidence?: boolean
+  undeclared?: boolean
+  onHandle?: (entry: DriftEntryPayload) => void
+}) {
+  if (props.entries.length === 0) return null
+  return (
+    <div className="candidate-group">
+      <p className="muted small">{props.title}</p>
+      {props.entries.map((entry) => (
+        <DriftEntry
+          key={`${entry.from} → ${entry.to}`}
+          entry={entry}
+          {...(props.showConfidence !== undefined ? { showConfidence: props.showConfidence } : {})}
+          {...(props.undeclared !== undefined ? { undeclared: props.undeclared } : {})}
+          {...(props.onHandle ? { onHandle: props.onHandle } : {})}
+        />
+      ))}
+    </div>
+  )
+}
+
+/**
+ * 「🔎 漂移核对」结果区（design D5）：与图级体检**并列**、不合并——体检看的是图
+ * **自洽**（环/悬空/孤立，与代码无关），漂移看的是图**与代码一致**。
+ *
+ * 只读边界（design D3）：这里不写声明文件、不改依赖图；`staleDeclared` 的处置是
+ * **人去改声明文件**（工具不代改、不提供一键删除），`undeclared` 的处置跳进既有
+ * 候选确认流程。无声明文件时是**引导态**（写回一份基线），不是错误（design D4）。
+ */
+function DriftBlock(props: {
+  drift: DeclarationDriftPayload
+  onHandle: (entry: DriftEntryPayload) => void
+  onOpenWriteBack: () => void
+}) {
+  const { drift } = props
+  const compared = drift.status === 'ok'
+  return (
+    <div className="drift-block" role="group" aria-label="漂移核对">
+      <p className="muted small">{drift.message}</p>
+      {drift.errors.length > 0 && (
+        <div className="health-strip" role="status" aria-label="漂移核对问题">
+          {drift.errors.map((err, i) => (
+            <p key={`drift-error-${i}`} className="badge warn">
+              ⚠️ {err}
+            </p>
+          ))}
+        </div>
+      )}
+      {compared && (
+        <p className="muted small" data-drift-counts>
+          声明 {drift.counts.declared} 对 · 代码证据 {drift.counts.codeEvidence} 对 —— 一致 {drift.counts.consistent} ·
+          需人工确认的陈旧声明 {drift.counts.staleDeclared} · 未声明 {drift.counts.undeclared} · 中置信单列（不计入未声明）{drift.counts.mediumConfidence}
+        </p>
+      )}
+      {drift.status === 'no-declaration' && (
+        <div className="service-actions">
+          <button className="btn btn-sm" onClick={props.onOpenWriteBack}>
+            💾 写回声明文件（建立基线）
+          </button>
+        </div>
+      )}
+      <DriftGroup title={`一致（${drift.consistent.length}）`} entries={drift.consistent} showConfidence />
+      <DriftGroup
+        title={`陈旧声明 · 需要人工确认（${drift.staleDeclared.length}）`}
+        entries={drift.staleDeclared}
+      />
+      <DriftGroup title={`未声明（${drift.undeclared.length}）`} entries={drift.undeclared} undeclared showConfidence onHandle={props.onHandle} />
+      <DriftGroup
+        title={`可能未声明（中置信）（${drift.mediumConfidence.length}）`}
+        entries={drift.mediumConfidence}
+        showConfidence
+      />
+      <p className="muted small">以上为只读核对结果，不修改声明文件与依赖图；「未在代码中找到证据」并不等于该依赖已经消失（扫描为静态启发式，动态构造的调用可能漏识别，需人工确认）。</p>
+    </div>
+  )
+}
+
+/** 漂移核对默认服务：优先有工作副本的（没有 localPath 连代码都扫不到）。 */
+function defaultDriftService(topology: TopologyPayload | null): string {
+  if (!topology) return ''
+  for (const [id, svc] of Object.entries(topology.services)) {
+    if (svc.localPath) return id
+  }
+  return Object.keys(topology.services)[0] ?? ''
+}
+
 export function ConfigPanel(props: {  groups: string[]
   currentGroup: string | null
   onClose: () => void
@@ -1204,6 +1347,12 @@ export function ConfigPanel(props: {  groups: string[]
   // 声明文件：抓取（复用导入预览对话框）与回写草稿（declared 边 + 目标路径 + 提示）。
   const [declarationFetch, setDeclarationFetch] = useState(false)
   const [declarationWriteBack, setDeclarationWriteBack] = useState(false)
+  // 漂移核对（detect-declaration-drift）：只读比对结果 + 选中的服务 + 待聚焦的候选。
+  const [drift, setDrift] = useState<DeclarationDriftPayload | null>(null)
+  const [driftAvailable, setDriftAvailable] = useState(true)
+  const [checkingDrift, setCheckingDrift] = useState(false)
+  const [driftService, setDriftService] = useState('')
+  const [focusCandidateId, setFocusCandidateId] = useState<string | null>(null)
   const { onToast } = props
 
   useEffect(() => {
@@ -1213,6 +1362,10 @@ export function ConfigPanel(props: {  groups: string[]
     setDerive(null)
     setIgnoredCandidates([])
     setSelectedCandidates([])
+    setDrift(null)
+    setDriftAvailable(true)
+    setDriftService('')
+    setFocusCandidateId(null)
     if (group == null) {
       setTopology(null)
       setBaseline(null)
@@ -1316,6 +1469,61 @@ export function ConfigPanel(props: {  groups: string[]
       onToast('error', err instanceof Error ? err.message : String(err))
     }
   }
+
+  // 漂移核对的主键是服务：默认挑一个有工作副本的（没 localPath 既读不到声明也扫不到代码）。
+  const driftServiceId = driftService || defaultDriftService(topology)
+
+  /**
+   * 🔎 漂移核对（detect-declaration-drift）：**只读**——服务端只读声明文件 + 扫本地代码，
+   * 这里也只把结果画出来；写入一律走既有确认流程（下方 runDerive/confirmCandidates）。
+   */
+  const runDrift = async (): Promise<void> => {
+    if (!group || !driftServiceId) return
+    setCheckingDrift(true)
+    setDrift(null)
+    try {
+      const res = await api.topologyDrift(group, driftServiceId)
+      setDriftAvailable(res.available)
+      if (!res.available) return
+      setDrift(res)
+      // 完全一致时不渲染结果区（spec: 无漂移不显示告警），用一次提示说明核对跑过了。
+      if (res.status === 'ok' && !res.hasDrift && res.mediumConfidence.length === 0) {
+        onToast('success', '✅ 未发现漂移：声明与代码证据一致')
+      }
+    } catch (err) {
+      setDrift(null)
+      onToast('error', err instanceof Error ? err.message : String(err))
+    } finally {
+      setCheckingDrift(false)
+    }
+  }
+
+  /**
+   * 未声明条目的「去处理」：只**导航**进既有候选确认流程（那里才能登记目标、确认依赖），
+   * 本界面不直接写入任何东西（design D3）。候选尚未推导时先跑一次推导。
+   */
+  const handleDriftUndeclared = (entry: DriftEntryPayload): void => {
+    setFocusCandidateId(`${entry.from} → ${entry.to}`)
+    if (!derive) void runDerive()
+  }
+
+  // 候选渲染出来之后把对应行滚进视野；jsdom 里 scrollIntoView 不存在，故做能力判断。
+  useEffect(() => {
+    if (focusCandidateId == null || !derive) return
+    const el = Array.from(document.querySelectorAll('[data-candidate]')).find(
+      (node) => node.getAttribute('data-candidate') === focusCandidateId,
+    )
+    if (el instanceof HTMLElement && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'center' })
+    setFocusCandidateId(null)
+  }, [focusCandidateId, derive])
+
+  // 结果区的显示条件：非 `ok`（引导态/错误态）必须显示；`ok` 时只在有发现时显示（无漂移则整块不渲染）。
+  const showDrift =
+    drift != null &&
+    (drift.status !== 'ok' ||
+      drift.staleDeclared.length > 0 ||
+      drift.undeclared.length > 0 ||
+      drift.mediumConfidence.length > 0)
 
   const save = async (): Promise<void> => {
     if (!topology) return
@@ -1517,6 +1725,21 @@ export function ConfigPanel(props: {  groups: string[]
             <h4>
               🕸️ 依赖拓扑
               <span className="service-actions">
+                <select
+                  value={driftServiceId}
+                  onChange={(e) => {
+                    setDriftService(e.target.value)
+                    setDrift(null)
+                  }}
+                  aria-label="漂移核对的服务"
+                >
+                  {Object.keys(topology.services).map((id) => (
+                    <option key={id} value={id}>{id}</option>
+                  ))}
+                </select>
+                <button className="btn btn-sm" disabled={checkingDrift || !group || !driftServiceId} onClick={() => void runDrift()}>
+                  {checkingDrift ? '⏳ 核对中...' : '🔎 漂移核对'}
+                </button>
                 <button className="btn btn-sm" disabled={deriving || !group} onClick={() => void runDerive()}>
                   {deriving ? '⏳ 扫描中...' : '🔍 推导候选'}
                 </button>
@@ -1560,6 +1783,15 @@ export function ConfigPanel(props: {  groups: string[]
 
             {!deriveAvailable && (
               <p className="muted small">当前拓扑服务版本不支持候选推导（请升级 memory-topology 插件），可用「➕ 添加依赖」手工录入。</p>
+            )}
+
+            {/* 🔎 漂移核对（detect-declaration-drift）：与上方图体检并列、各自独立；
+                无漂移时不渲染（spec: 无漂移不显示告警）。只读，处置跳既有确认流程。 */}
+            {!driftAvailable && (
+              <p className="muted small">当前拓扑服务版本不支持漂移核对（请升级 memory-topology 插件）；可用「📥 从仓库抓取依赖」人工核对声明。</p>
+            )}
+            {showDrift && drift && (
+              <DriftBlock drift={drift} onHandle={handleDriftUndeclared} onOpenWriteBack={() => setDeclarationWriteBack(true)} />
             )}
 
             {derive && (

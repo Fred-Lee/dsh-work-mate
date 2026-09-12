@@ -65,6 +65,16 @@ export interface TopologyServiceLike {
    * with its target path and a commit hint. Writes nothing, runs no git command.
    */
   declarationRender?(group: string, service: string): Promise<DeclarationRenderLike>
+  /**
+   * Read-only declaration drift check (`detect-declaration-drift`): compares the
+   * repository's declaration against the code evidence the scanner found, keyed by
+   * the (from, to) pair. Writes NOTHING — the declaration file, the topology and
+   * every edge are left alone; handling a finding navigates into the existing
+   * candidate-confirmation flow (`applyCandidates`). Optional for the same reason
+   * as `checkHealth`: an older installed memory-topology yields `available: false`
+   * (status `'unavailable'`) instead of an error.
+   */
+  checkDeclarationDrift?(group: string, service?: string): Promise<DeclarationDriftLike>
 }
 
 /**
@@ -97,6 +107,78 @@ export interface DeclarationRenderLike {
   derived: number
   hint: string
 }
+
+/**
+ * Structural mirror of one drift entry (`detect-declaration-drift`). The
+ * dashboard only consumes the shape and declares its own copy, keeping the two
+ * plugins independently installable (same rationale as `GraphHealthLike`).
+ */
+export interface DriftEntryLike {
+  from: string
+  to: string
+  evidence: CandidateEvidenceLike[]
+  endpoints: string[]
+  method?: string
+  confidence?: 'high' | 'medium'
+  /** False when `to` is not a registered service (「目标未登记」). */
+  targetDeclared: boolean
+  /** What the declaration says for this pair; null when the pair is not declared. */
+  declared: { method: string; endpoints: string[] } | null
+  /** `staleDeclared` only: 「未在代码中找到证据」 — never a claim about the dependency. */
+  reason?: string
+  /** `staleDeclared` only: the static-scan caveat, shown verbatim. */
+  caveat?: string
+  /** `staleDeclared` only: what the human does (the tool writes nothing). */
+  action?: string
+  /** `mediumConfidence` only: why the path tier stays out of the verdict. */
+  tierNote?: string
+}
+
+/** Structural mirror of memory-topology's `DeclarationDriftResult`. */
+export interface DeclarationDriftLike {
+  service: string
+  /**
+   * `'unavailable'` is dashboard-side only (the installed topology service has no
+   * drift support — mirrors `available: false`). `'no-declaration'` is the
+   * guidance state (no declaration file yet), NOT an error; `'invalid-declaration'`
+   * reports the parse problems and carries NO verdict.
+   */
+  status: 'ok' | 'no-declaration' | 'invalid-declaration' | 'no-repo-path' | 'unavailable'
+  file: string | null
+  consistent: DriftEntryLike[]
+  staleDeclared: DriftEntryLike[]
+  undeclared: DriftEntryLike[]
+  /** Path-tier findings: listed separately and NOT counted as `undeclared` (D1). */
+  mediumConfidence: DriftEntryLike[]
+  counts: {
+    declared: number
+    codeEvidence: number
+    consistent: number
+    staleDeclared: number
+    undeclared: number
+    mediumConfidence: number
+    drift: number
+  }
+  /** True when a verdict was issued and found drift (the warning-strip trigger). */
+  hasDrift: boolean
+  /** Chinese summary of the outcome (mirrors `status`). */
+  message: string
+  errors: string[]
+  scanned: string[]
+  skipped: Array<{ serviceId: string; reason: string }>
+  scannedAt: number
+}
+
+/** Empty drift counts for the `available: false` degradation. */
+const NO_DRIFT_COUNTS = {
+  declared: 0,
+  codeEvidence: 0,
+  consistent: 0,
+  staleDeclared: 0,
+  undeclared: 0,
+  mediumConfidence: 0,
+  drift: 0,
+} as const
 
 /**
  * Structural mirrors of memory-topology's derivation payloads — the dashboard
@@ -601,6 +683,43 @@ export function createApiRouter(deps: DashboardApiDeps): Router {
         return { group, service, file: null, content: '', declared: 0, derived: 0, hint: '', available: false }
       }
       return { ...(await render.call(topology, group, service)), available: true }
+    })
+
+    // Read-only declaration drift check (detect-declaration-drift): the repo
+    // declaration vs the scanned code evidence for ONE service. It has NO
+    // mutation surface — the declaration file, the topology and every edge stay
+    // untouched; handling an `undeclared` finding goes through the EXISTING
+    // candidate-confirmation flow (POST api/topology/apply-candidates). Same
+    // degradation contract as the health/derive/declaration routes: an older
+    // installed service → `available: false`; no plugin → route unmounted (404).
+    router.get('api/topology/drift', async ({ query }) => {
+      const group = query.get('group') ?? ''
+      const service = query.get('service') ?? ''
+      if (!group) throw new Error('group is required')
+      if (!service) throw new Error('service is required')
+      const check = topology.checkDeclarationDrift
+      if (typeof check !== 'function') {
+        return {
+          group,
+          service,
+          status: 'unavailable',
+          file: null,
+          consistent: [],
+          staleDeclared: [],
+          undeclared: [],
+          mediumConfidence: [],
+          counts: { ...NO_DRIFT_COUNTS },
+          hasDrift: false,
+          message: '',
+          errors: [],
+          scanned: [],
+          skipped: [],
+          scannedAt: 0,
+          available: false,
+        }
+      }
+      const result = await check.call(topology, group, service)
+      return { ...result, group, available: true }
     })
 
     // Topology YAML export is delivered as a registered artifact so the file

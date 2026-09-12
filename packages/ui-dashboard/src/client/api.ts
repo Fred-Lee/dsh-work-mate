@@ -196,6 +196,68 @@ export interface DeclarationRenderPayload {
   available: boolean
 }
 
+/** 一条漂移条目（memory-topology 的 drift 条目镜像）。 */
+export interface DriftEntryPayload {
+  from: string
+  to: string
+  /** 代码侧证据；`staleDeclared` 条目按定义为空（正是「未找到证据」）。 */
+  evidence: DeriveEvidencePayload[]
+  endpoints: string[]
+  method?: string
+  /** 代码侧置信度；`staleDeclared` 无代码证据时缺省。 */
+  confidence?: 'high' | 'medium'
+  /** false = 目标未登记（与既有候选呈现一致）。 */
+  targetDeclared: boolean
+  /** 声明侧的形状（「是否已声明」以声明文件为准）；未声明时为 null。 */
+  declared: { method: string; endpoints: string[] } | null
+  /** 仅 staleDeclared：措辞为「未在代码中找到证据」，不是「不存在」。 */
+  reason?: string
+  /** 仅 staleDeclared：静态扫描的局限说明（原样展示，不软化）。 */
+  caveat?: string
+  /** 仅 staleDeclared：人工处置建议（工具不代改声明文件）。 */
+  action?: string
+  /** 仅 mediumConfidence：为何路径档不计入判定。 */
+  tierNote?: string
+}
+
+/** 漂移核对结果（`GET api/topology/drift`）。 */
+export interface DeclarationDriftPayload {
+  group: string
+  service: string
+  /**
+   * `ok` 已比对；`no-declaration` 该服务尚无声明文件（引导态，**非错误**，全部代码证据
+   * 均未经声明）；`invalid-declaration` 声明文件解析失败（未做比对，`errors` 列出问题）；
+   * `no-repo-path` 服务未配置本地路径；`unavailable` 拓扑服务版本过旧。
+   */
+  status: 'ok' | 'no-declaration' | 'invalid-declaration' | 'no-repo-path' | 'unavailable'
+  file: string | null
+  consistent: DriftEntryPayload[]
+  staleDeclared: DriftEntryPayload[]
+  undeclared: DriftEntryPayload[]
+  /** 中置信（路径档）单列：只作参考，**不计入** `undeclared` 判定。 */
+  mediumConfidence: DriftEntryPayload[]
+  counts: {
+    /** 声明文件列出的服务对数。 */
+    declared: number
+    /** 代码侧扫到证据的服务对数（不限档位）。 */
+    codeEvidence: number
+    consistent: number
+    staleDeclared: number
+    undeclared: number
+    mediumConfidence: number
+    /** `staleDeclared + undeclared`：两侧不一致的服务对数。 */
+    drift: number
+  }
+  /** true = 已产出判定且发现漂移（告警条的显示条件）。 */
+  hasDrift: boolean
+  message: string
+  errors: string[]
+  scanned: string[]
+  skipped: Array<{ serviceId: string; reason: string }>
+  scannedAt: number
+  available: boolean
+}
+
 const BASE = '/helmsman-dashboard/api'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -269,6 +331,15 @@ export const api = {
   /** 回写草稿：只含 `declared` 边 + 目标路径 + 「建议提交到仓库」提示；不执行任何 git 操作。 */
   topologyDeclarationRender: (group: string, service: string) =>
     request<DeclarationRenderPayload>(`/topology/declaration/render?group=${encodeURIComponent(group)}&service=${encodeURIComponent(service)}`),
+  /**
+   * 只读漂移核对：把该服务仓库里的声明文件与代码扫描出的候选做双向比对
+   * （一致 / 陈旧声明 / 未声明 + 中置信单列）。**不写声明文件、不改依赖图**；
+   * 「未声明的处理」进入既有「🔍 推导候选」确认流程。老版本服务返回 `available: false`。
+   */
+  topologyDrift: (group: string, service?: string) =>
+    request<DeclarationDriftPayload>(
+      `/topology/drift?group=${encodeURIComponent(group)}${service ? `&service=${encodeURIComponent(service)}` : ''}`,
+    ),
   exportYaml: (group: string) => request<TopologyExportResult>(`/topology/export?group=${encodeURIComponent(group)}`),
   listArtifacts: () => request<{ artifacts: ArtifactMetaPayload[]; available: boolean }>('/artifacts'),
   /** Packages a terminal task's per-agent diffs and registers the bundle. */

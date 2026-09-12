@@ -309,3 +309,222 @@ public class HomeworkCaller {
     await expect(service.applyCandidates('derive-svc-demo', [{ from: '', to: 'x' }])).rejects.toThrow(/requires both from and to/)
   })
 })
+
+describe('TopologyService declaration drift', () => {
+  const GROUP = 'drift-svc-demo'
+
+  let repoRoot: string
+
+  /** Real source shapes so the check runs end to end (scan → compare), not on stubs. */
+  function writeRepo(): void {
+    const files: Record<string, string> = {
+      'src/main/resources/application.yml': `internal-homework:
+  base-url: http://internal-homework:8080
+`,
+      // Placeholder-key form, unresolved locally → the key-derived name is kept
+      // and the target is NOT a registered service (the real 6-of-7 case).
+      'src/main/java/com/example/client/InternalBcEsClient.java': `package com.example.client;
+
+@FeignClient(name = "\${project.feign-client-config.internal-bc-es.name}",
+             url = "\${project.feign-client-config.internal-bc-es.url}",
+             path = "\${project.feign-client-config.internal-bc-es.path}")
+public interface InternalBcEsClient {
+  @GetMapping("/es_wrong_question/list/{subjectId}")
+  Result getWrongQuesList(@PathVariable Integer subjectId);
+}
+`,
+      // Path-only clue: no callee name, so it can only ever be a path-tier match.
+      'src/client/qp.ts': `import axios from 'axios'
+
+export async function listQp() {
+  return await axios.get('/api/qp/list')
+}
+`,
+    }
+    for (const [rel, content] of Object.entries(files)) {
+      const full = join(repoRoot, rel)
+      mkdirSync(dirname(full), { recursive: true })
+      writeFileSync(full, content)
+    }
+  }
+
+  function declarationFile(): string {
+    return join(repoRoot, '.helmsman', 'dependencies.yml')
+  }
+
+  function writeDeclaration(text: string): void {
+    mkdirSync(dirname(declarationFile()), { recursive: true })
+    writeFileSync(declarationFile(), text)
+  }
+
+  /** Declaration: one pair the code corroborates, one it does not, one unmentioned. */
+  const DECLARATION = `version: 1
+service: homework-server
+dependencies:
+  - to: internal-homework
+  - to: internal-legacy
+`
+
+  function fixture(): ProjectTopology {
+    const t = emptyTopology(GROUP)
+    t.services['homework-server'] = {
+      name: 'homework-server',
+      projectId: 'homework-server',
+      techStack: ['Java 17'],
+      apiEndpoints: [],
+      localPath: repoRoot,
+    }
+    t.services['internal-homework'] = {
+      name: 'internal-homework',
+      projectId: 'internal-homework',
+      techStack: [],
+      apiEndpoints: [{ method: 'GET', path: '/api/homework/{hwId}' }],
+    }
+    t.services['internal-qp'] = {
+      name: 'internal-qp',
+      projectId: 'internal-qp',
+      techStack: [],
+      apiEndpoints: [{ method: 'GET', path: '/api/qp/list' }],
+    }
+    t.services['internal-legacy'] = { name: 'internal-legacy', projectId: 'internal-legacy', techStack: [], apiEndpoints: [] }
+    return t
+  }
+
+  /** Bytes of the two files the check must never touch. */
+  function snapshot(): { declaration: string | null; topology: string } {
+    let declaration: string | null = null
+    try {
+      declaration = readFileSync(declarationFile(), 'utf8')
+    } catch {
+      declaration = null
+    }
+    return { declaration, topology: readFileSync(fileFor(GROUP), 'utf8') }
+  }
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(join(tmpdir(), 'helmsman-drift-repo-'))
+    writeRepo()
+  })
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true })
+  })
+
+  it('compares both sides: consistent / staleDeclared (with the caveat) / undeclared / mediumConfidence', async () => {
+    writeDeclaration(DECLARATION)
+    await service.saveTopology(fixture())
+    const before = snapshot()
+
+    const result = await service.checkDeclarationDrift(GROUP, 'homework-server')
+
+    expect(result.group).toBe(GROUP)
+    expect(result.service).toBe('homework-server')
+    expect(result.status).toBe('ok')
+    expect(result.file).toBe(declarationFile())
+    expect(result.hasDrift).toBe(true)
+    expect(result.scanned).toEqual(['homework-server'])
+
+    // 两侧都有 → 一致
+    expect(result.consistent.map((e) => e.to)).toEqual(['internal-homework'])
+    expect(result.consistent[0]!.evidence.length).toBeGreaterThan(0)
+    // 仅声明有 → 陈旧声明，措辞是「未在代码中找到证据」+ 静态扫描的保留说明
+    expect(result.staleDeclared.map((e) => e.to)).toEqual(['internal-legacy'])
+    expect(result.staleDeclared[0]!.reason).toContain('未在代码中找到证据')
+    expect(result.staleDeclared[0]!.caveat).toContain('静态')
+    expect(result.staleDeclared[0]!.action).toContain('不会代为修改声明文件')
+    expect(JSON.stringify(result)).not.toContain('不存在')
+    expect(JSON.stringify(result)).not.toContain('已失效')
+    // 仅高置信代码有 → 未声明；目标未登记被标出
+    expect(result.undeclared.map((e) => e.to)).toEqual(['internal-bc-es'])
+    expect(result.undeclared[0]!.confidence).toBe('high')
+    expect(result.undeclared[0]!.targetDeclared).toBe(false)
+    // 仅中置信代码有 → 单列，且不进未声明
+    expect(result.mediumConfidence.map((e) => e.to)).toEqual(['internal-qp'])
+    expect(result.undeclared.map((e) => e.to)).not.toContain('internal-qp')
+    expect(result.counts).toMatchObject({
+      declared: 2,
+      codeEvidence: 3,
+      consistent: 1,
+      staleDeclared: 1,
+      undeclared: 1,
+      mediumConfidence: 1,
+      drift: 2,
+    })
+
+    // 只读：声明文件与拓扑文件字节不变
+    expect(snapshot()).toEqual(before)
+  })
+
+  it('all-agree yields an empty drift and no warning', async () => {
+    // Drop the two clues that would otherwise produce findings, so the only pair
+    // left is the one both sides agree on.
+    rmSync(join(repoRoot, 'src/client/qp.ts'), { force: true })
+    rmSync(join(repoRoot, 'src/main/java/com/example/client/InternalBcEsClient.java'), { force: true })
+    writeDeclaration(`version: 1
+service: homework-server
+dependencies:
+  - to: internal-homework
+`)
+    await service.saveTopology(fixture())
+    const result = await service.checkDeclarationDrift(GROUP, 'homework-server')
+
+    expect(result.status).toBe('ok')
+    expect(result.hasDrift).toBe(false)
+    expect(result.staleDeclared).toEqual([])
+    expect(result.undeclared).toEqual([])
+    expect(result.mediumConfidence).toEqual([])
+    expect(result.consistent.map((e) => e.to)).toEqual(['internal-homework'])
+    expect(result.counts.drift).toBe(0)
+    expect(result.message).toContain('一致')
+  })
+
+  it('a missing declaration file is the guidance state, NOT an error', async () => {
+    await service.saveTopology(fixture())
+    const before = snapshot()
+
+    const result = await service.checkDeclarationDrift(GROUP, 'homework-server')
+
+    expect(result.status).toBe('no-declaration')
+    expect(result.errors).toEqual([])
+    expect(result.counts.declared).toBe(0)
+    expect(result.message).toContain('尚未声明依赖')
+    expect(result.message).toContain('写回声明文件')
+    // 全部代码证据都列出来了（高置信进未声明、中置信单列）
+    expect([...result.undeclared.map((e) => e.to), ...result.mediumConfidence.map((e) => e.to)].sort()).toEqual([
+      'internal-bc-es',
+      'internal-homework',
+      'internal-qp',
+    ])
+    expect(snapshot()).toEqual(before)
+  })
+
+  it('a corrupt declaration file is an explicit error, never a silent "everything undeclared"', async () => {
+    writeDeclaration('version: 1\ndependencies:\n  - method: GET\n')
+    await service.saveTopology(fixture())
+    const before = snapshot()
+
+    const result = await service.checkDeclarationDrift(GROUP, 'homework-server')
+
+    expect(result.status).toBe('invalid-declaration')
+    expect(result.errors.join(' ')).toContain('service')
+    expect(result.undeclared).toEqual([])
+    expect(result.staleDeclared).toEqual([])
+    expect(result.message).toContain('未做任何比对')
+    expect(snapshot()).toEqual(before)
+  })
+
+  it('reports a service without a working copy instead of guessing', async () => {
+    await service.saveTopology(fixture())
+    const result = await service.checkDeclarationDrift(GROUP, 'internal-qp')
+    expect(result.status).toBe('no-repo-path')
+    expect(result.file).toBeNull()
+    expect(result.message).toContain('localPath')
+  })
+
+  it('throws for an unknown group and an unknown service (same contract as checkHealth)', async () => {
+    await expect(service.checkDeclarationDrift('nope', 'anything')).rejects.toThrow(/unknown project group/)
+    await service.saveTopology(fixture())
+    await expect(service.checkDeclarationDrift(GROUP, 'ghost')).rejects.toThrow(/service not found/)
+    await expect(service.checkDeclarationDrift(GROUP, '  ')).resolves.toMatchObject({ service: 'homework-server' })
+  })
+})

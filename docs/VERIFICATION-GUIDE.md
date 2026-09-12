@@ -783,6 +783,237 @@ rm -f ~/.helmsman/topologies/$G.json      # 或配置面板 🗗️ 删除（需
 > 「📥 从仓库抓取依赖」（复用导入预览对话框核对）与「💾 写回声明文件」（展示内容 + 目标路径 + 提交提示，
 > **不执行任何 git 操作**）。
 
+### 3.9 声明漂移核对：声明 vs 代码证据（detect-declaration-drift）
+
+用一份**故意含一条陈旧声明、且遗漏一条真实依赖**的声明文件跑核对，核对四件事：
+**三组结果与人工认知一致**、**中置信单列且不计入未声明**、**核对不留副作用**、
+**删掉声明文件变成引导态（不是错误）**。全程走真实 HTTP 路由，无需 agent。
+
+```bash
+B=http://127.0.0.1:3080
+API=$B/helmsman-dashboard/api
+G=drift-check-demo
+R=/tmp/helmsman-drift-smoke
+rm -rf $R && mkdir -p $R/.helmsman $R/src/main/resources $R/src/main/java/com/example/client $R/src/client
+
+# ① 代码侧证据：配置键（名称档 → 高置信）
+cat > $R/src/main/resources/application.yml <<'EOF'
+internal-homework:
+  base-url: http://internal-homework:8080
+EOF
+
+# ② 代码侧证据：占位符键形式的 Feign 客户端，目标 internal-bc-es（名称档 → 高置信，未登记）
+cat > $R/src/main/java/com/example/client/InternalBcEsClient.java <<'EOF'
+@FeignClient(name = "${project.feign-client-config.internal-bc-es.name}",
+             url = "${project.feign-client-config.internal-bc-es.url}",
+             path = "${project.feign-client-config.internal-bc-es.path}")
+public interface InternalBcEsClient {
+  @GetMapping("/es_wrong_question/list/{subjectId}")
+  Result getWrongQuesList(@PathVariable Integer subjectId);
+}
+EOF
+
+# ③ 代码侧证据：只有路径、没有调用方名字（路径档 → 中置信，命中 internal-qp 已声明端点）
+cat > $R/src/client/qp.ts <<'EOF'
+import axios from 'axios'
+
+export async function listQp() {
+  return await axios.get('/api/qp/list')
+}
+EOF
+
+# ④ 声明文件：internal-homework 与代码一致；internal-legacy 是**陈旧声明**（代码里没有）；
+#    internal-bc-es（代码里有、声明没写）被**故意遗漏**
+cat > $R/.helmsman/dependencies.yml <<'EOF'
+version: 1
+service: homework-server
+dependencies:
+  - to: internal-homework
+  - to: internal-legacy
+EOF
+
+# ⑤ 登记项目群：调用方带 localPath；internal-qp 声明一个端点（供路径档匹配）
+curl -s -X POST $API/topology/save -H 'content-type: application/json' -d "{
+  \"topology\": {
+    \"projectGroupId\": \"$G\",
+    \"services\": {
+      \"homework-server\":   { \"name\": \"homework-server\", \"localPath\": \"$R\" },
+      \"internal-homework\": { \"name\": \"internal-homework\",
+                              \"apiEndpoints\": [ { \"method\": \"GET\", \"path\": \"/api/homework/{hwId}\" } ] },
+      \"internal-qp\":       { \"name\": \"internal-qp\",
+                              \"apiEndpoints\": [ { \"method\": \"GET\", \"path\": \"/api/qp/list\" } ] },
+      \"internal-legacy\":   { \"name\": \"internal-legacy\" }
+    }
+  }
+}" > /dev/null
+
+cp ~/.helmsman/topologies/$G.json /tmp/drift-before.json      # 用于核对「核对不写库」
+md5 -q $R/.helmsman/dependencies.yml > /tmp/drift-decl.md5 2>/dev/null || md5sum $R/.helmsman/dependencies.yml | awk '{print $1}' > /tmp/drift-decl.md5
+```
+
+**① 核对：三组结果 + 中置信分列**
+
+```bash
+curl -s "$API/topology/drift?group=$G&service=homework-server" | python3 -c "
+import sys,json
+r=json.load(sys.stdin)
+print('status:',r['status'],'| hasDrift:',r['hasDrift'],'| file:',r['file'])
+print('counts:',r['counts'])
+print('consistent:',[e['to'] for e in r['consistent']])
+print('staleDeclared:',[e['to'] for e in r['staleDeclared']])
+print('undeclared:',[(e['to'],e['confidence'],e['targetDeclared']) for e in r['undeclared']])
+print('mediumConfidence:',[(e['to'],e['confidence']) for e in r['mediumConfidence']])
+print('stale.reason:',r['staleDeclared'][0]['reason'])
+print('stale.caveat:',r['staleDeclared'][0]['caveat'])
+print('medium.tierNote:',r['mediumConfidence'][0]['tierNote'])
+print('message:',r['message'])"
+```
+
+期望（三组与人工认知一致；陈旧声明只说「未在代码中找到证据」；中置信单列）：
+
+```
+status: ok | hasDrift: True | file: /tmp/helmsman-drift-smoke/.helmsman/dependencies.yml
+counts: {'declared': 2, 'codeEvidence': 3, 'consistent': 1, 'staleDeclared': 1, 'undeclared': 1, 'mediumConfidence': 1, 'drift': 2}
+consistent: ['internal-homework']
+staleDeclared: ['internal-legacy']
+undeclared: [('internal-bc-es', 'high', False)]
+mediumConfidence: [('internal-qp', 'medium')]
+stale.reason: 未在代码中找到证据（可能确实已删除，也可能是动态构造的调用未被识别）
+stale.caveat: 扫描为静态且启发式：动态拼接的 URL、配置驱动的路径、注册中心下发的地址、非 Feign 的私有 RPC 都可能未被识别，因此这一条表示「需要人工确认」，不能据此断定该依赖已消失。
+medium.tierNote: 中置信（路径档）：调用路径经模板归一化后可能命中多个服务，本仓早期版本就因此产出过一条假阳性依赖，故只作参考、不计入漂移判定。
+message: 核对完成：声明 2 对 / 代码证据 3 对 —— 一致 1 对，需人工确认的陈旧声明 1 对（未在代码中找到证据），未声明 1 对。另有 1 对中置信（路径档）候选单列，只作参考、不计入判定。核对只读，未修改声明文件与依赖图。
+```
+
+要点：
+- `internal-homework` 两侧都有 → `consistent`；
+- `internal-legacy` 只有声明有 → `staleDeclared`，措辞是「未在代码中找到证据」并附静态扫描的局限
+  （**不得**读成「该依赖已经消失」）；
+- `internal-bc-es` 只有代码有（名称档）→ `undeclared`，且 `targetDeclared: false`（目标未登记）；
+- `internal-qp` 只有路径档匹配 → **只在** `mediumConfidence`，`counts.undeclared` **不含**它。
+
+**② 核对不留副作用（声明文件 + 拓扑文件字节不变）**
+
+```bash
+md5 -q $R/.helmsman/dependencies.yml        # 再取一次（或 md5sum ... | awk '{print $1}'）
+cat /tmp/drift-decl.md5
+diff /tmp/drift-before.json ~/.helmsman/topologies/$G.json && echo '拓扑未变 (identical)'
+```
+
+期望（声明文件 md5 一致、拓扑文件无差异 —— 核对只读，不写声明、不改图）：
+
+```
+<与 /tmp/drift-decl.md5 相同的 md5>
+拓扑未变 (identical)
+```
+
+**③ 代码里有、声明里没有 → 出现在未声明**（把声明文件改成只留 `internal-homework`）
+
+```bash
+cat > $R/.helmsman/dependencies.yml <<'EOF'
+version: 1
+service: homework-server
+dependencies:
+  - to: internal-homework
+EOF
+curl -s "$API/topology/drift?group=$G&service=homework-server" | python3 -c "
+import sys,json
+r=json.load(sys.stdin)
+print('consistent:',[e['to'] for e in r['consistent']])
+print('staleDeclared:',[e['to'] for e in r['staleDeclared']])
+print('undeclared:',[e['to'] for e in r['undeclared']])
+print('mediumConfidence:',[e['to'] for e in r['mediumConfidence']])"
+```
+
+期望（陈旧声明消失；代码里有而声明没有的进 `undeclared`，路径档仍在单列）：
+
+```
+consistent: ['internal-homework']
+staleDeclared: []
+undeclared: ['internal-bc-es']
+mediumConfidence: ['internal-qp']
+```
+
+**④ 声明与代码一致 → 无漂移**（删掉代码里那两条线索，只留与声明一致的那一条证据）
+
+```bash
+rm -f $R/src/client/qp.ts $R/src/main/java/com/example/client/InternalBcEsClient.java
+curl -s "$API/topology/drift?group=$G&service=homework-server" | python3 -c "
+import sys,json
+r=json.load(sys.stdin)
+print('status:',r['status'],'| hasDrift:',r['hasDrift'],'| drift:',r['counts']['drift'])
+print('consistent:',[e['to'] for e in r['consistent']])
+print('message:',r['message'])"
+```
+
+期望（两侧完全一致 → `hasDrift: false`、三组漂移为空；配置页整块结果区不渲染，只给一次
+「未发现漂移」提示）：
+
+```
+status: ok | hasDrift: False | drift: 0
+consistent: ['internal-homework']
+message: 核对完成：声明与代码证据一致（一致 1 对，声明 1 对 / 代码证据 1 对）。
+```
+
+**⑤ 删掉声明文件 → 引导态（不是错误）**
+
+```bash
+mv $R/.helmsman/dependencies.yml /tmp/drift-decl.bak
+curl -s "$API/topology/drift?group=$G&service=homework-server" | python3 -c "
+import sys,json
+r=json.load(sys.stdin)
+print('status:',r['status'],'| errors:',r['errors'],'| hasDrift:',r['hasDrift'])
+print('counts:',r['counts'])
+print('code-evidence:',[e['to'] for e in r['undeclared']],[e['to'] for e in r['mediumConfidence']])
+print('message:',r['message'])"
+```
+
+期望（`no-declaration`：说明该服务尚未声明、列出全部代码证据为未声明、引导写回基线；
+**非错误**，`errors` 为空）：
+
+```
+status: no-declaration | errors: [] | hasDrift: False
+counts: {'declared': 0, 'codeEvidence': 1, 'consistent': 0, 'staleDeclared': 0, 'undeclared': 1, 'mediumConfidence': 0, 'drift': 1}
+code-evidence: ['internal-homework'] []
+message: 服务 homework-server 尚未声明依赖（未找到 .helmsman/dependencies.yml）：以下 1 条代码证据均未经声明（高置信 1 条、中置信 0 条单列）。可先「💾 写回声明文件」把其中人工确认过的依赖写回仓库作为基线，之后持续核对。
+```
+
+**⑥ 声明文件解析失败 → 明确报错、不产出判定**（不凭坏文件宣布「全部未声明」）
+
+```bash
+printf 'version: 1\ndependencies:\n  - method: GET\n' > $R/.helmsman/dependencies.yml
+curl -s "$API/topology/drift?group=$G&service=homework-server" | python3 -c "
+import sys,json
+r=json.load(sys.stdin)
+print('status:',r['status'],'| errors:',r['errors'])
+print('undeclared:',r['undeclared'],'| consistent:',r['consistent'])"
+```
+
+期望：
+
+```
+status: invalid-declaration | errors: ['缺少必填字段 service（本服务在项目群中的 id，是每条依赖边的调用方）', 'dependencies[0] 缺少必填字段 to（被调用的服务 id）']
+undeclared: [] | consistent: []
+```
+
+**收尾**：
+
+```bash
+mv /tmp/drift-decl.bak $R/.helmsman/dependencies.yml 2>/dev/null
+rm -rf $R /tmp/drift-before.json /tmp/drift-decl.md5 /tmp/drift-decl.bak
+rm -f ~/.helmsman/topologies/$G.json      # 或配置面板 🗑️ 删除（需一次性确认令牌）
+```
+
+> 说明：漂移核对是**只读**路由（`GET api/topology/drift`，**无变更面**）——不写声明文件、不改拓扑、
+> 不增删任何边；「未声明」的处置跳进既有「🔍 推导候选 → 确认」，不在核对界面写入。
+> 未装 memory-topology 时该路由不挂载（宿主 404）；装了但版本较早（无 `checkDeclarationDrift`）时
+> 返回 `{"available": false, "status": "unavailable"}`，界面提示升级插件而不是静默失败。
+> 界面入口在配置面板 🕸️ 依赖拓扑 区块：先选**服务**下拉，再点「🔎 漂移核对」；结果区与顶部
+> 图体检告警条**并列**（体检看图自洽，漂移看图与代码是否一致，各自独立、不合并）。
+> 上述判定语义同样由单测锁定：`pnpm exec vitest run packages/memory-topology`
+> （`declaration-drift.test.ts`、`index.test.ts` 的 `TopologyService declaration drift`）与
+> `pnpm exec vitest run packages/ui-dashboard`（`api.test.ts` 的 drift 路由、
+> `config-panel.test.tsx` 的 `ConfigPanel 漂移核对`）。
+
 ---
 
 ## 4. 端到端：任务 → 时间线 → 门控 → 审计 → 产物

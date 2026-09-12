@@ -554,3 +554,43 @@ describe('applyDeclaration (unit)', () => {
     expect(out.restDependencies['a']).toBeUndefined()
   })
 })
+
+/**
+ * Regression (caught by the live smoke): hand-edited YAML routinely annotates
+ * lines with inline comments, and the subset parser kept them as part of the
+ * value — `to: internal-homework  # 主要依赖` produced the id
+ * `"internal-homework      # 主要依赖"`, so the edge missed its code evidence
+ * (everything looked stale) and would land a garbage id in the topology.
+ */
+describe('inline comments in scalars', () => {
+  const parse = (yml: string) => parseDeclaration(yml) as Extract<DeclarationParseResult, { ok: true }>
+
+  it('strips an inline comment from service, to, method and endpoint values', () => {
+    const r = parse(`version: 1
+service: homework-server   # the caller
+dependencies:
+  - to: internal-homework  # 主要依赖
+    method: GET            # read side
+    endpoints:
+      - /qp/list           # list endpoint
+`)
+    expect(r.ok).toBe(true)
+    expect(r.service).toBe('homework-server')
+    expect(r.edges).toHaveLength(1)
+    expect(r.edges[0]!.toServiceId).toBe('internal-homework')
+    expect(r.edges[0]!.method).toBe('GET')
+    expect(r.edges[0]!.endpoints).toEqual(['/qp/list'])
+  })
+
+  it('keeps a # without preceding whitespace (a fragment, not a comment)', () => {
+    const r = parse(`version: 1
+service: svc
+dependencies:
+  - to: internal-homework
+    endpoints:
+      - /spa#/route
+`)
+    expect(r.ok).toBe(true)
+    expect(r.edges[0]!.endpoints).toEqual(['/spa#/route'])
+  })
+})
