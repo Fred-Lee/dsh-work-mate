@@ -275,6 +275,41 @@ describe('OrchestratorCore', () => {
     expect(receivedPrompt).toContain('项目拓扑上下文')
     expect(receivedPrompt).toContain('user-service')
   })
+
+  // simplify-service-dependencies：无端点明细的服务级边注入文本退化为 `- A --▶ B`，
+  // 不带方法名也不留尾随空格；带明细的边保持历史形态。
+  it('cascade injects service-level edges as `- A --▶ B` (no method, no trailing space)', async () => {
+    const wt = makeWorktree()
+    let receivedPrompt = ''
+    const core = new OrchestratorCore({
+      worktree: wt.impl,
+      delay: async () => undefined,
+      topology: {
+        loadTopology: async () => ({
+          services: { 'user-service': { name: 'user-service', localPath: '/repo' } },
+          restDependencies: {
+            'user-service': [
+              { toServiceId: 'order-service', endpoints: [], method: '*' },
+              { toServiceId: 'stock-service', endpoints: ['/api/stock'], method: 'GET' },
+            ],
+          },
+        }),
+        getDownstream: async () => ({ direct: [], calledBy: [], transitive: [], cyclic: false }),
+      },
+    })
+    core.registerAdapter(
+      adapter('claude', async (_attempt, req) => {
+        receivedPrompt = req.prompt
+        return ok()
+      }),
+    )
+    await runTask(core, ['claude'], { projectGroupId: '订单中台', cascade: true })
+
+    expect(receivedPrompt).toContain('- user-service --▶ order-service')
+    expect(receivedPrompt).not.toContain('--*-->')
+    expect(receivedPrompt).not.toMatch(/--▶ order-service +$/m)
+    expect(receivedPrompt).toContain('- user-service --GET--> stock-service /api/stock')
+  })
 })
 
 describe('classifyFailure', () => {

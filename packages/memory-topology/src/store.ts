@@ -8,7 +8,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { normalizeTopology, type ProjectTopology } from './types.ts'
+import { normalizeTopology, dedupeDependencies, type ProjectTopology } from './types.ts'
 
 export class TopologyStore {
   readonly rootDir: string
@@ -43,7 +43,12 @@ export class TopologyStore {
 
   async save(topology: ProjectTopology): Promise<void> {
     await mkdir(this.rootDir, { recursive: true })
-    const normalized = normalizeTopology(topology)
+    // Persist chokepoint: normalize the shape AND enforce "one edge per
+    // (from, to) service pair" (design D2). Service-level callers already
+    // dedupe, so this is idempotent defence-in-depth for any writer that
+    // reaches the store directly (imports, tests, future derived candidates) —
+    // the invariant then holds for every file that lands on disk.
+    const normalized = dedupeDependencies(normalizeTopology(topology))
     await writeFile(this.fileFor(normalized.projectGroupId), JSON.stringify(normalized, null, 2), 'utf8')
   }
 

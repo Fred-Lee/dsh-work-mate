@@ -26,6 +26,27 @@
      基础仓库保持原状**，需在下方逐文件裁决后重新「合并所选」。每个合并决定的裁决载荷
      （`resolutions`）会写入 run 时间线（`merge-decision` 事件）与审计日志。
 
+### 服务依赖录入与体检（🕸️ 依赖拓扑）
+
+1. 配置面板 → 🕸️ 依赖拓扑 → ➕ 添加依赖 → 选**调用方**与**被调用方** → 💾 添加，即完成
+   「A 调用 B」的声明（**服务级边**：`endpoints: []`、`method: '*'`）。依赖区块只显示一行
+   `A ──▶ B`，不需要逐个录入 HTTP 方法与端点路径。
+2. 需要精确到接口时展开「端点明细（可选）」，填方法与端点路径；该明细会**并入同一对服务
+   的那一行**（内部按 (method, endpoint) 去重），不会另起一行。同一对服务重复添加同样只保持
+   一行，**保存是幂等的**——去重在服务端保存路径上执行，所以配置页、导入（compose/K8s/
+   OpenAPI）与直接调 API 三条写入路径都满足「同一对服务只有一条边」。
+3. 💾 保存后服务端做一次**图体检**，有问题时在配置页顶部以告警条列出（**仅提示，不阻断保存**；
+   图干净时整条不显示）：
+   - 🔁 **依赖环**：列出环内服务（如 `A → B → A`）。「架构不应存在循环调用」是约定，出现即
+     需要调整依赖方向。
+   - ⚠️ **悬空引用**：某条边的被调用方不是已登记的服务（通常是服务改名/删除后残留的边）。
+   - 💤 **孤立服务**：既无出边也无入边的服务，通常是漏登记了依赖。
+4. 只读查询（脚本/调试）：`GET /helmsman-dashboard/api/topology/health?group=<群名>` 返回
+   `{ group, available, health: { cyclic, cycles, dangling, isolated } }`；旧版本拓扑服务没有
+   该能力时 `available: false`，配置页不显示告警条。
+5. 注入文本（`cascade` 模式给 Agent 的拓扑上下文）同样降级：无明细的边写成
+   `- A --▶ B`，带明细的边仍为 `- A --GET--> B /api/x`。
+
 ## 2. 工作台（Helmsman Workbench）
 
 装入 `@helmsman/ui-workbench` 后，DSH 网页侧边栏底部出现 **🚀 Helmsman** 按钮：
@@ -202,6 +223,7 @@ REST/SSE 补充端点（供脚本/调试）：
 - `POST /api/approvals` — 请求确认（`{op, taskId?, group?}`）→ `approvalId`。
 - `POST /api/approvals/:id/decision` — 决定（`{approve}`）；批准签发一次性令牌。
 - `GET /api/audit?op=&taskId=&from=&to=` — 只读审计查询（无变更面）。
+- `GET /api/topology/health?group=<群名>` — 只读图体检（依赖环 + 成员 / 悬空引用 / 孤立服务），无变更面。
 - merge/discard/cancel 与 `POST /api/topology/delete` 均需携带 `confirmationToken`（confirm-required 时）。
 
 ## 6. 验证安装

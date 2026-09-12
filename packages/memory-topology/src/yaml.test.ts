@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseYamlSubset, toYaml } from './yaml.ts'
+import { exportTopologyYaml } from './index.ts'
+import { emptyTopology, SERVICE_LEVEL_METHOD } from './types.ts'
 
 describe('parseYamlSubset', () => {
   it('parses docker-compose style documents', () => {
@@ -73,5 +75,15 @@ describe('toYaml', () => {
     const obj = { a: 1, b: 'two words', c: true, list: [1, 2, 3] }
     const parsed = parseYamlSubset(toYaml(obj))
     expect(parsed).toEqual(obj)
+  })
+
+  it('round-trips service-level edges (no endpoint detail, method "*")', () => {
+    const t = emptyTopology('g')
+    t.services['a'] = { name: 'a', projectId: 'a', techStack: [], apiEndpoints: [] }
+    t.services['b'] = { name: 'b', projectId: 'b', techStack: [], apiEndpoints: [] }
+    t.restDependencies = { a: [{ toServiceId: 'b', endpoints: [], method: SERVICE_LEVEL_METHOD }] }
+    const parsed = parseYamlSubset(exportTopologyYaml(t)) as { restDependencies: Array<Record<string, unknown>> }
+    // empty detail emits no `endpoints` placeholder and `'*'` survives as a scalar
+    expect(parsed.restDependencies).toEqual([{ from: 'a', to: 'b', method: '*' }])
   })
 })

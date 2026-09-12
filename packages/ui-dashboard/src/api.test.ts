@@ -148,6 +148,7 @@ const fakeTopology: TopologyServiceLike = {
     }
   },
   exportYaml: async () => 'projectGroup:\n  name: 订单中台\n',
+  checkHealth: async () => ({ cyclic: false, cycles: [], dangling: [], isolated: [] }),
 }
 
 describe('dashboard API router', () => {
@@ -277,6 +278,33 @@ describe('dashboard API router', () => {
     const router = createApiRouter({ orchestrator: fakeOrchestrator(), topology: fakeTopology })
     const handled = await router.handle(fakeReq('GET'), fakeRes().res, '/api/unknown')
     expect(handled).toBe(false)
+  })
+
+  // 依赖图体检（design D3）：只读路由，转发到拓扑服务面。
+  it('GET api/topology/health forwards the group and returns the health report', async () => {
+    const health = { cyclic: true, cycles: [['b', 'a']], dangling: [{ from: 'c', to: 'ghost' }], isolated: ['d'] }
+    const checkHealth = vi.fn(async () => health)
+    const router = createApiRouter({ orchestrator: fakeOrchestrator(), topology: { ...fakeTopology, checkHealth } })
+    const { res, status, body } = fakeRes()
+    const handled = await router.handle(fakeReq('GET'), res, `/api/topology/health?group=${encodeURIComponent('作业服务群')}`)
+    expect(handled).toBe(true)
+    expect(status()).toBe(200)
+    expect(checkHealth).toHaveBeenCalledWith('作业服务群')
+    expect(JSON.parse(body())).toEqual({ group: '作业服务群', available: true, health })
+  })
+
+  it('health route degrades to available:false when the installed service has no checkHealth', async () => {
+    const router = createApiRouter({ orchestrator: fakeOrchestrator(), topology: { ...fakeTopology, checkHealth: undefined } })
+    const { res, status, body } = fakeRes()
+    const handled = await router.handle(fakeReq('GET'), res, '/api/topology/health?group=g')
+    expect(handled).toBe(true)
+    expect(status()).toBe(200)
+    expect(JSON.parse(body())).toEqual({ group: 'g', health: null, available: false })
+  })
+
+  it('health route is not mounted without the topology plugin (host answers 404)', async () => {
+    const router = createApiRouter({ orchestrator: fakeOrchestrator() })
+    expect(await router.handle(fakeReq('GET'), fakeRes().res, '/api/topology/health?group=g')).toBe(false)
   })
 })
 

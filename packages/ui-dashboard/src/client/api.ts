@@ -71,8 +71,26 @@ export interface TopologyPayload {
     localPath?: string
   }>
   mavenParents: Record<string, { pomPath: string; managedDependencies: Record<string, string>; children: string[] }>
+  /**
+   * 服务间依赖，键为调用方服务 id。同一对服务只有一条边（服务端保存路径按
+   * (from, to) 去重），`endpoints: []` + `method: '*'` 表示只声明了「A 调用 B」
+   * 而未细分接口的服务级边。
+   */
   restDependencies: Record<string, Array<{ toServiceId: string; endpoints: string[]; method: string; critical?: boolean }>>
 }
+
+/** 服务级边的规范 method（与 memory-topology 的 SERVICE_LEVEL_METHOD 一致）。 */
+export const SERVICE_LEVEL_METHOD = '*'
+
+/** Mirror of memory-topology's GraphHealth (只读体检结果). */
+export interface GraphHealthPayload {
+  cyclic: boolean
+  cycles: string[][]
+  dangling: Array<{ from: string; to: string }>
+  isolated: string[]
+}
+
+export type TopologyHealthPayload = { group: string; health: GraphHealthPayload | null; available: boolean }
 
 export interface ImportPreviewPayload {
   source: string
@@ -117,6 +135,8 @@ export const api = {
     request<{ ok: boolean }>(`/task/${encodeURIComponent(taskId)}/discard`, { method: 'POST', body: JSON.stringify({ confirmationToken }) }),
   loadTopology: (group: string) => request<{ group: string; topology: TopologyPayload | null }>(`/topology?group=${encodeURIComponent(group)}`),
   saveTopology: (topology: TopologyPayload) => request<{ ok: boolean }>('/topology/save', { method: 'POST', body: JSON.stringify({ topology }) }),
+  /** 只读图体检（环/悬空引用/孤立服务）；老版本服务无该能力时 available=false。 */
+  topologyHealth: (group: string) => request<TopologyHealthPayload>(`/topology/health?group=${encodeURIComponent(group)}`),
   createGroup: (group: string, name?: string) => request<{ topology: TopologyPayload }>('/topology/create', { method: 'POST', body: JSON.stringify({ group, name }) }),
   deleteGroup: (group: string, confirmationToken?: string) =>
     request<{ ok: boolean }>('/topology/delete', { method: 'POST', body: JSON.stringify({ group, confirmationToken }) }),

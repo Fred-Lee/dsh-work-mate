@@ -17,11 +17,12 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-tools'
 import { TopologyStore } from './store.ts'
 import { computeDownstream, cascadeOrder } from './downstream.ts'
+import { checkGraph, type GraphHealth } from './graph-health.ts'
 import { scanMavenPom } from './scan-maven.ts'
 import { scanRestApis } from './scan-rest.ts'
 import { makeImportedTopology, previewCompose, previewKubernetes, previewOpenApi, applyPreview, type ImportPreview } from './import.ts'
 import { toYaml } from './yaml.ts'
-import { emptyTopology, normalizeTopology, type ApiEndpoint, type DownstreamReport, type ProjectTopology } from './types.ts'
+import { dedupeDependencies, emptyTopology, normalizeTopology, type ApiEndpoint, type DownstreamReport, type ProjectTopology } from './types.ts'
 
 export const name = '@helmsman/memory-topology'
 export const inject = ['tools'] as const
@@ -38,6 +39,9 @@ export type {
   ServiceNode,
 } from './types.ts'
 export { emptyTopology, normalizeTopology } from './types.ts'
+export { dedupeDependencies, isServiceLevelEdge, mergeDependencyEdge, SERVICE_LEVEL_METHOD } from './types.ts'
+export { checkGraph } from './graph-health.ts'
+export type { GraphHealth } from './graph-health.ts'
 
 export interface Config {
   /** Directory that holds <group>.json topology files. @default ~/.helmsman/topologies */
@@ -54,6 +58,12 @@ export interface TopologyService {
   scanRestApis(localPath: string): Promise<ApiEndpoint[]>
   getDownstream(group: string, serviceId: string): Promise<DownstreamReport>
   cascadeOrder(group: string, serviceIds: string[]): Promise<string[]>
+  /**
+   * Graph-level health check (design D3) — cycles with their members, edges
+   * pointing at undeclared services, isolated services. Read-only and additive:
+   * `loadTopology`'s return shape is unchanged.
+   */
+  checkHealth(group: string): Promise<GraphHealth>
   exportYaml(group: string): Promise<string>
   importPreview(source: ImportPreview['source'], text: string, inferDeps?: boolean): Promise<ImportPreview>
   importApply(group: string, preview: ImportPreview): Promise<ProjectTopology>
@@ -78,7 +88,10 @@ export function apply(ctx: Context, config: Config = {}) {
     },
 
     async saveTopology(topology) {
-      const normalized = normalizeTopology(topology)
+      // Persist-path dedupe (design D2): the "one edge per (from, to) pair"
+      // invariant is enforced HERE (not only in the config page) so imports,
+      // direct HTTP writes and the UI all get it; saving is idempotent.
+      const normalized = dedupeDependencies(normalizeTopology(topology))
       await store.save(normalized)
       await mirrorToMemoryManager(ctx, normalized)
     },
@@ -117,6 +130,12 @@ export function apply(ctx: Context, config: Config = {}) {
       return cascadeOrder(topology, serviceIds)
     },
 
+    async checkHealth(group) {
+      const topology = await store.load(group)
+      if (!topology) throw new Error(`unknown project group: ${group}`)
+      return checkGraph(topology)
+    },
+
     async exportYaml(group) {
       const topology = await store.load(group)
       if (!topology) throw new Error(`unknown project group: ${group}`)
@@ -138,8 +157,12 @@ export function apply(ctx: Context, config: Config = {}) {
       const existing = await store.load(group)
       const topology = existing ?? emptyTopology(group, group)
       applyPreview(topology, preview)
-      await store.save(topology)
-      return topology
+      // Same invariant as saveTopology: an import that lands on legacy duplicate
+      // pairs cleans them up too, and the returned topology matches what is on
+      // disk (the SPA puts it straight back into its state).
+      const deduped = dedupeDependencies(topology)
+      await store.save(deduped)
+      return deduped
     },
   }
 

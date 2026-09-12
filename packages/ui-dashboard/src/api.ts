@@ -33,6 +33,26 @@ export interface TopologyServiceLike {
   importPreview(source: 'docker-compose' | 'kubernetes' | 'openapi', text: string, inferDeps?: boolean): Promise<unknown>
   importApply(group: string, preview: unknown): Promise<ProjectTopology>
   exportYaml(group: string): Promise<string>
+  /**
+   * Read-only graph health (design D3): dependency cycles with their members,
+   * edges pointing at undeclared services, isolated services. Optional because
+   * the dashboard and memory-topology ship as independent plugins — when an
+   * installed service predates the health surface the route reports
+   * `available: false` instead of failing.
+   */
+  checkHealth?(group: string): Promise<GraphHealthLike>
+}
+
+/**
+ * Structural mirror of memory-topology's `GraphHealth` (the dashboard only ever
+ * consumes the shape, and declares its own copy so the two plugins stay
+ * independently installable).
+ */
+export interface GraphHealthLike {
+  cyclic: boolean
+  cycles: string[][]
+  dangling: Array<{ from: string; to: string }>
+  isolated: string[]
 }
 
 /**
@@ -349,6 +369,18 @@ export function createApiRouter(deps: DashboardApiDeps): Router {
       const body = await readJsonBody(req)
       await topology.saveTopology(body.topology as ProjectTopology)
       return { ok: true }
+    })
+
+    // Read-only graph health check (design D3): the SPA pulls it after a save
+    // and renders a non-blocking warning strip. Purely additive — no mutation
+    // surface, and 404 when the topology plugin is absent (route not mounted).
+    // An older installed memory-topology without `checkHealth` degrades to
+    // `available: false` rather than erroring.
+    router.get('api/topology/health', async ({ query }) => {
+      const group = query.get('group') ?? ''
+      const checkHealth = topology.checkHealth
+      if (typeof checkHealth !== 'function') return { group, health: null, available: false }
+      return { group, health: await checkHealth.call(topology, group), available: true }
     })
 
     router.post('api/topology/create', async ({ req }) => {

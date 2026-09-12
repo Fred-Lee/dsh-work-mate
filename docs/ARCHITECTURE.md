@@ -36,6 +36,13 @@ webServer (DSH 内置) ←─ inject ── ui-dashboard, ui-diff, ui-workbench,
   `ctx.get('vws')`，失败不阻塞。
 - **memory-topology**：`~/.helmsman/topologies/<group>.json`（组名 URI 编码，
   CJK 安全）；`normalizeTopology` 在读写两侧做形状清洗，坏文件降级为 null。
+  依赖图是**服务级**模型：`restDependencies` 键为调用方，**一对 (from, to) 恰好一条边**；
+  只声明「A 调用 B」而不细分接口时用**服务级边**编码 —— `{ toServiceId, endpoints: [], method: '*' }`
+  （`SERVICE_LEVEL_METHOD`），归一化**保留**该形态（不填默认 `GET`、不造占位路径），端点明细是
+  可选补充。去重落在**持久化路径**（服务 `saveTopology` + `TopologyStore.save`）：同一对服务
+  再次写入时按 `mergeDependencyEdge` 把明细并入既有边、明细内部按 (method, endpoint) 去重，
+  因此配置页 / 导入 / 直接 HTTP 三条写入路径共享同一不变量且保存幂等。展示按「有无明细」
+  逐点降级：配置页 `A ──▶ B`，`describeTopology` 注入文本 `- A --▶ B`。
   扫描器零依赖：Maven 用轻量标签匹配（含 `${property}` 解析、dependencyManagement、
   modules、parent 链接推导）；REST 扫描支持 Spring / NestJS / Express 三类注解
   与路由，带深度/文件数/大小上限与 realpath 符号链接逃逸检查。
@@ -128,7 +135,17 @@ orchestrator.runParallelTask()                    │ helmsman/task-updated 事�
   （board 缺失时建档接口返回「未安装 @helmsman/board 插件」的明确错误）。
 - **拓扑提示注入（cascade）**：v1 把下游依赖图作为提示词上下文注入每个 agent
   （不改执行顺序）；服务级级联编排（按拓扑序逐服务执行）留作后续，
-  `topology.cascadeOrder()` 已提供拓扑序计算。
+  `topology.cascadeOrder()` 已提供拓扑序计算。注入文本对无明细的边退化为
+  `- A --▶ B`（不出现残缺的 `--*-->` 与尾随空格）。
+- **依赖粒度 = 服务级 + 图体检（不变量而非兜底）**：真实消费者只用「谁指向谁」
+  （图谱取 `{from,to,critical?}`、影响面看 `services[].localPath`、级联只用 `from`/`to`），
+  所以端点明细降级为可选信息，没有新增 `serviceDependencies` 字段（避免双写与迁移）。
+  环检测因此**升级为体检**：`packages/memory-topology/src/graph-health.ts` 的
+  `checkGraph(topology) → { cyclic, cycles: string[][], dangling, isolated }` 报告环（**含环内成员**）、
+  指向未登记服务的边与孤立服务，经只读 `topology.checkHealth(group)` 暴露
+  （dashboard 只读路由 `GET api/topology/health?group=`），配置页在保存后拉取为告警条
+  （仅提示、不阻断保存；干净图不显示）。`computeDownstream().cyclic` 与 `cascadeOrder` 的
+  环降级行为**保持不变**：引擎不该被脏数据打崩，但人必须被告知（体检是新增视角，不是替换）。
 - **合并语义**：patch 式合并（`git apply`）而非分支 `git merge`，这样即使 agent
   未在 worktree 内提交也能合并；代价是冲突处理是「整批失败」（原子），
   冲突文件由 UI 选择采纳某个 Agent 后按 agent+file 维度重试。
@@ -139,7 +156,7 @@ orchestrator.runParallelTask()                    │ helmsman/task-updated 事�
 ```
 packages/
   worktree/          git worktree 服务（diffparse / service / git）
-  memory-topology/   拓扑存储 + 扫描器 + 导入导出 + 3 个 agent 工具
+  memory-topology/   拓扑存储 + 扫描器 + 导入导出 + 图体检（graph-health.ts）+ 3 个 agent 工具
   orchestrator/      core.ts（引擎）+ index.ts（cordis 装配 + 工具）
   artifacts/         内容寻址产物注册表（helmsman.artifacts 纯 Service）
   board/             任务工作项聚合根（helmsman.board 纯 Service：模型/四阶段/门/关联/事件）
@@ -154,7 +171,7 @@ scripts/build-package.mjs   共享 esbuild 配置（packages:external）
 
 ## 6. 测试
 
-- 单测：`packages/*/src/*.test.ts`，`pnpm test`（vitest，56 用例）。
+- 单测：`packages/*/src/*.test.ts`，`pnpm test`（vitest，全量 424 用例）。
 - 关键集成：真实 `git init` 的 worktree 创建→diff→合并→冲突→清理全链路。
 - 真实 profile 冒烟：`--dump-config` 核对 9 行 insert；`dsh web` 启动后 curl
   `/helmsman-dashboard/api/state`；以假 agent 脚本走完 执行→聚合→合并→主仓库

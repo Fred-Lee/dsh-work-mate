@@ -100,7 +100,8 @@ cd ~/Documents/workspace/dsh-Helmsman && pnpm typecheck
 cd ~/Documents/workspace/dsh-Helmsman && pnpm test
 ```
 
-期望（写入时）：`Test Files 25 passed`、`Tests 199 passed`。看板落地后数字会上升。
+期望（本机实测，simplify-service-dependencies 落地后）：`Test Files 36 passed`、`Tests 424 passed`。
+（历史：写入时 25 文件 / 199 用例；看板与依赖图变更后数字会继续上升。）
 
 ### 2.3 工具链与插件可装载性检查
 
@@ -207,6 +208,127 @@ Origin=[http://127.0.0.1:8765   ] -> 403
 ```
 
 即：不带或自身 Origin 只差令牌；**外来 Origin 直接 403**。
+
+### 3.6 依赖拓扑：服务级边、按对去重与图体检（simplify-service-dependencies）
+
+用只读/可复现的 curl 链路验证三件事：**只选两个服务即一条边**、**重复添加仍只一行（幂等）**、
+**成环被体检报出**。全部走真实 HTTP 路由，无需 agent。
+
+```bash
+B=http://127.0.0.1:3080
+API=$B/helmsman-dashboard/api
+G=dep-check-demo
+```
+
+**① 保存一条服务级边（`endpoints: []` + `method: '*'`）**
+
+```bash
+curl -s -X POST $API/topology/save -H 'content-type: application/json' -d '{
+  "topology": {
+    "projectGroupId": "dep-check-demo",
+    "services": { "svc-a": { "name": "svc-a" }, "svc-b": { "name": "svc-b" } },
+    "restDependencies": { "svc-a": [ { "toServiceId": "svc-b", "endpoints": [], "method": "*" } ] }
+  }
+}'
+curl -s "$API/topology?group=$G" | python3 -c 'import json,sys;t=json.load(sys.stdin)["topology"];rows=t["restDependencies"].get("svc-a",[]);print("rows:",len(rows),json.dumps(rows,ensure_ascii=False))'
+```
+
+期望（恰好一行；`endpoints` 保持空数组、`method` 保持 `'*'`——**没有被填成 `GET` 或占位路径**）：
+
+```
+rows: 1 [{"toServiceId": "svc-b", "endpoints": [], "method": "*"}]
+```
+
+**② 同一对服务再添加一次（带明细）→ 仍只有一行，明细并入**
+
+```bash
+curl -s -X POST $API/topology/save -H 'content-type: application/json' -d '{
+  "topology": {
+    "projectGroupId": "dep-check-demo",
+    "services": { "svc-a": { "name": "svc-a" }, "svc-b": { "name": "svc-b" } },
+    "restDependencies": { "svc-a": [
+      { "toServiceId": "svc-b", "endpoints": [], "method": "*" },
+      { "toServiceId": "svc-b", "endpoints": ["/api/orders"], "method": "GET" }
+    ] }
+  }
+}'
+curl -s "$API/topology?group=$G" | python3 -c 'import json,sys;t=json.load(sys.stdin)["topology"];rows=t["restDependencies"].get("svc-a",[]);print("rows:",len(rows),json.dumps(rows,ensure_ascii=False))'
+```
+
+期望（两行合并为一行，明细留在同一对服务上）：
+
+```
+rows: 1 [{"toServiceId": "svc-b", "endpoints": ["/api/orders"], "method": "GET"}]
+```
+
+把**同一条命令再执行一次**（同样的 payload），`rows` 仍为 `1` 且内容不变 —— 保存幂等。
+配置页同样只需两个下拉（端点明细收在「端点明细（可选）」折叠区），依赖区块显示一行
+`svc-a ──▶ svc-b`。
+
+**③ 构造 `A → B → A`，体检报告出环及成员**
+
+```bash
+curl -s -X POST $API/topology/save -H 'content-type: application/json' -d '{
+  "topology": {
+    "projectGroupId": "dep-check-demo",
+    "services": { "svc-a": { "name": "svc-a" }, "svc-b": { "name": "svc-b" } },
+    "restDependencies": {
+      "svc-a": [ { "toServiceId": "svc-b", "endpoints": [], "method": "*" } ],
+      "svc-b": [ { "toServiceId": "svc-a", "endpoints": [], "method": "*" } ]
+    }
+  }
+}'
+curl -s "$API/topology/health?group=$G" | python3 -c 'import json,sys;h=json.load(sys.stdin)["health"];print("cyclic:",h["cyclic"],"cycles:",h["cycles"],"dangling:",h["dangling"],"isolated:",h["isolated"])'
+```
+
+期望（环被报出且**含成员**；配置页保存后同样出现 🔁 告警条，但**不阻断保存**）：
+
+```
+cyclic: True cycles: [['svc-a', 'svc-b']] dangling: [] isolated: []
+```
+
+**④ 悬空引用与孤立服务**
+
+```bash
+curl -s -X POST $API/topology/save -H 'content-type: application/json' -d '{
+  "topology": {
+    "projectGroupId": "dep-check-demo",
+    "services": { "svc-a": { "name": "svc-a" }, "svc-c": { "name": "svc-c" } },
+    "restDependencies": { "svc-a": [ { "toServiceId": "ghost", "endpoints": [], "method": "*" } ] }
+  }
+}'
+curl -s "$API/topology/health?group=$G" | python3 -c 'import json,sys;h=json.load(sys.stdin)["health"];print("cyclic:",h["cyclic"],"cycles:",h["cycles"],"dangling:",h["dangling"],"isolated:",h["isolated"])'
+```
+
+期望（`ghost` 未登记 → 悬空；`svc-c` 无入边无出边 → 孤立）：
+
+```
+cyclic: False cycles: [] dangling: [{'from': 'svc-a', 'to': 'ghost'}] isolated: ['svc-c']
+```
+
+**⑤ 干净图无告警**（两个服务、一条边）：`cyclic: False ... dangling: [] isolated: []`，
+配置页不显示告警条（`health` 三项全空即整块不渲染）。
+
+```bash
+curl -s -X POST $API/topology/save -H 'content-type: application/json' -d '{
+  "topology": {
+    "projectGroupId": "dep-check-demo",
+    "services": { "svc-a": { "name": "svc-a" }, "svc-b": { "name": "svc-b" } },
+    "restDependencies": { "svc-a": [ { "toServiceId": "svc-b", "endpoints": [], "method": "*" } ] }
+  }
+}'
+curl -s "$API/topology/health?group=$G" | python3 -c 'import json,sys;h=json.load(sys.stdin)["health"];print("cyclic:",h["cyclic"],"cycles:",h["cycles"],"dangling:",h["dangling"],"isolated:",h["isolated"])'
+```
+
+```
+cyclic: False cycles: [] dangling: [] isolated: []
+```
+
+**收尾**：临时群建议在配置面板 🗑️ 删除（`POST /api/topology/delete` 默认需一次性确认令牌），
+或直接 `rm -f ~/.helmsman/topologies/dep-check-demo.json`。
+
+> 说明：`GET api/topology/health` 是只读路由（无变更面）；未装 memory-topology 时该路由不挂载
+> （宿主 404），装了但版本较早（无 `checkHealth`）时返回 `{"available": false, "health": null}`。
 
 ---
 

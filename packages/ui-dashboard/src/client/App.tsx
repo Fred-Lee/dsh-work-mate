@@ -15,6 +15,7 @@ import {
 import {
   AGENTS,
   AGENT_LABELS,
+  SERVICE_LEVEL_METHOD,
   USAGE_QUOTA,
   api,
   artifactUrl,
@@ -22,6 +23,7 @@ import {
   type AgentRunPayload,
   type AgentRunState,
   type AuditEntryPayload,
+  type GraphHealthPayload,
   type ImportPreviewPayload,
   type StatePayload,
   type TaskPayload,
@@ -1043,6 +1045,32 @@ function fmtK(n: number): string {
 // config panel (PRD §4.7)
 // ---------------------------------------------------------------------------
 
+type RestEdgePayload = TopologyPayload['restDependencies'][string][number]
+
+/**
+ * 前端镜像的「同一对服务只有一条边」（design D2）——语义与 memory-topology 的
+ * `mergeDependencyEdge` 一致：明细并入既有边、按 (method, endpoint) 去重，无明细的
+ * 添加既不新增行也不覆盖明细。
+ *
+ * 仅为即时体验（保存后界面立刻只显示一行）；**权威去重仍在服务端保存路径**，
+ * 导入 / 直接调 HTTP / 手改 JSON 都不会绕过它。
+ */
+function mergeClientEdge(edges: RestEdgePayload[], incoming: RestEdgePayload): RestEdgePayload[] {
+  const at = edges.findIndex((e) => e.toServiceId === incoming.toServiceId)
+  if (at < 0) return [...edges, incoming]
+  const existing = edges[at]!
+  const incomingHasDetail = incoming.endpoints.length > 0
+  const method = incomingHasDetail && existing.endpoints.length === 0 ? incoming.method : existing.method
+  const endpoints = [...new Set([...existing.endpoints, ...incoming.endpoints])]
+  const merged: RestEdgePayload = {
+    toServiceId: existing.toServiceId,
+    endpoints,
+    method,
+    ...(existing.critical === true || incoming.critical === true ? { critical: true } : {}),
+  }
+  return [...edges.slice(0, at), merged, ...edges.slice(at + 1)]
+}
+
 export function ConfigPanel(props: {
   groups: string[]
   currentGroup: string | null
@@ -1055,6 +1083,8 @@ export function ConfigPanel(props: {
   // 最近一次「加载 / 保存 / 导入应用」的序列化快照：topology 与快照不等即为未保存修改（dirty）。
   // 关闭面板是显式用户动作，dirty 时需确认，避免另一条「配置到一半被冲掉」的路径。
   const [baseline, setBaseline] = useState<string | null>(null)
+  // 保存后拉取的图体检结果（环/悬空引用/孤立服务）；仅提示，不阻断保存。
+  const [health, setHealth] = useState<GraphHealthPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [scanning, setScanning] = useState<string | null>(null)
   const [editService, setEditService] = useState<string | 'new' | null>(null)
@@ -1065,6 +1095,7 @@ export function ConfigPanel(props: {
   useEffect(() => {
     let active = true
     setLoading(true)
+    setHealth(null)
     if (group == null) {
       setTopology(null)
       setBaseline(null)
@@ -1100,12 +1131,24 @@ export function ConfigPanel(props: {
     props.onClose()
   }
 
+  // 保存后体检（design D3）：结果仅作提示，取不到就静默不显示，绝不打断保存流程。
+  const refreshHealth = async (): Promise<void> => {
+    if (!group) return
+    try {
+      const res = await api.topologyHealth(group)
+      setHealth(res.health)
+    } catch {
+      setHealth(null)
+    }
+  }
+
   const save = async (): Promise<void> => {
     if (!topology) return
     try {
       await api.saveTopology(topology)
       setBaseline(JSON.stringify(topology))
       onToast('success', '✅ 配置已保存')
+      await refreshHealth()
     } catch (err) {
       onToast('error', err instanceof Error ? err.message : String(err))
     }
@@ -1186,6 +1229,26 @@ export function ConfigPanel(props: {
         <p className="muted" style={{ padding: 16 }}>选择上方项目群，或「➕ 新建」开始配置。</p>
       ) : (
         <div className="config-body">
+          {/* 图体检告警条（design D3）：无环/无悬空/无孤立时整块不渲染。 */}
+          {health && (health.cyclic || health.dangling.length > 0 || health.isolated.length > 0) && (
+            <div className="health-strip" role="status" aria-label="图健康检查">
+              {health.cyclic && (
+                <p className="badge warn">
+                  🔁 依赖环：{health.cycles.map((c) => c.join(' → ')).join('；')}（架构约定不应存在循环调用）
+                </p>
+              )}
+              {health.dangling.map((d, i) => (
+                <p key={`dangling-${i}`} className="badge warn">
+                  ⚠️ 悬空引用：{d.from} → {d.to}（被调用方不是已登记的服务）
+                </p>
+              ))}
+              {health.isolated.length > 0 && (
+                <p className="badge warn">💤 孤立服务（无任何入边/出边）：{health.isolated.join('、')}</p>
+              )}
+              <p className="muted small">以上仅为提示，不影响保存。</p>
+            </div>
+          )}
+
           <section className="config-section">
             <h4>📋 基本信息</h4>
             <label className="field">
@@ -1261,23 +1324,30 @@ export function ConfigPanel(props: {
               <button className="btn btn-sm" onClick={() => setDepModal(true)}>➕ 添加依赖</button>
             </h4>
             {Object.entries(topology.restDependencies).flatMap(([from, edges]) =>
-              edges.map((edge, i) => (
-                <p key={`${from}-${i}`} className="dep-line">
-                  {from} ──{edge.method} {edge.endpoints[0] ?? ''}──▶ {edge.toServiceId}
-                  {edge.critical && <span className="badge warn">关键路径</span>}
-                  <button
-                    className="btn btn-sm ghost"
-                    onClick={() => {
-                      const rest = { ...topology.restDependencies }
-                      rest[from] = (rest[from] ?? []).filter((_, idx) => idx !== i)
-                      if (rest[from]?.length === 0) delete rest[from]
-                      applyTopology({ ...topology, restDependencies: rest })
-                    }}
-                  >
-                    🗑️
-                  </button>
-                </p>
-              )),
+              edges.map((edge, i) => {
+                // 无端点明细的服务级边渲染为 `A ──▶ B`（不出现 `GET ` 这类残缺文本、无尾随空白）。
+                const label =
+                  edge.endpoints.length > 0
+                    ? `${from} ──${edge.method} ${edge.endpoints[0] ?? ''}──▶ ${edge.toServiceId}`
+                    : `${from} ──▶ ${edge.toServiceId}`
+                return (
+                  <p key={`${from}-${i}`} className="dep-line">
+                    <span className="dep-label">{label}</span>
+                    {edge.critical && <span className="badge warn">关键路径</span>}
+                    <button
+                      className="btn btn-sm ghost"
+                      onClick={() => {
+                        const rest = { ...topology.restDependencies }
+                        rest[from] = (rest[from] ?? []).filter((_, idx) => idx !== i)
+                        if (rest[from]?.length === 0) delete rest[from]
+                        applyTopology({ ...topology, restDependencies: rest })
+                      }}
+                    >
+                      🗑️
+                    </button>
+                  </p>
+                )
+              }),
             )}
             {Object.entries(topology.mavenParents).map(([id, m]) => (
               <p key={id} className="dep-line">
@@ -1338,7 +1408,7 @@ export function ConfigPanel(props: {
           onClose={() => setDepModal(false)}
           onSave={(from, edge) => {
             const rest = { ...topology.restDependencies }
-            rest[from] = [...(rest[from] ?? []), edge]
+            rest[from] = mergeClientEdge(rest[from] ?? [], edge)
             applyTopology({ ...topology, restDependencies: rest })
             setDepModal(false)
           }}
@@ -1477,13 +1547,18 @@ function DependencyModal(props: {
             {props.services.map((s) => <option key={s}>{s}</option>)}
           </select>
         </label>
-        <label className="field">
-          HTTP 方法
-          <select value={method} onChange={(e) => setMethod(e.target.value)}>
-            {['GET', 'POST', 'PUT', 'DELETE', 'PATCH'].map((m) => <option key={m}>{m}</option>)}
-          </select>
-        </label>
-        <label className="field">端点路径 <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/api/users/{id}/orders" /></label>
+        {/* 端点明细可选：不填即服务级边（endpoints: []、method: '*'）。
+            同一对服务重复添加只会并入既有那一行，不会新增行。 */}
+        <details className="dep-details">
+          <summary>端点明细（可选）</summary>
+          <label className="field">
+            HTTP 方法
+            <select value={method} onChange={(e) => setMethod(e.target.value)}>
+              {['GET', 'POST', 'PUT', 'DELETE', 'PATCH'].map((m) => <option key={m}>{m}</option>)}
+            </select>
+          </label>
+          <label className="field">端点路径 <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/api/users/{id}/orders" /></label>
+        </details>
         <label className="field checkbox">
           <input type="checkbox" checked={critical} onChange={(e) => setCritical(e.target.checked)} />
           此依赖为关键路径（影响级联调度优先级）
@@ -1496,7 +1571,7 @@ function DependencyModal(props: {
               props.onSave(from, {
                 toServiceId: to,
                 endpoints: path ? [path] : [],
-                method,
+                method: path ? method : SERVICE_LEVEL_METHOD,
                 ...(critical ? { critical: true } : {}),
               })
             }

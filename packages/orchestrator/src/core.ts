@@ -1069,7 +1069,14 @@ function describeTopology(t: NonNullable<Awaited<ReturnType<TopologyLike['loadTo
   }
   for (const [from, edges] of Object.entries(t.restDependencies)) {
     for (const e of edges) {
-      lines.push(`- ${from} --${e.method}--> ${e.toServiceId} ${e.endpoints.join(', ')}`)
+      // A service-level edge (no endpoint detail) degrades to `- A --▶ B`
+      // instead of leaving a dangling `--*--> ` fragment with trailing space;
+      // edges carrying details keep the historical `--METHOD--> path` form.
+      lines.push(
+        e.endpoints.length === 0
+          ? `- ${from} --▶ ${e.toServiceId}`
+          : `- ${from} --${e.method}--> ${e.toServiceId} ${e.endpoints.join(', ')}`,
+      )
     }
   }
   return lines.join('\n')

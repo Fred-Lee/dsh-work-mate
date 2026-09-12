@@ -32,12 +32,40 @@ export interface MavenParentNode {
   children: string[]
 }
 
+/**
+ * Canonical `method` of a **service-level edge**: "A calls B", endpoints not
+ * subdivided (design D1). A service-level edge is
+ * `{ toServiceId, endpoints: [], method: SERVICE_LEVEL_METHOD }`.
+ */
+export const SERVICE_LEVEL_METHOD = '*'
+
 export interface RestDependencyEdge {
   toServiceId: string
+  /**
+   * Endpoint paths covered by this edge. An EMPTY array means the edge was
+   * declared at service level ("A calls B", endpoints unspecified) — see
+   * `isServiceLevelEdge` / `SERVICE_LEVEL_METHOD`. Importers may use their own
+   * marker method (`DEPENDS_ON`, `TCP`, …); the display rules key off the
+   * absence of detail, not off the method value.
+   */
   endpoints: string[]
+  /**
+   * HTTP method shared by this edge's endpoints, or `SERVICE_LEVEL_METHOD`
+   * (`'*'`) when no endpoint detail was declared. (The model stores one method
+   * per edge, so a service pair is still exactly one edge.)
+   */
   method: string
   /** Marks the edge as critical-path; affects cascade scheduling priority. */
   critical?: boolean
+}
+
+/**
+ * True when the edge carries no endpoint detail — i.e. it is a service-level
+ * edge. Display sites MUST degrade for these edges (`A ──▶ B` /
+ * `A --▶ B`) instead of printing an empty method/endpoint fragment.
+ */
+export function isServiceLevelEdge(edge: Pick<RestDependencyEdge, 'endpoints'>): boolean {
+  return edge.endpoints.length === 0
 }
 
 export interface ProjectTopology {
@@ -143,12 +171,91 @@ export function normalizeTopology(input: unknown): ProjectTopology {
   }
   for (const [key, value] of Object.entries(strRecord(t.restDependencies))) {
     if (!Array.isArray(value)) continue
-    out.restDependencies[key] = (value as Record<string, unknown>[]).map((e) => ({
-      toServiceId: String(e.toServiceId ?? ''),
-      endpoints: Array.isArray(e.endpoints) ? e.endpoints.map(String) : [],
-      method: String(e.method ?? 'GET'),
-      ...(e.critical === true ? { critical: true } : {}),
-    }))
+    out.restDependencies[key] = (value as Record<string, unknown>[]).map((e) => {
+      // Service-level edges (design D1) MUST survive normalization untouched:
+      // an empty `endpoints` array stays empty and `'*'` stays `'*'` — never
+      // filled with a default `GET` or a placeholder path. Only an edge that
+      // carries endpoints but no method falls back to the legacy `GET`.
+      const endpoints = Array.isArray(e.endpoints) ? e.endpoints.map(String) : []
+      const method = typeof e.method === 'string' && e.method !== '' ? e.method : endpoints.length > 0 ? 'GET' : SERVICE_LEVEL_METHOD
+      return {
+        toServiceId: String(e.toServiceId ?? ''),
+        endpoints,
+        method,
+        ...(e.critical === true ? { critical: true } : {}),
+      }
+    })
   }
   return out
+}
+
+/** Copies an edge so callers never share (or accidentally mutate) structure. */
+function cloneEdge(edge: RestDependencyEdge): RestDependencyEdge {
+  return {
+    toServiceId: edge.toServiceId,
+    endpoints: [...edge.endpoints],
+    method: edge.method,
+    ...(edge.critical === true ? { critical: true } : {}),
+  }
+}
+
+/**
+ * Merges `incoming` into the single edge that represents the service pair
+ * (fromServiceId, toServiceId) — design D2. Pure: returns a NEW edge, never
+ * mutates its inputs.
+ *
+ * Rules:
+ *  - endpoint details are unioned and deduped by (method, endpoint) — the
+ *    surviving edge stores one method, so entries are deduped by endpoint
+ *    string under the surviving method;
+ *  - a detail-less side never displaces details: the side that declared
+ *    endpoints owns the resulting method, and two detail-less sides keep the
+ *    existing method (stable → merging is idempotent);
+ *  - `critical` is sticky (OR).
+ */
+export function mergeDependencyEdge(existing: RestDependencyEdge, incoming: RestDependencyEdge): RestDependencyEdge {
+  const existingHasDetail = existing.endpoints.length > 0
+  const incomingHasDetail = incoming.endpoints.length > 0
+  const method = incomingHasDetail && !existingHasDetail ? incoming.method : existing.method
+  const seen = new Set<string>()
+  const endpoints: string[] = []
+  for (const endpoint of [...existing.endpoints, ...incoming.endpoints]) {
+    const key = `${method}\u0000${endpoint}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    endpoints.push(endpoint)
+  }
+  return {
+    toServiceId: existing.toServiceId || incoming.toServiceId,
+    endpoints,
+    method,
+    ...(existing.critical === true || incoming.critical === true ? { critical: true } : {}),
+  }
+}
+
+/**
+ * Enforces the (fromServiceId, toServiceId) uniqueness invariant over a whole
+ * graph: duplicate pairs collapse into one edge whose details are merged.
+ * Returns a NEW topology (the input is left alone); keys left without edges are
+ * dropped. Applied on every persist path by the topology service.
+ */
+export function dedupeDependencies(topology: ProjectTopology): ProjectTopology {
+  const restDependencies: Record<string, RestDependencyEdge[]> = {}
+  for (const [from, edges] of Object.entries(topology.restDependencies)) {
+    if (!Array.isArray(edges)) continue
+    const merged: RestDependencyEdge[] = []
+    const at = new Map<string, number>()
+    for (const edge of edges) {
+      if (typeof edge !== 'object' || edge === null) continue
+      const index = at.get(edge.toServiceId)
+      if (index === undefined) {
+        at.set(edge.toServiceId, merged.length)
+        merged.push(cloneEdge(edge))
+      } else {
+        merged[index] = mergeDependencyEdge(merged[index]!, edge)
+      }
+    }
+    if (merged.length > 0) restDependencies[from] = merged
+  }
+  return { ...topology, restDependencies }
 }
