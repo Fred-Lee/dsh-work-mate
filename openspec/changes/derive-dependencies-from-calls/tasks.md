@@ -2,6 +2,8 @@
 
 - [ ] 1.1 新增 `scan-outbound.ts`:定义 `OutboundCall { path: string; method?: string; target?: string; evidence: { file: string; line?: number; kind: 'call' | 'config' | 'feign' } }` 与 `scanOutboundCalls(localPath, options?): Promise<OutboundCall[]>`
 - [ ] 1.2 实现 Java 侧识别:`RestTemplate`(exchange/getForObject/postForObject/…)、`WebClient`(uri 字面量)、`@FeignClient`(name/value + 接口方法 `@*Mapping`)、`HttpClient`
+- [ ] 1.2b **占位符键解析(本机真实形态,最高优先)**:识别 `name = "${...config.<svc>.name}"` 形态,从健中段导出目标名;从配置文件解析 `${...config.<svc>.url|path}` 的值作为补充证据;值不可解析时仍保留键名线索并标注「值未解析」——真实仓库 7 个 FeignClient 全部是这种写法,漏了这条等于功能失效
+- [ ] 1.2c 单测(用真实形态作 fixture):`@FeignClient(name = "${project.feign-client-config.internal-bc-es.name}")` 导出 `internal-bc-es`;配置值 `http://internal-bc-es:8080` 可解析时进入证据;配置缺失时保留线索且标注未解析
 - [ ] 1.3 实现 JS/TS 侧识别:`axios.get/post/…`、`fetch(...)`、`http.get/post`;模板字符串插值归一为占位符形态
 - [ ] 1.4 实现基址/配置线索采集:`*.base-url` / `*.url` / `*.host` 配置键、`@FeignClient(name=…)`、k8s service DNS 与 `http://<svc>:<port>` 形态;线索附来源(文件 + 键名)
 - [ ] 1.5 复用 `scan-rest` 的资源上限与 root containment;全程不发起网络请求
@@ -13,6 +15,8 @@
 - [ ] 2.2 名称档匹配(高):目标服务 id/name 命中调用方基址/配置/Feign 名 → 服务级候选
 - [ ] 2.3 路径档匹配(中):调用方路径与目标服务 `apiEndpoints` 匹配——先精确,再按段形状归一化;命中时带该端点作为明细
 - [ ] 2.4 候选按 (from,to) 合并(证据与端点并集、置信度取高),排除自环;**无证据不产出候选**
+- [ ] 2.4b **未登记目标不丢弃**:目标不在 `services` 时仍产出候选并置 `targetDeclared: false`,单列一组「目标未登记(可登记并确认)」——侦察显示 7 条 Feign 依赖里 6 条目标未登记,过滤掉即功能失效
+- [ ] 2.4c 单测:未登记目标产出候选且标记正确;已登记目标 `targetDeclared: true`;分组呈现数据齐备
 - [ ] 2.5 标记会与既有图成环的候选(`wouldCreateCycle: true`)而不是丢弃
 - [ ] 2.6 单测:名称档候选+证据;路径档候选带端点;同一对多线索合并为一条且置信度取高;自环排除;无证据不产出;成环候选被标记;`scannedAt` 存在
 
