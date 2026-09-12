@@ -22,7 +22,10 @@ import {
   subscribeTaskStream,
   type AgentRunPayload,
   type AgentRunState,
+  type ApplyCandidateInputPayload,
   type AuditEntryPayload,
+  type DeriveCandidatePayload,
+  type DeriveOutcomePayload,
   type GraphHealthPayload,
   type ImportPreviewPayload,
   type StatePayload,
@@ -1071,8 +1074,99 @@ function mergeClientEdge(edges: RestEdgePayload[], incoming: RestEdgePayload): R
   return [...edges.slice(0, at), merged, ...edges.slice(at + 1)]
 }
 
-export function ConfigPanel(props: {
-  groups: string[]
+/** 推导候选的身份：推导层已按 (from, to) 去重，所以这一对就是稳定键。 */
+function candidateId(candidate: { from: string; to: string }): string {
+  return `${candidate.from} → ${candidate.to}`
+}
+
+const EVIDENCE_ICON: Record<string, string> = { config: '⚙️', feign: '🧩', endpoint: '🔗', call: '📄' }
+
+/**
+ * 推导候选分组（「可直接确认」/「目标未登记(可登记并确认)」）。
+ * 每条候选都展示置信度与**具体证据**，让判断不依赖系统结论本身
+ * （spec `dependency-derivation` §「可复现的证据展示」）。
+ */
+function CandidateGroup(props: {
+  title: string
+  hint?: string
+  candidates: DeriveCandidatePayload[]
+  selected: string[]
+  onToggle: (id: string) => void
+  onConfirm: (candidate: DeriveCandidatePayload, register: boolean) => void
+  onIgnore: (candidate: DeriveCandidatePayload) => void
+}) {
+  if (props.candidates.length === 0) return null
+  return (
+    <div className="candidate-group">
+      <p className="muted small">
+        {props.title}
+        {props.hint ? `——${props.hint}` : ''}
+      </p>
+      {props.candidates.map((candidate) => {
+        const id = candidateId(candidate)
+        const confidenceLabel = candidate.confidence === 'high' ? '高' : '中'
+        return (
+          <article key={id} className="service-row candidate-row" data-candidate={id}>
+            <label className="checkline">
+              <input
+                type="checkbox"
+                checked={props.selected.includes(id)}
+                onChange={() => props.onToggle(id)}
+                aria-label={`选择候选 ${id}`}
+              />
+              <span className="dep-label">
+                {candidate.from} ──▶ {candidate.to}
+              </span>
+              <span className={`badge${candidate.confidence === 'high' ? ' ok' : ''}`} aria-label={`置信度 ${confidenceLabel}`}>
+                {confidenceLabel}
+              </span>
+              {candidate.alreadyDeclared && <span className="badge">已存在（将并入明细）</span>}
+              {!candidate.targetDeclared && <span className="badge warn">目标未登记</span>}
+              {candidate.wouldCreateCycle && <span className="badge warn">将形成环</span>}
+            </label>
+            {candidate.endpoints.length > 0 && (
+              <p className="muted small">
+                端点明细：{candidate.method ? `${candidate.method} ` : ''}
+                {candidate.endpoints.join('、')}
+              </p>
+            )}
+            <ul style={{ margin: '2px 0', paddingLeft: 18 }}>
+              {candidate.evidence.map((evidence, i) => (
+                <li key={`${evidence.file}-${evidence.line ?? 0}-${i}`} className="muted small">
+                  {EVIDENCE_ICON[evidence.kind] ?? '📄'} {evidence.file}
+                  {evidence.line ? `:${evidence.line}` : ''} · {evidence.detail}
+                  {evidence.note ? `（${evidence.note}）` : ''}
+                </li>
+              ))}
+            </ul>
+            <div className="service-actions">
+              <button className="btn btn-sm" onClick={() => props.onConfirm(candidate, !candidate.targetDeclared)}>
+                {candidate.targetDeclared ? '✅ 确认' : '📝 登记并确认'}
+              </button>
+              {!candidate.targetDeclared && (
+                <button
+                  className="btn btn-sm"
+                  onClick={() => {
+                    // spec: 只确认依赖而不登记服务时必须显式提示会产生悬空引用，不静默接受。
+                    if (!window.confirm(`确认后 ${candidate.to} 仍未登记为服务，该依赖边会被体检报为「悬空引用」。仍然只确认依赖？`)) return
+                    props.onConfirm(candidate, false)
+                  }}
+                >
+                  仅确认依赖
+                </button>
+              )}
+              <button className="btn btn-sm ghost" onClick={() => props.onIgnore(candidate)}>
+                🙈 忽略
+              </button>
+            </div>
+          </article>
+        )
+      })}
+    </div>
+  )
+}
+
+export function ConfigPanel(props: {  groups: string[]
   currentGroup: string | null
   onClose: () => void
   onSelectGroup: (g: string) => void
@@ -1085,6 +1179,12 @@ export function ConfigPanel(props: {
   const [baseline, setBaseline] = useState<string | null>(null)
   // 保存后拉取的图体检结果（环/悬空引用/孤立服务）；仅提示，不阻断保存。
   const [health, setHealth] = useState<GraphHealthPayload | null>(null)
+  // 推导候选（derive-dependencies-from-calls）：只读扫描结果 + 待确认清单。
+  const [derive, setDerive] = useState<DeriveOutcomePayload | null>(null)
+  const [deriveAvailable, setDeriveAvailable] = useState(true)
+  const [deriving, setDeriving] = useState(false)
+  const [ignoredCandidates, setIgnoredCandidates] = useState<string[]>([])
+  const [selectedCandidates, setSelectedCandidates] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [scanning, setScanning] = useState<string | null>(null)
   const [editService, setEditService] = useState<string | 'new' | null>(null)
@@ -1096,6 +1196,9 @@ export function ConfigPanel(props: {
     let active = true
     setLoading(true)
     setHealth(null)
+    setDerive(null)
+    setIgnoredCandidates([])
+    setSelectedCandidates([])
     if (group == null) {
       setTopology(null)
       setBaseline(null)
@@ -1142,6 +1245,64 @@ export function ConfigPanel(props: {
     }
   }
 
+  // ---------------------------------------------------------------------
+  // 推导候选（derive-dependencies-from-calls）：只读扫描 → 人确认 → 服务端按
+  // (from,to) 合并落库。成环候选默认不勾选（spec:「将形成环」单独标注）。
+  // ---------------------------------------------------------------------
+
+  const dropCandidates = (ids: Set<string>): void => {
+    setDerive((prev) => (prev ? { ...prev, candidates: prev.candidates.filter((c) => !ids.has(candidateId(c))) } : prev))
+    setSelectedCandidates((prev) => prev.filter((id) => !ids.has(id)))
+    setIgnoredCandidates((prev) => prev.filter((id) => !ids.has(id)))
+  }
+
+  const runDerive = async (): Promise<void> => {
+    if (!group) return
+    setDeriving(true)
+    try {
+      const res = await api.topologyDerive(group)
+      setDeriveAvailable(res.available)
+      if (!res.available || !res.result) {
+        setDerive(null)
+        setSelectedCandidates([])
+        return
+      }
+      setDerive(res.result)
+      setIgnoredCandidates([])
+      // 默认勾选非成环候选；成环项需人工显式勾选。
+      setSelectedCandidates(res.result.candidates.filter((c) => !c.wouldCreateCycle).map(candidateId))
+    } catch (err) {
+      onToast('error', err instanceof Error ? err.message : String(err))
+    } finally {
+      setDeriving(false)
+    }
+  }
+
+  const confirmCandidates = async (entries: Array<{ candidate: DeriveCandidatePayload; register: boolean }>): Promise<void> => {
+    if (!group || entries.length === 0) return
+    const payload: ApplyCandidateInputPayload[] = entries.map(({ candidate, register }) => ({
+      from: candidate.from,
+      to: candidate.to,
+      // 有端点明细的候选按明细落库；无明细则落为服务级边（endpoints: []、method: '*'）。
+      ...(candidate.endpoints.length > 0
+        ? { endpoints: candidate.endpoints, ...(candidate.method ? { method: candidate.method } : {}) }
+        : {}),
+      ...(register ? { register: true } : {}),
+    }))
+    try {
+      const res = await api.applyCandidates(group, payload)
+      // 服务端返回落库后的整份拓扑：依赖行即时更新，且因其自身按 (from,to) 去重，
+      // 界面不会出现重复行（无需前端再合并）。
+      if (res.topology) applyTopology(res.topology)
+      dropCandidates(new Set(entries.map(({ candidate }) => candidateId(candidate))))
+      const registerNote = res.registered.length > 0 ? `，并登记服务 ${res.registered.join('、')}` : ''
+      onToast('success', `✅ 已确认 ${entries.length} 条候选${registerNote}`)
+      await refreshHealth()
+    } catch (err) {
+      onToast('error', err instanceof Error ? err.message : String(err))
+    }
+  }
+
   const save = async (): Promise<void> => {
     if (!topology) return
     try {
@@ -1152,6 +1313,26 @@ export function ConfigPanel(props: {
     } catch (err) {
       onToast('error', err instanceof Error ? err.message : String(err))
     }
+  }
+
+  // 未忽略的候选；推导层已按 (from, to) 合并，故「已登记目标」与「目标未登记」两组天然不重叠。
+  const visibleCandidates = useMemo(
+    () => (derive?.candidates ?? []).filter((c) => !ignoredCandidates.includes(candidateId(c))),
+    [derive, ignoredCandidates],
+  )
+  const declaredCandidates = visibleCandidates.filter((c) => c.targetDeclared)
+  const undeclaredCandidates = visibleCandidates.filter((c) => !c.targetDeclared)
+  // 「全部确认」只处理非成环项：即便有人手工勾上成环候选，批量也不会把它写进去
+  // （成环项必须逐条显式确认，spec: 「将形成环」单独标注 + 默认不勾选）。
+  const batchCandidates = visibleCandidates.filter((c) => !c.wouldCreateCycle && selectedCandidates.includes(candidateId(c)))
+  const toggleCandidate = (id: string): void =>
+    setSelectedCandidates((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  const confirmOne = (candidate: DeriveCandidatePayload, register: boolean): void => {
+    void confirmCandidates([{ candidate, register }])
+  }
+  const ignoreOne = (candidate: DeriveCandidatePayload): void => {
+    setIgnoredCandidates((prev) => [...prev, candidateId(candidate)])
+    setSelectedCandidates((prev) => prev.filter((id) => id !== candidateId(candidate)))
   }
 
   return (
@@ -1321,7 +1502,12 @@ export function ConfigPanel(props: {
           <section className="config-section">
             <h4>
               🕸️ 依赖拓扑
-              <button className="btn btn-sm" onClick={() => setDepModal(true)}>➕ 添加依赖</button>
+              <span className="service-actions">
+                <button className="btn btn-sm" disabled={deriving || !group} onClick={() => void runDerive()}>
+                  {deriving ? '⏳ 扫描中...' : '🔍 推导候选'}
+                </button>
+                <button className="btn btn-sm" onClick={() => setDepModal(true)}>➕ 添加依赖</button>
+              </span>
             </h4>
             {Object.entries(topology.restDependencies).flatMap(([from, edges]) =>
               edges.map((edge, i) => {
@@ -1354,6 +1540,59 @@ export function ConfigPanel(props: {
                 {id} ──parent of──▶ {m.children.join(', ')}
               </p>
             ))}
+
+            {!deriveAvailable && (
+              <p className="muted small">当前拓扑服务版本不支持候选推导（请升级 memory-topology 插件），可用「➕ 添加依赖」手工录入。</p>
+            )}
+
+            {derive && (
+              <div className="derive-block" role="group" aria-label="推导候选">
+                <p className="muted small">
+                  扫描于 {new Date(derive.scannedAt).toLocaleString()}：已扫描 {derive.scanned?.length ?? 0} 个服务，
+                  推导出 {visibleCandidates.length} 条候选
+                  {ignoredCandidates.length > 0 ? `（另有 ${ignoredCandidates.length} 条已忽略）` : ''}。
+                  {derive.skipped && derive.skipped.length > 0
+                    ? `　未扫描：${derive.skipped.map((s) => `${s.serviceId}（${s.reason}）`).join('；')}`
+                    : ''}
+                </p>
+                {visibleCandidates.length === 0 && (
+                  <p className="muted small">
+                    没有候选：可能服务未配置本地路径、出站调用未被识别，或候选已全部确认——漏报可用「➕ 添加依赖」手工补录。
+                  </p>
+                )}
+                <CandidateGroup
+                  title={`可直接确认（${declaredCandidates.length}）`}
+                  candidates={declaredCandidates}
+                  selected={selectedCandidates}
+                  onToggle={toggleCandidate}
+                  onConfirm={confirmOne}
+                  onIgnore={ignoreOne}
+                />
+                <CandidateGroup
+                  title={`目标未登记（可登记并确认）（${undeclaredCandidates.length}）`}
+                  hint="勾选「登记并确认」会同时建立该服务条目，避免依赖边立刻变成体检里的悬空引用。"
+                  candidates={undeclaredCandidates}
+                  selected={selectedCandidates}
+                  onToggle={toggleCandidate}
+                  onConfirm={confirmOne}
+                  onIgnore={ignoreOne}
+                />
+                {visibleCandidates.length > 0 && (
+                  <div className="service-actions">
+                    <button
+                      className="btn btn-sm btn-primary"
+                      disabled={batchCandidates.length === 0}
+                      onClick={() =>
+                        void confirmCandidates(batchCandidates.map((candidate) => ({ candidate, register: !candidate.targetDeclared })))
+                      }
+                    >
+                      ✅ 全部确认（不含成环项）
+                    </button>
+                    <span className="muted small">本次将确认 {batchCandidates.length} 条（成环项需逐条确认）</span>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
 
           <footer className="config-footer">

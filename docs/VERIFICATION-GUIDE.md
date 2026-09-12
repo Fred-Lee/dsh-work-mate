@@ -100,8 +100,8 @@ cd ~/Documents/workspace/dsh-Helmsman && pnpm typecheck
 cd ~/Documents/workspace/dsh-Helmsman && pnpm test
 ```
 
-期望（本机实测，simplify-service-dependencies 落地后）：`Test Files 36 passed`、`Tests 424 passed`。
-（历史：写入时 25 文件 / 199 用例；看板与依赖图变更后数字会继续上升。）
+期望（本机实测，derive-dependencies-from-calls 落地后）：`Test Files 38 passed`、`Tests 477 passed`。
+（历史：写入时 25 文件 / 199 用例；看板、依赖图与依赖推导变更后数字会继续上升。）
 
 ### 2.3 工具链与插件可装载性检查
 
@@ -330,6 +330,242 @@ cyclic: False cycles: [] dangling: [] isolated: []
 > 说明：`GET api/topology/health` 是只读路由（无变更面）；未装 memory-topology 时该路由不挂载
 > （宿主 404），装了但版本较早（无 `checkHealth`）时返回 `{"available": false, "health": null}`。
 
+### 3.7 依赖推导候选：扫描 → 证据 → 确认（derive-dependencies-from-calls）
+
+在一个**临时仓库**上跑完整链路，核对四件事：**候选与其证据**、**确认后仍只有一行**、
+**未登记目标登记后不留悬空引用**、**成环候选被单独标注**。全程走真实 HTTP 路由，无需 agent。
+
+**① 造一个含真实形态 Feign 客户端 + 出站调用的临时仓库**
+
+```bash
+B=http://127.0.0.1:3080
+API=$B/helmsman-dashboard/api
+G=derive-check-demo
+R=/tmp/helmsman-derive-smoke
+rm -rf $R && mkdir -p $R/src/main/java/com/example/client $R/src/main/resources
+
+cat > $R/src/main/java/com/example/client/InternalBcEsClient.java <<'EOF'
+package com.example.client;
+
+@FeignClient(name = "${project.feign-client-config.internal-bc-es.name}",
+             url = "${project.feign-client-config.internal-bc-es.url}",
+             path = "${project.feign-client-config.internal-bc-es.path}",
+             configuration = { FeignConfiguration.class, FeignInterceptorConfiguration.class })
+public interface InternalBcEsClient {
+
+  @GetMapping("/es_wrong_question/list/{subjectId}")
+  Result getWrongQuesList(@PathVariable Integer subjectId, @SpringQueryMap Map<String, Object> queryMap);
+}
+EOF
+
+cat > $R/src/main/java/com/example/HomeworkCaller.java <<'EOF'
+package com.example;
+
+public class HomeworkCaller {
+  private final RestTemplate restTemplate = new RestTemplate();
+
+  public String load(String hwId) {
+    return restTemplate.getForObject("http://internal-homework:8080/api/homework/" + hwId, String.class);
+  }
+}
+EOF
+
+cat > $R/src/main/resources/application.yml <<'EOF'
+project:
+  feign-client-config:
+    internal-bc-es:
+      name: internal-bc-es
+      url: http://internal-bc-es:8080
+      path: /api
+EOF
+```
+
+**② 登记两个服务（调用方带 localPath，被调用方带一个已声明端点）**
+
+```bash
+curl -s -X POST $API/topology/save -H 'content-type: application/json' -d "{
+  \"topology\": {
+    \"projectGroupId\": \"$G\",
+    \"services\": {
+      \"homework-server\":   { \"name\": \"homework-server\", \"localPath\": \"$R\" },
+      \"internal-homework\": { \"name\": \"internal-homework\",
+                              \"apiEndpoints\": [ { \"method\": \"GET\", \"path\": \"/api/homework/{hwId}\" } ] }
+    },
+    \"restDependencies\": {}
+  }
+}" > /dev/null
+
+cp ~/.helmsman/topologies/$G.json /tmp/derive-before.json     # 用于核对「推导不写库」
+```
+
+**③ 跑推导（只读）并核对候选与证据**
+
+```bash
+curl -s "$API/topology/derive?group=$G" | python3 -c "
+import sys,json
+d=json.load(sys.stdin)
+print('available:', d['available'], 'scanned:', d['result']['scanned'], 'skipped:', d['result']['skipped'])
+for c in d['result']['candidates']:
+    print('-', c['from'], '->', c['to'], '| 置信度', c['confidence'], '| 目标已登记', c['targetDeclared'],
+          '| 成环', c['wouldCreateCycle'], '| 端点明细', c['endpoints'])
+    for e in c['evidence']:
+        print('    ', e['kind'], e['file'] + (':' + str(e['line']) if e.get('line') else ''), '|', e['detail'],
+              ('| ' + e['note']) if e.get('note') else '')"
+```
+
+期望（**本机对上面这份 fixture 实测**得到的候选与证据；`/api/topology/derive` 只是把同一份
+推导结果经只读路由透出，路由与错误语义另有单测覆盖）：
+
+```
+available: True scanned: ['homework-server'] skipped: [{'serviceId': 'internal-homework', 'reason': '未配置本地路径（localPath）'}]
+- homework-server -> internal-bc-es | 置信度 high | 目标已登记 False | 成环 False | 端点明细 []
+     feign src/main/java/com/example/client/InternalBcEsClient.java:3 | @FeignClient(name = "${project.feign-client-config.internal-bc-es.name}", url = "${project.feign-client-config.internal-bc-es.url}", path = "${project.feign-client-config.internal-bc-es.path}")
+     feign src/main/java/com/example/client/InternalBcEsClient.java:9 | @GetMapping("/es_wrong_question/list/{subjectId}")
+     config src/main/resources/application.yml:4 | project.feign-client-config.internal-bc-es.name = internal-bc-es
+     config src/main/resources/application.yml:5 | project.feign-client-config.internal-bc-es.url = http://internal-bc-es:8080
+     config src/main/resources/application.yml:6 | project.feign-client-config.internal-bc-es.path = /api
+- homework-server -> internal-homework | 置信度 high | 目标已登记 True | 成环 False | 端点明细 ['/api/homework/{hwId}']
+     call src/main/java/com/example/HomeworkCaller.java:7 | RestTemplate.getForObject(…) http://internal-homework:8080/api/homework/{}
+     endpoint src/main/java/com/example/HomeworkCaller.java:7 | /api/homework/{} ↔ GET /api/homework/{hwId}（internal-homework 已声明该端点） | 按段形状归一化匹配
+```
+
+**要核对的四个点**：
+1. Feign 的目标名来自**占位符键段**（`internal-bc-es`），不是字面量；`url`/`path`/`name` 三个键的值
+   能在本地配置里找到 → 每个都进入证据（`config … application.yml:4/5/6`）。把
+   `src/main/resources/application.yml` 删掉再跑一遍，这两条证据会消失、`@FeignClient` 那条仍在，
+   并多出「值未解析（本地配置中未找到 project.feign-client-config.internal-bc-es.name）」的标注
+   —— 线索不因解析不到值而丢失（`pnpm exec vitest run packages/memory-topology` 里有对应单测）。
+2. `homework-server → internal-homework` 是**两档合并**的结果：`RestTemplate` 绝对 URL 给出
+   **高**（名称档，主机名命中已登记服务）+ 路径命中给出**中**（端点明细 `/api/homework/{hwId}`）
+   → 置信度取高档、证据/端点取并集，**只占一条候选**。调用侧的 `/api/homework/{}`（字符串拼接
+   归一化后的形态）与已声明的 `/api/homework/{hwId}` 按段形状归一化命中，标注为
+   「按段形状归一化匹配」而不是精确匹配。
+3. 未登记目标 `internal-bc-es` 仍产出候选并标 `targetDeclared: False`（不会被过滤掉）——
+   真实仓库里 7 个 Feign 目标有 6 个是这种状态。
+4. `skipped` 说明被调用方没有本地路径、没有被扫描——扫描范围只覆盖调用方；
+   目标端点的匹配依据是拓扑里**已声明**的 `apiEndpoints`。
+
+**④ 推导不写库**
+
+```bash
+diff -q /tmp/derive-before.json ~/.helmsman/topologies/$G.json && echo "topology file unchanged"
+curl -s "$API/topology?group=$G" | python3 -c 'import json,sys;print("rows:",json.load(sys.stdin)["topology"]["restDependencies"])'
+```
+
+期望：`topology file unchanged` 且 `rows: {}`（推导只在只读入口产出候选）。
+
+**⑤ 确认候选：已存在的对只占一行、明细并入**
+
+```bash
+curl -s -X POST $API/topology/apply-candidates -H 'content-type: application/json' -d "{
+  \"group\": \"$G\",
+  \"candidates\": [ { \"from\": \"homework-server\", \"to\": \"internal-homework\", \"endpoints\": [\"/api/homework/{hwId}\"], \"method\": \"GET\" } ]
+}" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("applied:",d["applied"],"registered:",d["registered"])'
+
+# 再确认一次（同一条），核对仍只有一行
+curl -s -X POST $API/topology/apply-candidates -H 'content-type: application/json' -d "{
+  \"group\": \"$G\",
+  \"candidates\": [ { \"from\": \"homework-server\", \"to\": \"internal-homework\", \"endpoints\": [\"/api/homework/{hwId}\"], \"method\": \"GET\" } ]
+}" > /dev/null
+curl -s "$API/topology?group=$G" | python3 -c 'import json,sys;t=json.load(sys.stdin)["topology"];rows=t["restDependencies"]["homework-server"];print("rows:",len(rows),json.dumps(rows,ensure_ascii=False))'
+```
+
+期望（两次确认后仍**恰好一行**、明细不重复）：
+
+```
+applied: 1 registered: []
+rows: 1 [{"toServiceId": "internal-homework", "endpoints": ["/api/homework/{hwId}"], "method": "GET"}]
+```
+
+> 这一步就是 spec 的「确认候选后依赖更新且不重复」：确认走的是服务端
+> `mergeDependencyEdge` + 保存去重的同一路径（`pnpm exec vitest run packages/memory-topology`
+> 的 `TopologyService derive + confirm candidates` 用例逐步断言了这些行数）。
+
+**⑥ 未登记目标：登记并确认 → 不留悬空引用**
+
+```bash
+curl -s -X POST $API/topology/apply-candidates -H 'content-type: application/json' -d "{
+  \"group\": \"$G\",
+  \"candidates\": [ { \"from\": \"homework-server\", \"to\": \"internal-bc-es\", \"register\": true } ]
+}" | python3 -c 'import sys,json;d=json.load(sys.stdin);print("registered:",d["registered"])'
+
+curl -s "$API/topology/health?group=$G" | python3 -c 'import json,sys;h=json.load(sys.stdin)["health"];print("dangling:",h["dangling"],"cyclic:",h["cyclic"])'
+```
+
+期望：服务条目与依赖边在同一次确认里建立，体检**没有**悬空引用：
+
+```
+registered: ['internal-bc-es']
+dangling: [] cyclic: False
+```
+
+**⑥′ 负向对照：只确认依赖（不登记）→ 体检必须报出来，而不是静默接受**
+
+```bash
+curl -s -X POST $API/topology/apply-candidates -H 'content-type: application/json' -d "{
+  \"group\": \"$G\",
+  \"candidates\": [ { \"from\": \"homework-server\", \"to\": \"internal-qp\" } ]
+}" > /dev/null
+
+curl -s "$API/topology/health?group=$G" | python3 -c 'import json,sys;h=json.load(sys.stdin)["health"];print("dangling:",h["dangling"])'
+```
+
+期望（`internal-qp` 未登记也未被登记过 → 悬空引用被报出；界面上这个动作要先经过
+「确认后 … 仍未登记为服务，该依赖边会被体检报为「悬空引用」。仍然只确认依赖？」的弹窗）：
+
+```
+dangling: [{'from': 'homework-server', 'to': 'internal-qp'}]
+```
+
+**⑦ 成环候选被单独标注（不丢弃）**
+
+```bash
+# 造一条已有边 internal-homework → homework-server，并让两个服务都有本地路径
+curl -s -X POST $API/topology/save -H 'content-type: application/json' -d "{
+  \"topology\": {
+    \"projectGroupId\": \"$G\",
+    \"services\": {
+      \"homework-server\":   { \"name\": \"homework-server\", \"localPath\": \"$R\" },
+      \"internal-homework\": { \"name\": \"internal-homework\", \"localPath\": \"$R\",
+                              \"apiEndpoints\": [ { \"method\": \"GET\", \"path\": \"/api/homework/{hwId}\" } ] }
+    },
+    \"restDependencies\": { \"internal-homework\": [ { \"toServiceId\": \"homework-server\", \"endpoints\": [], \"method\": \"*\" } ] }
+  }
+}" > /dev/null
+
+curl -s "$API/topology/derive?group=$G" | python3 -c "
+import sys,json
+for c in json.load(sys.stdin)['result']['candidates']:
+    print(c['from'],'->',c['to'],'| 成环',c['wouldCreateCycle'],'| 目标已登记',c['targetDeclared'])"
+```
+
+期望：
+
+```
+homework-server -> internal-bc-es | 成环 False | 目标已登记 False
+homework-server -> internal-homework | 成环 True | 目标已登记 True
+internal-homework -> internal-bc-es | 成环 False | 目标已登记 False
+```
+
+要点：`homework-server → internal-homework` 与既有 `internal-homework → homework-server` 构成
+`A → B → A`，所以 `成环 True`——它在界面上带「将形成环」标记且**默认不勾选**，
+「✅ 全部确认（不含成环项）」不会带上它（即使手工勾上也一样，需逐条点该行的「✅ 确认」才会写）。
+自环（`internal-homework` 自己命到自己）在推导层就被排除，所以列表里不会出现
+`internal-homework → internal-homework`。
+
+**收尾**：
+
+```bash
+rm -rf $R /tmp/derive-before.json
+rm -f ~/.helmsman/topologies/$G.json      # 或配置面板 🗗️ 删除（需一次性确认令牌）
+```
+
+> 说明：`GET api/topology/derive` 是只读路由（无变更面）；确认走
+> `POST api/topology/apply-candidates`，它在服务端复用与保存/导入**同一条**持久化路径
+> （`mergeDependencyEdge` + 保存去重），故「一对服务只有一行」对这条写入路径同样成立。
+> 未装 memory-topology 时两条路由都不挂载（宿主 404）；装了但版本较早时返回
+> `{"available": false}`（界面提示手工录入，不会静默失败）。
+
 ---
 
 ## 4. 端到端：任务 → 时间线 → 门控 → 审计 → 产物
@@ -505,7 +741,7 @@ content-disposition: attachment; filename="helmsman-topology-____.yaml"; filenam
 
 | 页面 | 看什么 |
 |---|---|
-| `/helmsman-dashboard/` | 任务卡片、agent 状态；执行中任务的日志**实时刷新**（SSE，不是 1.5s 轮询的旧行为）；断网重连后不重复、不丢事件 |
+| `/helmsman-dashboard/` | 任务卡片、agent 状态；执行中任务的日志**实时刷新**（SSE，不是 1.5s 轮询的旧行为）；断网重连后不重复、不丢事件；配置面板 🕸️ 依赖拓扑里点「🔍 推导候选」可看到逐条证据与置信度徽标（成环项默认不勾选） |
 | `/helmsman-diff/` | 冲突文件标注来自**真实冲突**（应用失败），不重叠的多 agent 改动**不再**被要求人工裁决；每个冲突文件可选「某 agent 方案 / 手动编辑保留 / 跳过」 |
 | `/helmsman-workbench/` | 「📦 交付物」面板列出已注册产物并可下载 |
 

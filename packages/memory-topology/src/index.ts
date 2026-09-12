@@ -18,11 +18,12 @@ import type {} from '@deepseek-ai/dsh-tools'
 import { TopologyStore } from './store.ts'
 import { computeDownstream, cascadeOrder } from './downstream.ts'
 import { checkGraph, type GraphHealth } from './graph-health.ts'
+import { deriveDependencies as deriveFromTopology, type DeriveOptions, type DeriveResult } from './derive-dependencies.ts'
 import { scanMavenPom } from './scan-maven.ts'
 import { scanRestApis } from './scan-rest.ts'
 import { makeImportedTopology, previewCompose, previewKubernetes, previewOpenApi, applyPreview, type ImportPreview } from './import.ts'
 import { toYaml } from './yaml.ts'
-import { dedupeDependencies, emptyTopology, normalizeTopology, type ApiEndpoint, type DownstreamReport, type ProjectTopology } from './types.ts'
+import { dedupeDependencies, emptyTopology, mergeDependencyEdge, normalizeTopology, SERVICE_LEVEL_METHOD, type ApiEndpoint, type DownstreamReport, type ProjectTopology, type RestDependencyEdge, type ServiceNode } from './types.ts'
 
 export const name = '@helmsman/memory-topology'
 export const inject = ['tools'] as const
@@ -42,6 +43,10 @@ export { emptyTopology, normalizeTopology } from './types.ts'
 export { dedupeDependencies, isServiceLevelEdge, mergeDependencyEdge, SERVICE_LEVEL_METHOD } from './types.ts'
 export { checkGraph } from './graph-health.ts'
 export type { GraphHealth } from './graph-health.ts'
+export { deriveDependencies, matchEndpoint, candidateToEdge, wouldCreateCycle } from './derive-dependencies.ts'
+export type { Candidate, CandidateEvidence, ConfidenceTier, DependencyCandidate, DeriveOptions, DeriveResult } from './derive-dependencies.ts'
+export { scanOutboundCalls } from './scan-outbound.ts'
+export type { OutboundCall, OutboundEvidence, OutboundEvidenceKind, OutboundScanOptions } from './scan-outbound.ts'
 
 export interface Config {
   /** Directory that holds <group>.json topology files. @default ~/.helmsman/topologies */
@@ -64,9 +69,47 @@ export interface TopologyService {
    * `loadTopology`'s return shape is unchanged.
    */
   checkHealth(group: string): Promise<GraphHealth>
+  /**
+   * Derives dependency candidates from a service's outbound calls
+   * (`derive-dependencies-from-calls`). READ-ONLY: it scans local trees, never
+   * touches the topology file and never issues a network request. Confirmation
+   * is a separate action (`applyCandidates`).
+   */
+  deriveDependencies(group: string, opts?: DeriveOptions): Promise<DeriveResult & { group: string }>
+  /**
+   * Confirms candidates (one or many) by writing them through the SAME persist
+   * path as `saveTopology`, so the "one edge per (from, to) pair" invariant holds
+   * for this writer too and confirming an existing pair merges detail instead of
+   * adding a row. A candidate whose target is undeclared can register the service
+   * in the same action (`register: true`) so the confirmed edge does not
+   * immediately become a `dangling` health finding.
+   */
+  applyCandidates(group: string, candidates: ApplyCandidateInput[]): Promise<ApplyCandidatesResult>
   exportYaml(group: string): Promise<string>
   importPreview(source: ImportPreview['source'], text: string, inferDeps?: boolean): Promise<ImportPreview>
   importApply(group: string, preview: ImportPreview): Promise<ProjectTopology>
+}
+
+/** One candidate as confirmed by a human (see `deriveDependencies`). */
+export interface ApplyCandidateInput {
+  from: string
+  to: string
+  /** Endpoint detail to merge into the pair's edge (optional → service-level edge). */
+  endpoints?: string[]
+  /** HTTP method of `endpoints`; ignored when `endpoints` is empty. */
+  method?: string
+  /** Register `to` as a service when it is not declared yet (「登记并确认」). */
+  register?: boolean
+  critical?: boolean
+}
+
+export interface ApplyCandidatesResult {
+  group: string
+  /** The topology as persisted (SPA puts it straight back into its state). */
+  topology: ProjectTopology
+  applied: number
+  /** Service ids newly registered by this confirmation. */
+  registered: string[]
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -78,6 +121,19 @@ declare module '@deepseek-ai/cordis' {
 export function apply(ctx: Context, config: Config = {}) {
   const store = new TopologyStore({ rootDir: config.rootDir })
 
+  /**
+   * The ONE persist chokepoint (design D2 of `simplify-service-dependencies`):
+   * normalize the shape, enforce "one edge per (from, to) pair", write, mirror.
+   * Every writer — the config page, imports and confirmed derivation candidates —
+   * goes through it, so the invariant holds for all of them.
+   */
+  const persist = async (topology: ProjectTopology): Promise<ProjectTopology> => {
+    const normalized = dedupeDependencies(normalizeTopology(topology))
+    await store.save(normalized)
+    await mirrorToMemoryManager(ctx, normalized)
+    return normalized
+  }
+
   const service: TopologyService = {
     async listGroups() {
       return await store.listGroups()
@@ -88,12 +144,7 @@ export function apply(ctx: Context, config: Config = {}) {
     },
 
     async saveTopology(topology) {
-      // Persist-path dedupe (design D2): the "one edge per (from, to) pair"
-      // invariant is enforced HERE (not only in the config page) so imports,
-      // direct HTTP writes and the UI all get it; saving is idempotent.
-      const normalized = dedupeDependencies(normalizeTopology(topology))
-      await store.save(normalized)
-      await mirrorToMemoryManager(ctx, normalized)
+      await persist(topology)
     },
 
     async deleteGroup(group) {
@@ -134,6 +185,54 @@ export function apply(ctx: Context, config: Config = {}) {
       const topology = await store.load(group)
       if (!topology) throw new Error(`unknown project group: ${group}`)
       return checkGraph(topology)
+    },
+
+    async deriveDependencies(group, opts) {
+      const topology = await store.load(group)
+      if (!topology) throw new Error(`unknown project group: ${group}`)
+      // Read-only by construction: the derivation only READS local trees and the
+      // loaded topology; nothing here touches the store.
+      const result = await deriveFromTopology(topology, opts)
+      return { group, ...result }
+    },
+
+    async applyCandidates(group, candidates) {
+      const topology = await store.load(group)
+      if (!topology) throw new Error(`unknown project group: ${group}`)
+      const services: Record<string, ServiceNode> = { ...topology.services }
+      const restDependencies: Record<string, RestDependencyEdge[]> = { ...topology.restDependencies }
+      const registered: string[] = []
+      let applied = 0
+
+      for (const candidate of candidates ?? []) {
+        const from = String(candidate?.from ?? '').trim()
+        const to = String(candidate?.to ?? '').trim()
+        if (!from || !to) throw new Error('candidate requires both from and to')
+        if (!services[from]) throw new Error(`candidate source is not a registered service: ${from}`)
+        if (from === to) continue // never write a self edge
+        const endpoints = Array.isArray(candidate.endpoints) ? candidate.endpoints.map(String).filter((p) => p.trim() !== '') : []
+        if (candidate.register === true && !services[to]) {
+          services[to] = { name: to, projectId: to, techStack: [], apiEndpoints: [] }
+          registered.push(to)
+        }
+        const method = typeof candidate.method === 'string' && candidate.method.trim() !== '' ? candidate.method : undefined
+        const incoming: RestDependencyEdge =
+          endpoints.length > 0
+            ? { toServiceId: to, endpoints, method: method ?? 'GET', ...(candidate.critical === true ? { critical: true } : {}) }
+            : { toServiceId: to, endpoints: [], method: SERVICE_LEVEL_METHOD, ...(candidate.critical === true ? { critical: true } : {}) }
+        // Same pair-merge semantics as the config page / imports: an existing edge
+        // absorbs the detail, a new pair gets exactly one row.
+        const edges = restDependencies[from] ?? []
+        const at = edges.findIndex((edge) => edge.toServiceId === to)
+        restDependencies[from] =
+          at >= 0
+            ? [...edges.slice(0, at), mergeDependencyEdge(edges[at]!, incoming), ...edges.slice(at + 1)]
+            : [...edges, incoming]
+        applied += 1
+      }
+
+      const saved = await persist({ ...topology, services, restDependencies })
+      return { group, topology: saved, applied, registered }
     },
 
     async exportYaml(group) {

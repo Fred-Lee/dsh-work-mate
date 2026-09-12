@@ -1,42 +1,50 @@
 ## 1. 出站调用扫描（memory-topology）
 
-- [ ] 1.1 新增 `scan-outbound.ts`:定义 `OutboundCall { path: string; method?: string; target?: string; evidence: { file: string; line?: number; kind: 'call' | 'config' | 'feign' } }` 与 `scanOutboundCalls(localPath, options?): Promise<OutboundCall[]>`
-- [ ] 1.2 实现 Java 侧识别:`RestTemplate`(exchange/getForObject/postForObject/…)、`WebClient`(uri 字面量)、`@FeignClient`(name/value + 接口方法 `@*Mapping`)、`HttpClient`
-- [ ] 1.2b **占位符键解析(本机真实形态,最高优先)**:识别 `name = "${...config.<svc>.name}"` 形态,从健中段导出目标名;从配置文件解析 `${...config.<svc>.url|path}` 的值作为补充证据;值不可解析时仍保留键名线索并标注「值未解析」——真实仓库 7 个 FeignClient 全部是这种写法,漏了这条等于功能失效
-- [ ] 1.2c 单测(用真实形态作 fixture):`@FeignClient(name = "${project.feign-client-config.internal-bc-es.name}")` 导出 `internal-bc-es`;配置值 `http://internal-bc-es:8080` 可解析时进入证据;配置缺失时保留线索且标注未解析
-- [ ] 1.3 实现 JS/TS 侧识别:`axios.get/post/…`、`fetch(...)`、`http.get/post`;模板字符串插值归一为占位符形态
-- [ ] 1.4 实现基址/配置线索采集:`*.base-url` / `*.url` / `*.host` 配置键、`@FeignClient(name=…)`、k8s service DNS 与 `http://<svc>:<port>` 形态;线索附来源(文件 + 键名)
-- [ ] 1.5 复用 `scan-rest` 的资源上限与 root containment;全程不发起网络请求
-- [ ] 1.6 单测:Feign 调用识别(名称+路径)、`axios.get(\`/api/users/${id}/orders\`)` 归一化、配置键采集、k8s DNS 采集、超限截断、路径逃逸被拒
+- [x] 1.1 新增 `scan-outbound.ts`:定义 `OutboundCall`(含 `evidence{file,line,kind}`)与 `scanOutboundCalls(localPath, options?)`
+- [x] 1.2 实现 Java 侧识别:`RestTemplate`、`WebClient`、`@FeignClient`(name/value + 接口方法 `@*Mapping`)、`HttpClient`
+- [x] 1.2b **占位符键解析(本机真实形态,最高优先)**:从 `name = "${...config.<svc>.name}"` 的键中段导出目标名;解析配置值作为补充证据;不可解析时保留键名线索并标注「值未解析」
+- [x] 1.2c 单测(用真实形态作 fixture):占位符键导出 `internal-bc-es`;配置值进入证据;配置缺失时保留线索
+- [x] 1.3 实现 JS/TS 侧识别:`axios.*`(含 `axios.create({baseURL})`)、`fetch`、`http.get/post`;模板插值归一为占位符形态
+- [x] 1.4 实现基址/配置线索采集:`*.base-url`/`*.url`/`*.host`、`.env`、YAML 嵌套与扁平、k8s DNS 与 `http://<svc>:<port>`;线索附来源文件 + 键名
+- [x] 1.5 复用 `scan-rest` 的资源上限与 root containment(`SCAN_LIMITS`/`SCAN_SKIP_DIRS`/`assertScanRoot` 已导出共用);全程不发起网络请求
+- [x] 1.6 单测:Feign(名称+路径)、模板归一、配置键、k8s DNS、文件数上限截断、路径逃逸被拒、符号链接环不跟随
 
 ## 2. 候选推导（memory-topology）
 
-- [ ] 2.1 新增推导模块:`deriveDependencies(topology, options?) → { candidates: Candidate[]; scannedAt: number }`,其中 `Candidate { from, to, confidence: 'high' | 'medium', evidence: Evidence[], endpoints: string[], wouldCreateCycle: boolean }`
-- [ ] 2.2 名称档匹配(高):目标服务 id/name 命中调用方基址/配置/Feign 名 → 服务级候选
-- [ ] 2.3 路径档匹配(中):调用方路径与目标服务 `apiEndpoints` 匹配——先精确,再按段形状归一化;命中时带该端点作为明细
-- [ ] 2.4 候选按 (from,to) 合并(证据与端点并集、置信度取高),排除自环;**无证据不产出候选**
-- [ ] 2.4b **未登记目标不丢弃**:目标不在 `services` 时仍产出候选并置 `targetDeclared: false`,单列一组「目标未登记(可登记并确认)」——侦察显示 7 条 Feign 依赖里 6 条目标未登记,过滤掉即功能失效
-- [ ] 2.4c 单测:未登记目标产出候选且标记正确;已登记目标 `targetDeclared: true`;分组呈现数据齐备
-- [ ] 2.5 标记会与既有图成环的候选(`wouldCreateCycle: true`)而不是丢弃
-- [ ] 2.6 单测:名称档候选+证据;路径档候选带端点;同一对多线索合并为一条且置信度取高;自环排除;无证据不产出;成环候选被标记;`scannedAt` 存在
+- [x] 2.1 新增推导模块:`deriveDependencies(topology, options?) → { candidates, scannedAt, scanned, skipped }`
+- [x] 2.2 名称档匹配(高):目标服务 id/name 或占位符键段命中 → 服务级候选
+- [x] 2.3 路径档匹配(中):先精确,再按段形状归一化(共 4 档,方法一致优先);命中时带端点作为明细;前缀未解析时只按方法级匹配并标注
+- [x] 2.4 候选按 (from,to) 合并(证据与端点并集、置信度取高),排除自环;**无证据不产出候选**
+- [x] 2.4b **未登记目标不丢弃**:置 `targetDeclared: false` 并可「登记并确认」——真实仓库 7 条 Feign 依赖里 6 条目标未登记
+- [x] 2.4c 单测:未登记目标标记正确;已登记目标 `targetDeclared: true`
+- [x] 2.5 标记会与既有图成环的候选(`wouldCreateCycle`),与 `checkGraph` 结果一致
+- [x] 2.6 单测:各档匹配与证据、合并、自环排除、无证据不产出、成环标记、`scannedAt`
 
 ## 3. 服务面与确认落库
 
-- [ ] 3.1 服务面新增**只读**候选入口(如 `deriveDependencies(group, opts?)`),不修改拓扑
-- [ ] 3.2 服务面新增确认入口(如 `applyCandidates(group, candidates[])`),内部**复用** `mergeDependencyEdge` / 保存去重语义,保证一对服务仍只一行
-- [ ] 3.3 单测:推导入口无副作用(拓扑文件字节不变);确认已存在的服务对 → 边数不变、明细并入;批量确认后任意一对仍只一条;确认不会引入重复明细
+- [x] 3.1 服务面新增**只读**候选入口 `deriveDependencies(group, opts?)`,不改拓扑
+- [x] 3.2 服务面新增 `applyCandidates(group, candidates[])`,经统一 `persist()` 汇聚点复用 `mergeDependencyEdge`/保存去重;`register:true` 可在同一次动作里登记未登记目标
+- [x] 3.3 单测:推导无副作用(文件字节不变);确认已存在服务对 → 行数不变、明细并入;批量确认后一对仍只一条;登记后无悬空;非法输入报错
 
 ## 4. UI：推导候选区块（ui-dashboard）
 
-- [ ] 4.1 依赖拓扑区块新增「🔍 推导候选」入口与结果区:逐条显示 `from ──▶ to`、置信度徽标(高/中)、证据列表(文件/配置键/匹配端点)、成环标记
-- [ ] 4.2 支持逐条确认/忽略与「全部确认(不含成环项)」;确认后依赖行即时更新且不出现重复行
-- [ ] 4.3 `api.ts`:新增只读候选路由与确认路由(如 `GET api/topology/derive?group=`、`POST api/topology/apply-candidates`),转发到拓扑服务
-- [ ] 4.4 单测:候选渲染(含证据与置信度徽标、成环项默认不勾选)、确认调用形状、路由转发与错误语义
+- [x] 4.1 「🔍 推导候选」区块:逐条 `from ──▶ to` + 高/中徽标 + 证据列表(文件:行 · 明细 · 备注)+「目标未登记」+「将形成环」+「已存在(将并入明细)」
+- [x] 4.2 逐条确认/忽略 +「✅ 全部确认(不含成环项)」;确认后依赖行即时更新且不重复
+- [x] 4.3 路由 `GET api/topology/derive` / `POST api/topology/apply-candidates`,语义与 health 路由一致(旧服务 `available:false`、插件未挂载 404)
+- [x] 4.4 单测:渲染/证据/徽标、批量载荷与行更新、逐条确认(含登记)、悬空提示闸门、忽略、`available:false`
 
 ## 5. 文档与验证
 
-- [ ] 5.1 `docs/USAGE.md`:推导流程(点「推导候选」→ 看证据 → 确认)、两档置信度含义、成环候选如何处理、漏报如何手工补录
-- [ ] 5.2 `docs/ARCHITECTURE.md`:推导职责与边界(纯静态、离线、只提议不落库)、与 `service-dependency-graph` 的合并语义关系
-- [ ] 5.3 `docs/VERIFICATION-GUIDE.md`:可复现步骤——在一个含 `@FeignClient` 或 `axios` 调用的临时仓库上跑推导,核对候选与其证据;确认后核对依赖仍只一行;构造成环候选核对标记
-- [ ] 5.4 全仓 `pnpm typecheck && pnpm test` 通过;`git status` 仅触及本变更文件
-- [ ] 5.5 真机冒烟(父对话执行):对 `homework-server` / `internal-homework` 跑一次推导,核对候选与证据是否与人工认知一致;确认后检查依赖拓扑区块行数与体检结果
+- [x] 5.1 `docs/USAGE.md`:推导流程、两档置信度、未登记目标、成环候选、漏报如何手工补、两条路由
+- [x] 5.2 `docs/ARCHITECTURE.md`:推导职责与边界(纯静态/离线/只提议)、与成对去重 + 体检的组合
+- [x] 5.3 `docs/VERIFICATION-GUIDE.md` §3.7:可复现步骤(含实测输出)
+- [x] 5.4 全仓 `pnpm typecheck && pnpm test` 通过;`git status` 仅触及本变更文件
+- [x] 5.5 真机冒烟(父对话,真实仓库 `homework-server` / `internal-homework`):候选 12 条,与人工认知一致(`homework-server` → internal-base/internal-bc-es/internal-format-factory/internal-homework/internal-qp/internal-ugc/zujuan-ip-api;`internal-homework` 同样依赖前 5 个);证据指向真实 `*Client.java` 与配置文件;冒烟后拓扑已备份还原(指纹一致)
+
+## 6. 真机冒烟暴露的缺陷修复（父对话）
+
+- [x] 6.1 **空值配置被当作"未解析"**:真实 `path:` 为空(Spring 常见),`flattenYaml` 丢弃 null 子节点 → 每条 Feign 线索都带误导性「值未解析/前缀未解析」(实测 137/137)。修:`flattenYaml` 输出空串、`buildConfigIndex` 索引"存在但为空"、备注改说「前缀为空」;并修备注文案改为报出**实际失败的键**(原先固定打印 name 键)
+- [x] 6.2 **Feign 前缀被空 path 覆盖**(修复 6.1 时引入并自查发现):`pathValue ?? urlPath` 在空串时不回退,导致调用路径被截短(`/12091/.../homework/class/list` → `/class/list`)。按 Feign 语义改为 `joinPaths(urlPath, pathValue)`
+- [x] 6.3 **`scan-rest` 把 Feign 客户端接口当成暴露端点**:客户端接口的方法带 `@GetMapping`,被计入"对外端点"。实测 `homework-server` 端点 220 → **129**(清掉 91 个幻影),`internal-homework` 121 → 111;并因此让推导产出一条**假阳性**候选(拿 A 的出站路径去匹配 B 的幻影端点)。修:含 `@FeignClient` 的文件按出站契约处理,不计入暴露端点
+- [x] 6.4 为 6.1–6.3 各补回归测试(空值 → 报「前缀为空」且保留 url 前缀;空设置不单独成线索;Feign 接口不被计为端点),`packages/memory-topology` 102 测试通过
+- [x] 6.5 修复效果真机复验:重扫后候选 **13 → 12**(假阳性消失),误导文案 **137 → 0**

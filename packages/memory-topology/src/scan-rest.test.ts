@@ -67,3 +67,54 @@ describe('scanRestApis', () => {
     expect(paths).not.toContain('GET /noisy')
   })
 })
+
+/**
+ * Regression: a `@FeignClient` interface declares an OUTBOUND contract, but its
+ * methods carry the same `@GetMapping`-style annotations as a controller, so it
+ * was counted as an exposed endpoint. On real services that inflated the API
+ * surface badly (homework-server: 220 -> 129 endpoints once excluded) and made
+ * the dependency derivation match one service's outbound call against another
+ * service's phantom endpoint, inventing a dependency that does not exist.
+ */
+describe('Feign client interfaces are not exposed endpoints', () => {
+  let root: string
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), 'helmsman-scan-feign-'))
+    const java = join(root, 'src', 'main', 'java')
+    mkdirSync(join(java, 'client'), { recursive: true })
+    writeFileSync(
+      join(java, 'client', 'RemoteUserClient.java'),
+      `package com.example.client;
+
+@FeignClient(name = "\${project.feign-client-config.user.name}")
+public interface RemoteUserClient {
+
+  @GetMapping("/remote/users/{id}")
+  User fetch(@PathVariable Long id);
+}
+`,
+    )
+    writeFileSync(
+      join(java, 'LocalController.java'),
+      `package com.example;
+
+@RestController
+@RequestMapping("/api/local")
+public class LocalController {
+
+  @GetMapping("/ping")
+  public String ping() { return "ok"; }
+}
+`,
+    )
+  })
+
+  afterAll(() => rmSync(root, { recursive: true, force: true }))
+
+  it('skips the client interface but keeps the real controller', async () => {
+    const paths = (await scanRestApis(root)).map((e) => `${e.method} ${e.path}`)
+    expect(paths).toContain('GET /api/local/ping')
+    expect(paths).not.toContain('GET /remote/users/{id}')
+  })
+})

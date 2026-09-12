@@ -20,11 +20,16 @@ export interface ScanOptions {
   maxFileBytes?: number
 }
 
-const DEFAULT_SKIP = new Set([
+/**
+ * Shared skip list (design D6): the outbound scanner reuses this set so there is
+ * only ONE definition of "which directories a source scan never descends into".
+ */
+export const SCAN_SKIP_DIRS: ReadonlySet<string> = new Set([
   'node_modules', '.git', 'target', 'build', 'dist', '.gradle', '.idea', '.vscode', 'coverage', '__pycache__', '.next',
 ])
 
-const DEFAULTS: Required<Omit<ScanOptions, 'skipDirs'>> = {
+/** Shared resource limits (design D6) — reused verbatim by `scan-outbound.ts`. */
+export const SCAN_LIMITS: Readonly<Required<Omit<ScanOptions, 'skipDirs'>>> = {
   maxDepth: 8,
   maxFiles: 3000,
   maxFileBytes: 512 * 1024,
@@ -45,15 +50,20 @@ interface ScanAccumulator {
 }
 
 export async function scanRestApis(rootPath: string, opts: ScanOptions = {}): Promise<ApiEndpoint[]> {
-  const root = await assertInside(rootPath)
+  const root = await assertScanRoot(rootPath)
   const acc: ScanAccumulator = { endpoints: [], filesSeen: 0, truncated: false }
-  const skip = new Set([...DEFAULT_SKIP, ...(opts.skipDirs ?? [])])
-  const limits = { ...DEFAULTS, ...opts }
+  const skip = new Set([...SCAN_SKIP_DIRS, ...(opts.skipDirs ?? [])])
+  const limits = { ...SCAN_LIMITS, ...opts }
   await walk(root, root, 0, skip, limits, acc)
   return acc.endpoints.slice(0, 500)
 }
 
-async function assertInside(rootPath: string): Promise<string> {
+/**
+ * Root containment check shared by every source scanner (design D6): the root
+ * must resolve inside its own parent, so a root-internal symlink pointing
+ * outside the tree still trips the check.
+ */
+export async function assertScanRoot(rootPath: string): Promise<string> {
   const abs = resolve(rootPath)
   // Compare against the realpath of the parent so symlinked roots like
   // macOS /var → /private/var are allowed, but a root-internal symlink
@@ -114,6 +124,13 @@ async function walk(
 
 function scanJava(content: string, file: string, acc: ScanAccumulator): void {
   if (!content.includes('@Controller') && !content.includes('@RestController') && !content.includes('Mapping')) return
+  // A `@FeignClient` interface declares an OUTBOUND contract: its `@GetMapping`
+  // and friends describe calls this service MAKES, not endpoints it exposes.
+  // Counting them as exposed endpoints inflated real services badly — on
+  // `homework-server` a Feign client's paths were listed among its own API, and
+  // the dependency derivation then matched another service's outbound call
+  // against those phantom endpoints, inventing a dependency that does not exist.
+  if (content.includes('@FeignClient')) return
   // Class-level base path (@RequestMapping on the controller) + every method
   // mapping in the file. @RequestMapping is not a method annotation, so the
   // two sets never collide.

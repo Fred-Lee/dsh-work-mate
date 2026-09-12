@@ -5,10 +5,10 @@
 // 触发 effect 重跑, loadTopology 用服务端值覆盖编辑中的 topology。
 // 另含 simplify-service-dependencies 的行为锁定：只选两个下拉即可录入服务级边、
 // 同一对服务只占一行、无明细行渲染降级、保存后的图体检告警条。
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConfigPanel } from './App'
-import type { GraphHealthPayload, TopologyPayload } from './api'
+import type { DeriveCandidatePayload, DeriveOutcomePayload, GraphHealthPayload, TopologyPayload } from './api'
 
 const toast = vi.fn()
 const onClose = vi.fn()
@@ -237,3 +237,218 @@ describe('ConfigPanel 依赖录入与图体检', () => {
     expect(view.queryByRole('status')).toBeNull()
   })
 })
+
+// ---------------------------------------------------------------------------
+// derive-dependencies-from-calls：推导候选区块（证据/置信度/未登记目标/成环项）
+// ---------------------------------------------------------------------------
+
+const deriveCandidates: DeriveCandidatePayload[] = [
+  {
+    from: 'user-service',
+    to: 'order-service',
+    confidence: 'high',
+    evidence: [{ kind: 'config', file: 'src/main/resources/application.yml', line: 8, detail: 'order-service.base-url = http://order-service:8080' }],
+    endpoints: [],
+    targetDeclared: true,
+    alreadyDeclared: false,
+    wouldCreateCycle: false,
+  },
+  {
+    from: 'user-service',
+    to: 'internal-bc-es',
+    confidence: 'high',
+    evidence: [
+      {
+        kind: 'feign',
+        file: 'src/main/java/com/example/InternalBcEsClient.java',
+        line: 3,
+        detail: '@FeignClient(name = "${project.feign-client-config.internal-bc-es.name}")',
+        note: '值未解析（本地配置中未找到 project.feign-client-config.internal-bc-es.name）',
+      },
+    ],
+    endpoints: [],
+    targetDeclared: false,
+    wouldCreateCycle: false,
+  },
+  {
+    from: 'order-service',
+    to: 'user-service',
+    confidence: 'medium',
+    evidence: [
+      {
+        kind: 'endpoint',
+        file: 'src/client/orders.ts',
+        line: 12,
+        detail: '/api/users/{id} ↔ GET /api/users/{uid}（user-service 已声明该端点）',
+        note: '按段形状归一化匹配',
+      },
+    ],
+    endpoints: ['/api/users/{uid}'],
+    method: 'GET',
+    targetDeclared: true,
+    wouldCreateCycle: true,
+  },
+]
+
+const deriveOutcome: DeriveOutcomePayload = {
+  candidates: deriveCandidates,
+  scannedAt: 1_700_000_000_000,
+  scanned: ['user-service', 'order-service'],
+  skipped: [{ serviceId: 'lonely-service', reason: '未配置本地路径（localPath）' }],
+}
+
+/** 确认后服务端返回的拓扑：依赖行即时更新（含被确认的一行）。 */
+const appliedTopology: TopologyPayload = {
+  ...twoServices,
+  restDependencies: { 'user-service': [{ toServiceId: 'order-service', endpoints: [], method: '*' }] },
+}
+
+let deriveFixture: DeriveOutcomePayload | null = deriveOutcome
+let deriveAvailable = true
+let applyBodies: Array<{ group: string; candidates: unknown[] }> = []
+
+describe('ConfigPanel 推导候选区块', () => {
+  beforeEach(() => {
+    deriveFixture = deriveOutcome
+    deriveAvailable = true
+    applyBodies = []
+    topologyFixture = twoServices
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/topology?')) return jsonResponse({ group: 'demo', topology: topologyFixture })
+      if (url.includes('/api/topology/health')) return jsonResponse({ group: 'demo', health: cleanHealth, available: true })
+      if (url.includes('/api/topology/derive')) return jsonResponse({ group: 'demo', result: deriveFixture, available: deriveAvailable })
+      if (url.includes('/api/topology/apply-candidates')) {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { group: string; candidates: unknown[] }
+        applyBodies.push(body)
+        return jsonResponse({ group: 'demo', applied: body.candidates.length, registered: [], topology: appliedTopology, available: true })
+      }
+      return jsonResponse({ ok: true })
+    }))
+  })
+
+  async function renderWithCandidates(): Promise<ReturnType<typeof render>> {
+    const view = renderPanel(['demo'])
+    await act(async () => {})
+    fireEvent.click(view.getByRole('button', { name: '🔍 推导候选' }))
+    await act(async () => {})
+    return view
+  }
+
+  function rows(view: ReturnType<typeof render>): HTMLElement[] {
+    return [...view.container.querySelectorAll<HTMLElement>('.candidate-row')]
+  }
+
+  it('逐条展示证据、置信度徽标与匹配端点，成环项默认不勾选', async () => {
+    const view = await renderWithCandidates()
+    expect(rows(view)).toHaveLength(3)
+
+    const declared = view.container.querySelector('[data-candidate="user-service → order-service"]') as HTMLElement
+    expect(declared.textContent).toContain('user-service ──▶ order-service')
+    expect(declared.textContent).toContain('http://order-service:8080')
+    expect(declared.textContent).toContain('application.yml:8')
+    expect(declared.querySelector('[aria-label="置信度 高"]')).not.toBeNull()
+
+    // 未登记目标：单列一组 + 标记 + 「登记并确认」
+    const undeclared = view.container.querySelector('[data-candidate="user-service → internal-bc-es"]') as HTMLElement
+    expect(undeclared.textContent).toContain('目标未登记')
+    expect(undeclared.textContent).toContain('值未解析')
+    expect(within(undeclared).getByRole('button', { name: '📝 登记并确认' })).toBeTruthy()
+    expect(view.container.textContent).toContain('目标未登记（可登记并确认）（1）')
+
+    // 成环项：标记 + 默认不勾选；非成环项默认勾选
+    const cycle = view.container.querySelector('[data-candidate="order-service → user-service"]') as HTMLElement
+    expect(cycle.textContent).toContain('将形成环')
+    expect(cycle.textContent).toContain('端点明细：GET /api/users/{uid}')
+    expect(cycle.textContent).toContain('按段形状归一化匹配')
+    expect(checkboxOf(cycle).checked).toBe(false)
+    expect(checkboxOf(declared).checked).toBe(true)
+    expect(checkboxOf(undeclared).checked).toBe(true)
+    expect(view.container.textContent).toContain('未扫描：lonely-service（未配置本地路径（localPath））')
+  })
+
+  it('「全部确认(不含成环项)」只送勾选的非成环候选，确认后依赖行即时更新且只有一行', async () => {
+    const view = await renderWithCandidates()
+    // 手工勾上成环项也不随批量写入（必须逐条确认）。
+    const cycle = view.container.querySelector('[data-candidate="order-service → user-service"]') as HTMLElement
+    fireEvent.click(checkboxOf(cycle))
+    await act(async () => {})
+
+    fireEvent.click(view.getByRole('button', { name: '✅ 全部确认（不含成环项）' }))
+    await act(async () => {})
+
+    expect(applyBodies).toHaveLength(1)
+    expect(applyBodies[0]!.group).toBe('demo')
+    expect(applyBodies[0]!.candidates).toEqual([
+      { from: 'user-service', to: 'order-service' },
+      { from: 'user-service', to: 'internal-bc-es', register: true },
+    ])
+
+    // 依赖行由服务端返回的拓扑驱动：一对服务一行，已确认的候选从清单移除。
+    const depLabels = [...view.container.querySelectorAll('.dep-line .dep-label')].map((el) => el.textContent)
+    expect(depLabels).toEqual(['user-service ──▶ order-service'])
+    expect(rows(view)).toHaveLength(1)
+    expect(view.container.querySelector('[data-candidate="user-service → order-service"]')).toBeNull()
+    expect(toast).toHaveBeenCalledWith('success', expect.stringContaining('已确认 2 条候选'))
+  })
+
+  it('单条「登记并确认」带 register，单条「确认」按端点明细落库', async () => {
+    const view = await renderWithCandidates()
+
+    const undeclared = view.container.querySelector('[data-candidate="user-service → internal-bc-es"]') as HTMLElement
+    fireEvent.click(within(undeclared).getByRole('button', { name: '📝 登记并确认' }))
+    await act(async () => {})
+    expect(applyBodies[0]!.candidates).toEqual([{ from: 'user-service', to: 'internal-bc-es', register: true }])
+
+    // 手动勾选成环项后才能单条确认；带上匹配到的端点与 HTTP 方法。
+    const cycle = view.container.querySelector('[data-candidate="order-service → user-service"]') as HTMLElement
+    fireEvent.click(checkboxOf(cycle))
+    await act(async () => {})
+    fireEvent.click(within(cycle).getByRole('button', { name: '✅ 确认' }))
+    await act(async () => {})
+    expect(applyBodies[1]!.candidates).toEqual([
+      { from: 'order-service', to: 'user-service', endpoints: ['/api/users/{uid}'], method: 'GET' },
+    ])
+  })
+
+  it('未登记目标只确认依赖时需要显式确认（会产生悬空引用）', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const view = await renderWithCandidates()
+    const undeclared = view.container.querySelector('[data-candidate="user-service → internal-bc-es"]') as HTMLElement
+
+    fireEvent.click(within(undeclared).getByRole('button', { name: '仅确认依赖' }))
+    await act(async () => {})
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining('悬空引用'))
+    expect(applyBodies).toHaveLength(0)
+
+    confirmSpy.mockReturnValue(true)
+    fireEvent.click(within(undeclared).getByRole('button', { name: '仅确认依赖' }))
+    await act(async () => {})
+    expect(applyBodies[0]!.candidates).toEqual([{ from: 'user-service', to: 'internal-bc-es' }])
+  })
+
+  it('「忽略」把候选移出清单且不落库', async () => {
+    const view = await renderWithCandidates()
+    const declared = view.container.querySelector('[data-candidate="user-service → order-service"]') as HTMLElement
+    fireEvent.click(within(declared).getByRole('button', { name: '🙈 忽略' }))
+    await act(async () => {})
+
+    expect(rows(view)).toHaveLength(2)
+    expect(view.container.querySelector('[data-candidate="user-service → order-service"]')).toBeNull()
+    expect(applyBodies).toHaveLength(0)
+    expect(view.container.textContent).toContain('另有 1 条已忽略')
+  })
+
+  it('老版本拓扑服务（available:false）给出提示而不是报错', async () => {
+    deriveAvailable = false
+    const view = await renderWithCandidates()
+    expect(view.container.textContent).toContain('当前拓扑服务版本不支持候选推导')
+    expect(rows(view)).toHaveLength(0)
+  })
+})
+
+function checkboxOf(row: HTMLElement): HTMLInputElement {
+  const input = row.querySelector('input[type="checkbox"]') as HTMLInputElement | null
+  if (!input) throw new Error('candidate row has no checkbox')
+  return input
+}

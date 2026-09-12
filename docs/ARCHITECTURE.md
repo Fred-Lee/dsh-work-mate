@@ -46,6 +46,19 @@ webServer (DSH 内置) ←─ inject ── ui-dashboard, ui-diff, ui-workbench,
   扫描器零依赖：Maven 用轻量标签匹配（含 `${property}` 解析、dependencyManagement、
   modules、parent 链接推导）；REST 扫描支持 Spring / NestJS / Express 三类注解
   与路由，带深度/文件数/大小上限与 realpath 符号链接逃逸检查。
+- **出站扫描与依赖推导（memory-topology）**：「谁调谁」由两层构成——
+  `scan-outbound.ts` 扫**对外发起**的调用与基址线索（Java `@FeignClient`（含
+  `${…internal-bc-es.name}` 这类**占位符键**：取键里标识服务名的那一段作目标、
+  能从本地配置解析出值就当补充证据、解析不出就标注「值未解析」但不丢线索）、
+  `RestTemplate` / `WebClient` / `HttpClient`；JS/TS `axios` / `fetch` / `http(s)`，
+  模板插值归一为 `/api/users/{}/orders`；外加 `*.base-url` / `*.url` / `*.host`
+  配置键、k8s service DNS 与 `http://<svc>:<port>` 基址），`derive-dependencies.ts`
+  把线索折成**候选**：名称档=高（服务级候选）、路径档=中（带命中端点，
+  先精确再按段形状归一化 `/api/users/{id}` ↔ `/api/users/{userId}`，Feign 前缀
+  占位符未解析时只按方法级路径匹配并标注「前缀未解析」），按 (from, to) 合并
+  （证据/端点取并集、置信度取高档）、排除自环、**无证据不产出候选**，未登记目标
+  **保留**并标 `targetDeclared: false`，会与既有图成环的候选**标注**而非丢弃。
+  两个模块都沿用 `scan-rest` 的同一套上限与 root containment，且不做任何网络请求。
 - **orchestrator**：框架无关的 `OrchestratorCore`（单测覆盖），插件入口只做
   cordis 装配 + 4 个 agent 工具注册。任务状态机与 PRD §4.2 一致；
   限流(429)按 2s/8s/32s 指数退避重试（默认 3 次），认证失效不重试，
@@ -146,6 +159,22 @@ orchestrator.runParallelTask()                    │ helmsman/task-updated 事�
   （dashboard 只读路由 `GET api/topology/health?group=`），配置页在保存后拉取为告警条
   （仅提示、不阻断保存；干净图不显示）。`computeDownstream().cyclic` 与 `cascadeOrder` 的
   环降级行为**保持不变**：引擎不该被脏数据打崩，但人必须被告知（体检是新增视角，不是替换）。
+- **依赖推导只提议、不落库（与合并语义的分工）**：`simplify-service-dependencies`
+  解决「怎么**表达**」（服务级边 + 按对去重 + 图体检），`derive-dependencies-from-calls`
+  解决「怎么**发现**」。职责边界刻意收紧：
+  - **纯静态、离线**：只读本地服务树与已存拓扑，不探活、不抓流量、不连服务发现；
+    名称/路径匹配本质是启发式，所以结果只经**只读**入口 `topology.deriveDependencies(group)`
+    返回（带 `scannedAt`），**绝不写库**；
+  - **只提议**：落库是独立的人工动作 `applyCandidates`，它复用与 `saveTopology`/导入
+    **完全相同的持久化闸口**（`normalizeTopology` → `mergeDependencyEdge` → `dedupeDependencies`
+    → `store.save`），所以「一对服务只有一条边」对第 4 条写入路径同样成立，
+    「确认」永远不会造出重复行；「登记并确认」把服务条目创建放进同一个动作，
+    避免确认未登记目标后立刻产生 `dangling` 体检告警；
+  - **与体检一致**：`wouldCreateCycle` 用既有图的可达性判断（`to` 能否到达 `from`），
+    与 `checkGraph` 加边后的结论一致（单测直接以 `checkGraph` 交叉验证）；
+    成环候选**标注**并默认不勾选，而不是静默丢弃——环是架构不变量问题，人应当知道；
+  - **粒度**：候选合并后的明细仍是「同一对服务那一行」的补充信息，不引入新的数据结构；
+    端点明细只是证据快照，随代码漂移重跑推导即可刷新。
 - **合并语义**：patch 式合并（`git apply`）而非分支 `git merge`，这样即使 agent
   未在 worktree 内提交也能合并；代价是冲突处理是「整批失败」（原子），
   冲突文件由 UI 选择采纳某个 Agent 后按 agent+file 维度重试。
@@ -156,7 +185,8 @@ orchestrator.runParallelTask()                    │ helmsman/task-updated 事�
 ```
 packages/
   worktree/          git worktree 服务（diffparse / service / git）
-  memory-topology/   拓扑存储 + 扫描器 + 导入导出 + 图体检（graph-health.ts）+ 3 个 agent 工具
+  memory-topology/   拓扑存储 + 扫描器（scan-rest / scan-outbound）+ 推导（derive-dependencies）
+                     + 导入导出 + 图体检（graph-health.ts）+ 3 个 agent 工具
   orchestrator/      core.ts（引擎）+ index.ts（cordis 装配 + 工具）
   artifacts/         内容寻址产物注册表（helmsman.artifacts 纯 Service）
   board/             任务工作项聚合根（helmsman.board 纯 Service：模型/四阶段/门/关联/事件）
@@ -171,7 +201,7 @@ scripts/build-package.mjs   共享 esbuild 配置（packages:external）
 
 ## 6. 测试
 
-- 单测：`packages/*/src/*.test.ts`，`pnpm test`（vitest，全量 424 用例）。
+- 单测：`packages/*/src/*.test.ts`，`pnpm test`（vitest，全量 477 用例，38 个文件）。
 - 关键集成：真实 `git init` 的 worktree 创建→diff→合并→冲突→清理全链路。
 - 真实 profile 冒烟：`--dump-config` 核对 9 行 insert；`dsh web` 启动后 curl
   `/helmsman-dashboard/api/state`；以假 agent 脚本走完 执行→聚合→合并→主仓库

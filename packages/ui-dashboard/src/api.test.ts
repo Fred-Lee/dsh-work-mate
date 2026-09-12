@@ -306,6 +306,87 @@ describe('dashboard API router', () => {
     const router = createApiRouter({ orchestrator: fakeOrchestrator() })
     expect(await router.handle(fakeReq('GET'), fakeRes().res, '/api/topology/health?group=g')).toBe(false)
   })
+
+  // 推导候选（derive-dependencies-from-calls）：只读 GET + 确认 POST，语义与 health 路由一致。
+  it('GET api/topology/derive forwards the group and returns the candidate result', async () => {
+    const result = {
+      candidates: [
+        {
+          from: 'homework-server',
+          to: 'internal-bc-es',
+          confidence: 'high' as const,
+          evidence: [{ kind: 'feign', file: 'src/main/java/InternalBcEsClient.java', line: 3, detail: '@FeignClient(name = "${…internal-bc-es.name}")' }],
+          endpoints: [],
+          targetDeclared: false,
+          alreadyDeclared: false,
+          wouldCreateCycle: false,
+        },
+      ],
+      scannedAt: 1700000000000,
+      scanned: ['homework-server'],
+      skipped: [{ serviceId: 'internal-homework', reason: '未配置本地路径（localPath）' }],
+    }
+    const deriveDependencies = vi.fn(async () => result)
+    const router = createApiRouter({ orchestrator: fakeOrchestrator(), topology: { ...fakeTopology, deriveDependencies } })
+    const { res, status, body } = fakeRes()
+    const handled = await router.handle(fakeReq('GET'), res, `/api/topology/derive?group=${encodeURIComponent('作业服务群')}`)
+    expect(handled).toBe(true)
+    expect(status()).toBe(200)
+    expect(deriveDependencies).toHaveBeenCalledWith('作业服务群')
+    expect(JSON.parse(body())).toEqual({ group: '作业服务群', result, available: true })
+  })
+
+  it('derive route degrades to available:false when the installed service has no deriveDependencies', async () => {
+    const router = createApiRouter({ orchestrator: fakeOrchestrator(), topology: { ...fakeTopology, deriveDependencies: undefined } })
+    const { res, status, body } = fakeRes()
+    const handled = await router.handle(fakeReq('GET'), res, '/api/topology/derive?group=g')
+    expect(handled).toBe(true)
+    expect(status()).toBe(200)
+    expect(JSON.parse(body())).toEqual({ group: 'g', result: null, available: false })
+  })
+
+  it('derive route is not mounted without the topology plugin (host answers 404)', async () => {
+    const router = createApiRouter({ orchestrator: fakeOrchestrator() })
+    expect(await router.handle(fakeReq('GET'), fakeRes().res, '/api/topology/derive?group=g')).toBe(false)
+  })
+
+  it('POST api/topology/apply-candidates forwards the candidates and returns the persisted topology', async () => {
+    const saved = { projectGroupId: 'g', name: 'g', services: {}, restDependencies: {} }
+    const applyCandidates = vi.fn(async (_group: string, candidates: unknown[]) => ({
+      group: 'g',
+      topology: saved,
+      applied: candidates.length,
+      registered: ['internal-bc-es'],
+    }))
+    const router = createApiRouter({ orchestrator: fakeOrchestrator(), topology: { ...fakeTopology, applyCandidates } })
+    const { res, status, body } = fakeRes()
+    const candidates = [
+      { from: 'homework-server', to: 'internal-homework', endpoints: ['/api/homework/{hwId}'], method: 'GET' },
+      { from: 'homework-server', to: 'internal-bc-es', register: true },
+    ]
+    const handled = await router.handle(fakeReq('POST', { group: 'g', candidates }), res, '/api/topology/apply-candidates')
+    expect(handled).toBe(true)
+    expect(status()).toBe(200)
+    expect(applyCandidates).toHaveBeenCalledWith('g', candidates)
+    expect(JSON.parse(body())).toMatchObject({ available: true, applied: 2, registered: ['internal-bc-es'], topology: saved })
+  })
+
+  it('apply-candidates requires a group and degrades when the method is absent', async () => {
+    const router = createApiRouter({ orchestrator: fakeOrchestrator(), topology: fakeTopology })
+    const bad = fakeRes()
+    await router.handle(fakeReq('POST', { candidates: [] }), bad.res, '/api/topology/apply-candidates')
+    expect(bad.status()).toBe(500)
+    expect(JSON.parse(bad.body()).error).toContain('group is required')
+
+    const missing = fakeRes()
+    await router.handle(fakeReq('POST', { group: 'g', candidates: [] }), missing.res, '/api/topology/apply-candidates')
+    expect(JSON.parse(missing.body())).toEqual({ group: 'g', topology: null, applied: 0, registered: [], available: false })
+  })
+
+  it('apply-candidates route is not mounted without the topology plugin', async () => {
+    const router = createApiRouter({ orchestrator: fakeOrchestrator() })
+    expect(await router.handle(fakeReq('POST', { group: 'g' }), fakeRes().res, '/api/topology/apply-candidates')).toBe(false)
+  })
 })
 
 describe('approval gate + audit routes', () => {

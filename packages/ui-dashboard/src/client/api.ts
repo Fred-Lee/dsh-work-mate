@@ -92,6 +92,64 @@ export interface GraphHealthPayload {
 
 export type TopologyHealthPayload = { group: string; health: GraphHealthPayload | null; available: boolean }
 
+/** 候选证据（推导候选区块展示用）。 */
+export interface DeriveEvidencePayload {
+  /** config / feign / call / endpoint */
+  kind: string
+  file: string
+  line?: number
+  detail: string
+  /** 降级标注：「值未解析」「前缀未解析」「按路径后缀匹配」等。 */
+  note?: string
+}
+
+/** 一条推导候选（memory-topology 的 DependencyCandidate 镜像）。 */
+export interface DeriveCandidatePayload {
+  from: string
+  to: string
+  confidence: 'high' | 'medium'
+  evidence: DeriveEvidencePayload[]
+  endpoints: string[]
+  method?: string
+  /** false = 目标未登记（可「登记并确认」）。 */
+  targetDeclared: boolean
+  /** true = 该对服务已有依赖边（确认只并入明细）。 */
+  alreadyDeclared?: boolean
+  /** true = 确认会与既有图成环（默认不勾选）。 */
+  wouldCreateCycle: boolean
+}
+
+export interface DeriveOutcomePayload {
+  candidates: DeriveCandidatePayload[]
+  scannedAt: number
+  scanned?: string[]
+  skipped?: Array<{ serviceId: string; reason: string }>
+}
+
+export type TopologyDerivePayload = {
+  group: string
+  result: DeriveOutcomePayload | null
+  /** 老版本拓扑服务无该能力时为 false。 */
+  available: boolean
+}
+
+export interface ApplyCandidatesPayload {
+  group: string
+  applied: number
+  registered: string[]
+  topology: TopologyPayload | null
+  available: boolean
+}
+
+/** 确认载荷（只送拓扑服务需要的最小字段）。 */
+export interface ApplyCandidateInputPayload {
+  from: string
+  to: string
+  endpoints?: string[]
+  method?: string
+  register?: boolean
+}
+
 export interface ImportPreviewPayload {
   source: string
   services: Array<{ name: string; image?: string; selected: boolean; endpoints: ApiEndpointPayload[] }>
@@ -137,6 +195,21 @@ export const api = {
   saveTopology: (topology: TopologyPayload) => request<{ ok: boolean }>('/topology/save', { method: 'POST', body: JSON.stringify({ topology }) }),
   /** 只读图体检（环/悬空引用/孤立服务）；老版本服务无该能力时 available=false。 */
   topologyHealth: (group: string) => request<TopologyHealthPayload>(`/topology/health?group=${encodeURIComponent(group)}`),
+  /** 只读推导候选（出站调用 + 配置线索）；不写库，老版本服务返回 available=false。 */
+  topologyDerive: (group: string) => request<TopologyDerivePayload>(`/topology/derive?group=${encodeURIComponent(group)}`),
+  /**
+   * 确认候选落库：服务端复用 `mergeDependencyEdge` 的按服务对合并语义，
+   * 所以确认同一对服务不会造出重复行。返回落库后的整份拓扑以便即时刷新依赖行。
+   * 拓扑服务版本过旧（无该能力）时抛出明确错误，而不是静默不写。
+   */
+  applyCandidates: async (group: string, candidates: ApplyCandidateInputPayload[]): Promise<ApplyCandidatesPayload> => {
+    const res = await request<ApplyCandidatesPayload>('/topology/apply-candidates', {
+      method: 'POST',
+      body: JSON.stringify({ group, candidates }),
+    })
+    if (res.available === false) throw new Error('当前拓扑服务版本不支持候选推导，请在「目标未登记」类候选上手工录入依赖')
+    return res
+  },
   createGroup: (group: string, name?: string) => request<{ topology: TopologyPayload }>('/topology/create', { method: 'POST', body: JSON.stringify({ group, name }) }),
   deleteGroup: (group: string, confirmationToken?: string) =>
     request<{ ok: boolean }>('/topology/delete', { method: 'POST', body: JSON.stringify({ group, confirmationToken }) }),

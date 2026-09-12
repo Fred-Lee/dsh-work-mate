@@ -47,6 +47,49 @@
 5. 注入文本（`cascade` 模式给 Agent 的拓扑上下文）同样降级：无明细的边写成
    `- A --▶ B`，带明细的边仍为 `- A --GET--> B /api/x`。
 
+### 从出站调用推导依赖候选（🔍 推导候选）
+
+上一步解决「**怎么表达**」依赖（两个下拉录一条服务级边），这一步解决「**怎么发现**」依赖：
+工具从服务源码树里扫出**对外调用**与基址线索，给出带证据的候选，人确认即可。
+
+1. 配置面板 → 🕸️ 依赖拓扑 → 🔍 推导候选。工具对每个**已配置本地路径**的服务做一次
+   **只读**扫描（`@FeignClient` / `RestTemplate` / `WebClient` / `HttpClient` /
+   `axios` / `fetch` / `http.get`，外加配置文件里的基址线索），**不联网、不写库**；
+   确认与否完全由你决定。
+2. 每条候选带**置信度**与**证据**（文件:行、配置键与值、命中的端点），据此判断——
+   不用相信工具给出的结论：
+   - **高（名称档）**：调用的“名字”指向某个服务。包括 `@FeignClient` 的 name **及占位符键段**，
+     例如 `@FeignClient(name = "${project.feign-client-config.internal-bc-es.name}")`
+     导出目标 `internal-bc-es`（键值能在本地配置里找到时会一并列为证据，找不到则标注
+     「值未解析」但仍保留该线索）；也包括 `*.base-url` / `*.url` / `*.host` 配置键、
+     k8s service DNS（`<svc>.<ns>.svc.cluster.local`）与 `http://<svc>:<port>` 基址。
+     命中即**服务级候选**（不细分接口）。
+   - **中（路径档）**：调用**路径**命中目标服务已声明的端点——先精确匹配，再按段形状归一化
+     （`/api/users/{id}` ↔ `/api/users/{userId}`）。候选会带上命中的端点作为明细。
+     Feign 的类级 `path` 是占位符且本地配置解析不出前缀时，只按方法级路径匹配，并在证据里
+     标注「前缀未解析」——**不猜前缀**。
+3. 两类要特别留意的候选：
+   - **目标未登记**：目标服务还没登记（真实仓库里 7 个 Feign 目标有 6 个是这种情况），
+     单列一组「目标未登记（可登记并确认）」。
+     - 「📝 登记并确认」：以候选给出的名字建立服务条目并同时落库 → 体检不会报悬空引用；
+     - 「仅确认依赖」：会先弹确认提示——落库的边会被体检报为 ⚠️ **悬空引用**（不静默接受）。
+   - **将形成环**：该候选会与既有依赖图构成环（「架构不应有循环调用」是约定），单独标注且
+     **默认不勾选**；「✅ 全部确认（不含成环项）」**不会**带上它们（即使手工勾上也一样），
+     确实要写就逐条点它自己的「✅ 确认」。
+4. 确认后依赖行**即时更新**，同一对服务**仍只有一行**：确认走的是服务端按 (from, to) 合并的
+   持久化路径，带明细时明细并入既有边、明细内部按 (method, endpoint) 去重。已确认的候选会从
+   候选清单移出；再点一次「🔍 推导候选」会重新扫出它们并标注「已存在（将并入明细）」。
+5. 没有候选 / 有漏报是正常的：扫描是**静态启发式**（不认识字符串拼接出来的 URL、不认识的
+   HTTP 客户端、动态服务发现等）。此时直接用「➕ 添加依赖」手工补录（只选两个下拉即可）。
+   推导结果不缓存，随时可重跑刷新（端点明细只是证据快照，不影响「一对一条边」的图结构）。
+6. 只读/确认接口（脚本或调试）：
+   - `GET /helmsman-dashboard/api/topology/derive?group=<群名>` →
+     `{ group, available, result: { candidates, scannedAt, scanned, skipped } }`；
+   - `POST /helmsman-dashboard/api/topology/apply-candidates`
+     `{ group, candidates: [{ from, to, endpoints?, method?, register? }] }` →
+     `{ group, applied, registered, topology }`（`topology` 是落库后的整份拓扑）。
+   - 旧版本拓扑服务没有这些能力时 `available: false`，界面给出提示（不影响手工录入）。
+
 ## 2. 工作台（Helmsman Workbench）
 
 装入 `@helmsman/ui-workbench` 后，DSH 网页侧边栏底部出现 **🚀 Helmsman** 按钮：
@@ -224,6 +267,10 @@ REST/SSE 补充端点（供脚本/调试）：
 - `POST /api/approvals/:id/decision` — 决定（`{approve}`）；批准签发一次性令牌。
 - `GET /api/audit?op=&taskId=&from=&to=` — 只读审计查询（无变更面）。
 - `GET /api/topology/health?group=<群名>` — 只读图体检（依赖环 + 成员 / 悬空引用 / 孤立服务），无变更面。
+- `GET /api/topology/derive?group=<群名>` — 只读推导候选（出站调用扫描），无变更面；
+  `result.candidates[].evidence` 即界面展示的证据，`skipped` 列出没能扫描的服务及原因。
+- `POST /api/topology/apply-candidates` — 确认候选落库（`{group, candidates:[{from,to,endpoints?,method?,register?}]}`）；
+  复用按服务对合并语义，故确认不会产生重复行；`register: true` 同时登记未登记的目标服务。
 - merge/discard/cancel 与 `POST /api/topology/delete` 均需携带 `confirmationToken`（confirm-required 时）。
 
 ## 6. 验证安装

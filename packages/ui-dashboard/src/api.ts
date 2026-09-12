@@ -41,6 +41,65 @@ export interface TopologyServiceLike {
    * `available: false` instead of failing.
    */
   checkHealth?(group: string): Promise<GraphHealthLike>
+  /**
+   * Read-only dependency-candidate derivation (`derive-dependencies-from-calls`).
+   * Optional for the same reason as `checkHealth`: an older installed
+   * memory-topology yields `available: false` rather than an error.
+   */
+  deriveDependencies?(group: string, opts?: { serviceIds?: string[] }): Promise<DeriveResultLike>
+  /**
+   * Confirms candidates through the topology service's (from, to) merge path, so
+   * a confirmed pair can never produce a duplicate row. `register: true` on an
+   * undeclared target registers the service in the same action (「登记并确认」).
+   */
+  applyCandidates?(group: string, candidates: ApplyCandidateInputLike[]): Promise<ApplyCandidatesResultLike>
+}
+
+/**
+ * Structural mirrors of memory-topology's derivation payloads — the dashboard
+ * only consumes the shapes, and declaring its own copies keeps the two plugins
+ * independently installable (same rationale as `GraphHealthLike`).
+ */
+export interface CandidateEvidenceLike {
+  kind: string
+  file: string
+  line?: number
+  detail: string
+  note?: string
+}
+
+export interface DeriveCandidateLike {
+  from: string
+  to: string
+  confidence: 'high' | 'medium'
+  evidence: CandidateEvidenceLike[]
+  endpoints: string[]
+  method?: string
+  targetDeclared: boolean
+  alreadyDeclared?: boolean
+  wouldCreateCycle: boolean
+}
+
+export interface DeriveResultLike {
+  candidates: DeriveCandidateLike[]
+  scannedAt: number
+  scanned?: string[]
+  skipped?: Array<{ serviceId: string; reason: string }>
+}
+
+export interface ApplyCandidateInputLike {
+  from: string
+  to: string
+  endpoints?: string[]
+  method?: string
+  register?: boolean
+}
+
+export interface ApplyCandidatesResultLike {
+  group?: string
+  topology: ProjectTopology
+  applied: number
+  registered: string[]
 }
 
 /**
@@ -381,6 +440,35 @@ export function createApiRouter(deps: DashboardApiDeps): Router {
       const checkHealth = topology.checkHealth
       if (typeof checkHealth !== 'function') return { group, health: null, available: false }
       return { group, health: await checkHealth.call(topology, group), available: true }
+    })
+
+    // Read-only dependency-candidate derivation (derive-dependencies-from-calls):
+    // it scans local service trees, so it has NO mutation surface — confirming is
+    // the separate POST below. Same degradation contract as the health route:
+    // an older installed service → `available: false`; no plugin → route unmounted
+    // (host answers 404).
+    router.get('api/topology/derive', async ({ query }) => {
+      const group = query.get('group') ?? ''
+      const derive = topology.deriveDependencies
+      if (typeof derive !== 'function') return { group, result: null, available: false }
+      return { group, result: await derive.call(topology, group), available: true }
+    })
+
+    // Human confirmation of (a subset of) those candidates. The topology service
+    // merges through the same (from, to) path as every other writer, so this can
+    // never create a duplicate row; the response carries the persisted topology so
+    // the SPA refreshes its dependency rows without another round trip.
+    router.post('api/topology/apply-candidates', async ({ req }) => {
+      const body = await readJsonBody(req)
+      const group = String(body.group ?? '')
+      if (!group) throw new Error('group is required')
+      const candidates = Array.isArray(body.candidates) ? (body.candidates as ApplyCandidateInputLike[]) : []
+      const apply = topology.applyCandidates
+      if (typeof apply !== 'function') {
+        return { group, topology: null, applied: 0, registered: [], available: false }
+      }
+      const result = await apply.call(topology, group, candidates)
+      return { ...result, available: true }
     })
 
     router.post('api/topology/create', async ({ req }) => {
