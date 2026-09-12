@@ -297,7 +297,8 @@ export const api = {
   /** 只读图体检（环/悬空引用/孤立服务）；老版本服务无该能力时 available=false。 */
   topologyHealth: (group: string) => request<TopologyHealthPayload>(`/topology/health?group=${encodeURIComponent(group)}`),
   /** 只读推导候选（出站调用 + 配置线索）；不写库，老版本服务返回 available=false。 */
-  topologyDerive: (group: string) => request<TopologyDerivePayload>(`/topology/derive?group=${encodeURIComponent(group)}`),
+  topologyDerive: (group: string, scope: 'config' | 'full' = 'config') =>
+    request<TopologyDerivePayload>(`/topology/derive?group=${encodeURIComponent(group)}&scope=${scope}`),
   /**
    * 确认候选落库：服务端复用 `mergeDependencyEdge` 的按服务对合并语义，
    * 所以确认同一对服务不会造出重复行。返回落库后的整份拓扑以便即时刷新依赖行。

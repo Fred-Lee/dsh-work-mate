@@ -337,7 +337,7 @@ describe('ConfigPanel 推导候选区块', () => {
   async function renderWithCandidates(): Promise<ReturnType<typeof render>> {
     const view = renderPanel(['demo'])
     await act(async () => {})
-    fireEvent.click(view.getByRole('button', { name: '🔍 推导候选' }))
+    fireEvent.click(view.getByRole('button', { name: '🔍 推导候选（快扫）' }))
     await act(async () => {})
     return view
   }

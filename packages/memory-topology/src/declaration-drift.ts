@@ -56,6 +56,12 @@ import type { RestDependencyEdge } from './types.ts'
  * 代码中找到证据"), never a statement about the dependency itself.
  */
 export const STALE_REASON = '未在代码中找到证据（可能确实已删除，也可能是动态构造的调用未被识别）'
+/** Config-scope variant: the scan never looked at source files, so saying "代码" would overstate it. */
+export const STALE_REASON_CONFIG = '未在配置扫描范围内找到证据（可能确实已删除，也可能是配置之外的调用未被识别）'
+/** Scope-aware accessor — the wording must not claim more than the scan covered. */
+export function staleReasonFor(scope: 'config' | 'full'): string {
+  return scope === 'config' ? STALE_REASON_CONFIG : STALE_REASON
+}
 /** Why "no evidence found" cannot be read as "这个依赖已经没了" (design D2). */
 export const STALE_CAVEAT =
   '扫描为静态且启发式：动态拼接的 URL、配置驱动的路径、注册中心下发的地址、非 Feign 的私有 RPC 都可能未被识别，' +
@@ -176,6 +182,8 @@ export interface DeclarationDriftResult {
   status: DeclarationDriftStatus
   /** Absolute declaration path that was read (or would have been); null when unknown. */
   file: string | null
+  /** The derivation scope that produced the candidates ('config' default). */
+  scope: 'config' | 'full'
   consistent: ConsistentEntry[]
   staleDeclared: StaleDeclaredEntry[]
   undeclared: UndeclaredEntry[]
@@ -230,6 +238,12 @@ export interface DeclarationDriftInput {
   skipped?: readonly { serviceId: string; reason: string }[]
   /** Scan time of the code side (forwarded by the service surface). */
   scannedAt?: number
+  /**
+   * The derivation scope that produced `candidates` — config or full. It only
+   * changes the STALE wording (「未在配置扫描范围内找到证据」 vs 「…代码中…」),
+   * never the verdict: the confidence discipline is identical for both.
+   */
+  scope?: 'config' | 'full'
 }
 
 // ---------------------------------------------------------------------------
@@ -293,7 +307,13 @@ export function checkDeclarationDrift(input: DeclarationDriftInput): Declaration
         consistent.push({ ...base, confidence: candidate.confidence, declared: shape })
       } else if (shape) {
         // Declared, no code evidence: report it, never conclude about the dependency.
-        staleDeclared.push({ ...base, declared: shape, reason: STALE_REASON, caveat: STALE_CAVEAT, action: STALE_ACTION })
+        staleDeclared.push({
+          ...base,
+          declared: shape,
+          reason: staleReasonFor(input.scope ?? 'config'),
+          caveat: STALE_CAVEAT,
+          action: STALE_ACTION,
+        })
       } else if (candidate && candidate.confidence === 'high') {
         undeclared.push({ ...base, confidence: 'high', declared: null })
       } else if (candidate) {
@@ -320,6 +340,8 @@ export function checkDeclarationDrift(input: DeclarationDriftInput): Declaration
     service,
     status,
     file,
+    /** Echoed so consumers (UI/docs) can state which scope the wording reflects. */
+    scope: input.scope ?? 'config',
     consistent,
     staleDeclared,
     undeclared,

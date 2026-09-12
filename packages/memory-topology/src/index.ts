@@ -167,7 +167,7 @@ export interface TopologyService {
    * message guides the user towards writing a baseline. `status:
    * 'invalid-declaration'` reports the parse problems and issues NO verdict.
    */
-  checkDeclarationDrift(group: string, service?: string): Promise<DeclarationDriftResult & { group: string }>
+  checkDeclarationDrift(group: string, service?: string, scope?: 'config' | 'full'): Promise<DeclarationDriftResult & { group: string }>
 }
 
 /** Result of `declarationPreview` (see `readDeclaration` for the status semantics). */
@@ -486,7 +486,7 @@ export function apply(ctx: Context, config: Config = {}) {
       }
     },
 
-    async checkDeclarationDrift(group, service) {
+    async checkDeclarationDrift(group, service, scope) {
       const topology = await store.load(group)
       if (!topology) throw new Error(`unknown project group: ${group}`)
       const serviceId = String(service ?? '').trim() || firstServiceWithRepoPath(topology)
@@ -522,7 +522,10 @@ export function apply(ctx: Context, config: Config = {}) {
 
       // Read-only by construction: the derivation only READS local trees plus the
       // already-loaded topology, and nothing in this path touches the store.
-      const derived = await deriveFromTopology(topology, { serviceIds: [serviceId] })
+      // Defaults to the config scope (the config is the source of truth); an
+      // explicit scope on the call wins.
+      const scopeOf = scope === 'full' ? 'full' : 'config'
+      const derived = await deriveFromTopology(topology, { serviceIds: [serviceId], scope: scopeOf })
       return {
         group,
         ...checkDeclarationDrift({
@@ -533,6 +536,7 @@ export function apply(ctx: Context, config: Config = {}) {
           scanned: derived.scanned,
           skipped: derived.skipped,
           scannedAt: derived.scannedAt,
+          scope: derived.scope,
         }),
       }
     },

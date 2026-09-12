@@ -26,6 +26,7 @@ import {
   scanOutboundCalls,
   type OutboundCall,
   type OutboundScanOptions,
+  type OutboundScanScope,
 } from './scan-outbound.ts'
 import { SERVICE_LEVEL_METHOD, type ApiEndpoint, type ProjectTopology, type RestDependencyEdge } from './types.ts'
 
@@ -74,6 +75,14 @@ export type Candidate = DependencyCandidate
 export interface DeriveOptions {
   /** Restrict the scan to these service ids (default: every service with a localPath). */
   serviceIds?: string[]
+  /**
+   * Scan scope: `'config'` (default) reads only configuration files — the
+   * config is the source of truth for who calls whom, and name-tier clues from
+   * it are sturdier than code heuristics; `'full'` additionally walks source
+   * files for call sites and endpoint detail. An explicit `options.scan.scope`
+   * still wins, so a caller can force either.
+   */
+  scope?: OutboundScanScope
   /** Source-scan limits, forwarded to the outbound scanner. */
   scan?: OutboundScanOptions
   /** Injection point for tests / future caching (default: `scanOutboundCalls`). */
@@ -85,6 +94,10 @@ export interface DeriveOptions {
 export interface DeriveResult {
   candidates: DependencyCandidate[]
   scannedAt: number
+  /** The scope actually used — echoed so results are self-describing. */
+  scope: OutboundScanScope
+  /** How many candidates carry config-kind vs code-only evidence. */
+  sources: { config: number; code: number }
   /** Service ids whose tree was actually scanned. */
   scanned: string[]
   /** Services that could not be scanned (no localPath / unreadable tree). */
@@ -136,7 +149,7 @@ export async function deriveDependencies(topology: ProjectTopology, options: Der
     }
     let clues: OutboundCall[]
     try {
-      clues = await scan(localPath, options.scan)
+      clues = await scan(localPath, { scope: options.scope ?? 'config', ...options.scan })
     } catch (err) {
       skipped.push({ serviceId: from, reason: err instanceof Error ? err.message : String(err) })
       continue
@@ -202,7 +215,14 @@ export async function deriveDependencies(topology: ProjectTopology, options: Der
   }
   candidates.sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to))
 
-  return { candidates, scannedAt: options.now?.() ?? Date.now(), scanned, skipped }
+  const scope: OutboundScanScope = options.scan?.scope ?? options.scope ?? 'config'
+  // Corroboration counts as config: a candidate backed by any config clue is at
+  // least as sturdy as one found only in source.
+  const sources = {
+    config: candidates.filter((c) => c.evidence.some((e) => e.kind === 'config')).length,
+    code: candidates.filter((c) => c.evidence.length > 0 && !c.evidence.some((e) => e.kind === 'config')).length,
+  }
+  return { candidates, scannedAt: options.now?.() ?? Date.now(), scope, sources, scanned, skipped }
 }
 
 // ---------------------------------------------------------------------------

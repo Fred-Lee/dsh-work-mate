@@ -46,7 +46,7 @@ export interface TopologyServiceLike {
    * Optional for the same reason as `checkHealth`: an older installed
    * memory-topology yields `available: false` rather than an error.
    */
-  deriveDependencies?(group: string, opts?: { serviceIds?: string[] }): Promise<DeriveResultLike>
+  deriveDependencies?(group: string, opts?: { serviceIds?: string[]; scope?: 'config' | 'full' }): Promise<DeriveResultLike>
   /**
    * Confirms candidates through the topology service's (from, to) merge path, so
    * a confirmed pair can never produce a duplicate row. `register: true` on an
@@ -208,6 +208,10 @@ export interface DeriveCandidateLike {
 export interface DeriveResultLike {
   candidates: DeriveCandidateLike[]
   scannedAt: number
+  /** The scope actually used ('config' default; echoed for the UI badge). */
+  scope?: 'config' | 'full'
+  /** Candidates carrying config-kind vs code-only evidence. */
+  sources?: { config: number; code: number }
   scanned?: string[]
   skipped?: Array<{ serviceId: string; reason: string }>
 }
@@ -574,9 +578,12 @@ export function createApiRouter(deps: DashboardApiDeps): Router {
     // (host answers 404).
     router.get('api/topology/derive', async ({ query }) => {
       const group = query.get('group') ?? ''
+      // scope: 'config' (default) reads only configuration files; 'full' is the
+      // explicit deep scan that also walks source code for endpoint detail.
+      const scope = query.get('scope') === 'full' ? 'full' : 'config'
       const derive = topology.deriveDependencies
       if (typeof derive !== 'function') return { group, result: null, available: false }
-      return { group, result: await derive.call(topology, group), available: true }
+      return { group, result: await derive.call(topology, group, { scope }), available: true }
     })
 
     // Human confirmation of (a subset of) those candidates. The topology service

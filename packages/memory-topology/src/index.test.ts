@@ -9,7 +9,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { apply, type TopologyService } from './index.ts'
 import { emptyTopology, type ProjectTopology, type RestDependencyEdge } from './types.ts'
@@ -207,7 +207,7 @@ public class HomeworkCaller {
     await service.saveTopology(fixtureTopology())
     const before = readFileSync(fileFor('derive-svc-demo'), 'utf8')
 
-    const result = await service.deriveDependencies('derive-svc-demo')
+    const result = await service.deriveDependencies('derive-svc-demo', { scope: 'full' })
 
     expect(result.group).toBe('derive-svc-demo')
     expect(result.scannedAt).toBeGreaterThan(0)
@@ -415,7 +415,7 @@ dependencies:
     await service.saveTopology(fixture())
     const before = snapshot()
 
-    const result = await service.checkDeclarationDrift(GROUP, 'homework-server')
+    const result = await service.checkDeclarationDrift(GROUP, 'homework-server', 'full')
 
     expect(result.group).toBe(GROUP)
     expect(result.service).toBe('homework-server')
@@ -466,7 +466,7 @@ dependencies:
   - to: internal-homework
 `)
     await service.saveTopology(fixture())
-    const result = await service.checkDeclarationDrift(GROUP, 'homework-server')
+    const result = await service.checkDeclarationDrift(GROUP, 'homework-server', 'full')
 
     expect(result.status).toBe('ok')
     expect(result.hasDrift).toBe(false)
@@ -482,7 +482,7 @@ dependencies:
     await service.saveTopology(fixture())
     const before = snapshot()
 
-    const result = await service.checkDeclarationDrift(GROUP, 'homework-server')
+    const result = await service.checkDeclarationDrift(GROUP, 'homework-server', 'full')
 
     expect(result.status).toBe('no-declaration')
     expect(result.errors).toEqual([])
@@ -503,7 +503,7 @@ dependencies:
     await service.saveTopology(fixture())
     const before = snapshot()
 
-    const result = await service.checkDeclarationDrift(GROUP, 'homework-server')
+    const result = await service.checkDeclarationDrift(GROUP, 'homework-server', 'full')
 
     expect(result.status).toBe('invalid-declaration')
     expect(result.errors.join(' ')).toContain('service')
@@ -526,5 +526,107 @@ dependencies:
     await service.saveTopology(fixture())
     await expect(service.checkDeclarationDrift(GROUP, 'ghost')).rejects.toThrow(/service not found/)
     await expect(service.checkDeclarationDrift(GROUP, '  ')).resolves.toMatchObject({ service: 'homework-server' })
+  })
+})
+
+/**
+ * Config-first derivation: the service defaults to the config scope, and the
+ * drift wording must not claim more than that scope covered.
+ */
+describe('config-first defaults', () => {
+  const GROUP = 'config-scope-demo'
+  let repoRoot: string
+  let localService: TopologyService
+  let localDir: string
+
+  function localContext(): Context {
+    return {
+      provide: (name: string, value: unknown) => {
+        if (name === 'helmsman.topology') localService = value as TopologyService
+      },
+      get: () => undefined,
+      tools: { register: () => undefined },
+    } as unknown as Context
+  }
+
+  beforeAll(async () => {
+    localDir = mkdtempSync(join(tmpdir(), 'helmsman-config-scope-'))
+    repoRoot = join(localDir, 'repo')
+    const files: Record<string, string> = {
+      'src/main/resources/application.yml': `internal-homework:
+  base-url: http://internal-homework:8080
+`,
+      // A source file the config scope must NOT read: if it were read, the
+      // Feign client below would surface as a second candidate.
+      'src/main/java/com/example/client/InternalBcEsClient.java': `package com.example.client;
+
+@FeignClient(name = "internal-bc-es")
+public interface InternalBcEsClient {
+  @GetMapping("/es/list")
+  Result get();
+}
+`,
+    }
+    for (const [rel, content] of Object.entries(files)) {
+      const full = join(repoRoot, rel)
+      mkdirSync(dirname(full), { recursive: true })
+      writeFileSync(full, content)
+    }
+    const t = emptyTopology(GROUP)
+    t.services['homework-server'] = {
+      name: 'homework-server',
+      projectId: 'homework-server',
+      techStack: ['Java 17'],
+      apiEndpoints: [],
+      localPath: repoRoot,
+    }
+    t.services['internal-homework'] = {
+      name: 'internal-homework',
+      projectId: 'internal-homework',
+      techStack: [],
+      apiEndpoints: [],
+    }
+    vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    apply(localContext(), { rootDir: localDir })
+    await localService.saveTopology(t)
+  })
+
+  afterAll(() => {
+    rmSync(localDir, { recursive: true, force: true })
+    vi.restoreAllMocks()
+  })
+
+  it('deriveDependencies defaults to scope config and labels the result', async () => {
+    const result = await localService.deriveDependencies(GROUP)
+    expect(result.scope).toBe('config')
+    expect(result.sources.config).toBeGreaterThan(0)
+    // The config scope must NOT read source files: the Feign client above
+    // (internal-bc-es) must therefore never become a candidate.
+    expect(result.candidates.map((c) => c.to)).not.toContain('internal-bc-es')
+    for (const c of result.candidates) {
+      expect(c.evidence.some((e) => e.kind === 'config')).toBe(true)
+    }
+  })
+
+  it('an explicit full scope scans source files again', async () => {
+    const result = await localService.deriveDependencies(GROUP, { scope: 'full' })
+    expect(result.scope).toBe('full')
+    expect(result.candidates.map((c) => c.to)).toContain('internal-bc-es')
+  })
+
+  it('checkDeclarationDrift defaults to the config wording for stale entries', async () => {
+    const decl = join(repoRoot, '.helmsman', 'dependencies.yml')
+    mkdirSync(dirname(decl), { recursive: true })
+    writeFileSync(decl, `version: 1
+service: homework-server
+dependencies:
+  - to: internal-legacy   # not corroborated by the config
+`)
+    const result = await localService.checkDeclarationDrift(GROUP, 'homework-server')
+    expect(result.scope).toBe('config')
+    expect(result.staleDeclared).toHaveLength(1)
+    expect(result.staleDeclared[0]!.reason).toContain('配置扫描范围')
+    expect(result.staleDeclared[0]!.reason).not.toContain('未在代码中')
+    rmSync(decl, { force: true })
   })
 })

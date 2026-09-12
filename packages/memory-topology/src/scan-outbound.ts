@@ -75,6 +75,9 @@ export interface OutboundCall {
   evidence: OutboundEvidence
 }
 
+/** How much of a repository the scan reads. */
+export type OutboundScanScope = 'config' | 'full'
+
 export interface OutboundScanOptions extends ScanOptions {
   /** Hard cap on emitted clues (bounded output on huge trees). */
   maxClues?: number
@@ -82,12 +85,21 @@ export interface OutboundScanOptions extends ScanOptions {
   maxConfigFiles?: number
   /** Config files above this size are ignored (they are not configuration). */
   maxConfigFileBytes?: number
+  /**
+   * `'config'` reads ONLY configuration files (name-tier clues — the config is
+   * the source of truth for who calls whom); `'full'` additionally walks source
+   * files for call sites and endpoint detail. The scanner-level default stays
+   * `'full'` (backwards compatible); the derivation layer defaults to
+   * `'config'` — see `derive-dependencies.ts`.
+   */
+  scope?: OutboundScanScope
 }
 
 const EXTRA_DEFAULTS = {
   maxClues: 2000,
   maxConfigFiles: 200,
   maxConfigFileBytes: 64 * 1024,
+  scope: 'full' as OutboundScanScope,
 }
 
 const SOURCE_EXTS = new Set(['.java', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.mts', '.cjs'])
@@ -236,6 +248,9 @@ async function walk(dir: string, root: string, depth: number, skip: Set<string>,
     const isSource = SOURCE_EXTS.has(ext)
     const isConfig = CONFIG_EXTS.has(ext) || isDotEnv(entry.name)
     if (!isSource && !isConfig) continue
+    // Config scope: configuration IS the source of truth for name-tier clues,
+    // so source files are not even counted against the budget — never read.
+    if (acc.extra.scope === 'config' && !isConfig) continue
     acc.filesSeen += 1
     if (acc.filesSeen > acc.limits.maxFiles) {
       acc.truncated = true

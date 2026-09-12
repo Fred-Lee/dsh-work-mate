@@ -14,6 +14,7 @@ import {
   STALE_ACTION,
   STALE_CAVEAT,
   STALE_REASON,
+  STALE_REASON_CONFIG,
   checkDeclarationDrift,
   type DeclarationDriftResult,
 } from './declaration-drift.ts'
@@ -57,6 +58,7 @@ function run(opts: {
   status?: 'ok' | 'missing' | 'invalid'
   errors?: string[]
   registered?: string[]
+  scope?: 'config' | 'full'
 }): DeclarationDriftResult {
   return checkDeclarationDrift({
     service: SERVICE,
@@ -71,6 +73,7 @@ function run(opts: {
     scanned: [SERVICE],
     skipped: [],
     scannedAt: 1_700_000_000_000,
+    scope: opts.scope,
   })
 }
 
@@ -94,7 +97,7 @@ describe('checkDeclarationDrift — the three groups', () => {
   })
 
   it('a declared pair with no code evidence is staleDeclared, carrying the caveat and NO "does not exist" wording', () => {
-    const result = run({ edges: [declared('internal-homework'), declared('internal-legacy')], candidates: [candidate('internal-homework', 'high')] })
+    const result = run({ scope: 'full', edges: [declared('internal-homework'), declared('internal-legacy')], candidates: [candidate('internal-homework', 'high')] })
 
     expect(result.staleDeclared).toHaveLength(1)
     const stale = result.staleDeclared[0]!
@@ -292,5 +295,32 @@ describe('checkDeclarationDrift — honest non-results', () => {
     expect(result.status).toBe('ok')
     expect(result.counts).toMatchObject({ declared: 0, undeclared: 1, drift: 1 })
     expect(result.message).toContain('未声明 1 对')
+  })
+})
+
+/**
+ * The drift wording must not claim more than the scan covered: under the
+ * config scope the scan never looked at source files, so "未在代码中找到证据"
+ * would overstate the conclusion (config-first derivation change).
+ */
+describe('scope-aware stale wording', () => {
+  const edges = [declared('internal-legacy')]
+
+  it('config scope says 配置扫描范围, not 代码', () => {
+    const result = run({ edges, scope: 'config' })
+    expect(result.staleDeclared).toHaveLength(1)
+    expect(result.staleDeclared[0]!.reason).toBe(STALE_REASON_CONFIG)
+    expect(result.staleDeclared[0]!.reason).toContain('配置扫描范围')
+    expect(result.staleDeclared[0]!.reason).not.toContain('未在代码中')
+  })
+
+  it('full scope keeps the original 代码 wording', () => {
+    const result = run({ edges, scope: 'full' })
+    expect(result.staleDeclared[0]!.reason).toBe(STALE_REASON)
+  })
+
+  it('defaults to the config wording', () => {
+    const result = run({ edges })
+    expect(result.staleDeclared[0]!.reason).toBe(STALE_REASON_CONFIG)
   })
 })

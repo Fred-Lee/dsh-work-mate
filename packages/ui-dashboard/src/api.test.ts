@@ -332,7 +332,7 @@ describe('dashboard API router', () => {
     const handled = await router.handle(fakeReq('GET'), res, `/api/topology/derive?group=${encodeURIComponent('作业服务群')}`)
     expect(handled).toBe(true)
     expect(status()).toBe(200)
-    expect(deriveDependencies).toHaveBeenCalledWith('作业服务群')
+    expect(deriveDependencies).toHaveBeenCalledWith('作业服务群', { scope: 'config' })
     expect(JSON.parse(body())).toEqual({ group: '作业服务群', result, available: true })
   })
 

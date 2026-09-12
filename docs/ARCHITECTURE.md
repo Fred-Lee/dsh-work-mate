@@ -216,6 +216,11 @@ orchestrator.runParallelTask()                    │ helmsman/task-updated 事�
   - **纯静态、离线**：只读本地服务树与已存拓扑，不探活、不抓流量、不连服务发现；
     名称/路径匹配本质是启发式，所以结果只经**只读**入口 `topology.deriveDependencies(group)`
     返回（带 `scannedAt`），**绝不写库**；
+  - **scope 分层（config 优先）**：`'config'`（默认）只读配置文件——配置是「谁调谁」的事实源，
+    名称档候选几乎不会错，且快；`'full'`（显式深扫）额外遍历源码，换取路径档候选与端点明细。
+    推导结果回显 `scope` 与 `sources`（config/code 证据计数），漂移核对的陈旧措辞随范围如实降级
+    （快扫写「未在配置扫描范围内找到证据」）。扫描器模块级默认保持 `'full'`（向后兼容），
+    产品层的默认收敛在推导入口；
   - **只提议**：落库是独立的人工动作 `applyCandidates`，它复用与 `saveTopology`/导入
     **完全相同的持久化闸口**（`normalizeTopology` → `mergeDependencyEdge` → `dedupeDependencies`
     → `store.save`），所以「一对服务只有一条边」对第 4 条写入路径同样成立，

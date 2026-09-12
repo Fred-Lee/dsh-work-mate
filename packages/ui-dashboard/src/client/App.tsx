@@ -1423,11 +1423,11 @@ export function ConfigPanel(props: {  groups: string[]
     setIgnoredCandidates((prev) => prev.filter((id) => !ids.has(id)))
   }
 
-  const runDerive = async (): Promise<void> => {
+  const runDerive = async (scope: 'config' | 'full' = 'config'): Promise<void> => {
     if (!group) return
     setDeriving(true)
     try {
-      const res = await api.topologyDerive(group)
+      const res = await api.topologyDerive(group, scope)
       setDeriveAvailable(res.available)
       if (!res.available || !res.result) {
         setDerive(null)
@@ -1438,6 +1438,7 @@ export function ConfigPanel(props: {  groups: string[]
       setIgnoredCandidates([])
       // 默认勾选非成环候选；成环项需人工显式勾选。
       setSelectedCandidates(res.result.candidates.filter((c) => !c.wouldCreateCycle).map(candidateId))
+      onToast('success', scope === 'config' ? `快扫完成（仅配置文件）：${res.result.candidates.length} 条候选` : `深扫完成（含代码）：${res.result.candidates.length} 条候选`)
     } catch (err) {
       onToast('error', err instanceof Error ? err.message : String(err))
     } finally {
@@ -1740,8 +1741,16 @@ export function ConfigPanel(props: {  groups: string[]
                 <button className="btn btn-sm" disabled={checkingDrift || !group || !driftServiceId} onClick={() => void runDrift()}>
                   {checkingDrift ? '⏳ 核对中...' : '🔎 漂移核对'}
                 </button>
-                <button className="btn btn-sm" disabled={deriving || !group} onClick={() => void runDerive()}>
-                  {deriving ? '⏳ 扫描中...' : '🔍 推导候选'}
+                <button className="btn btn-sm" disabled={deriving || !group} onClick={() => void runDerive('config')}>
+                  {deriving ? '⏳ 扫描中...' : '🔍 推导候选（快扫）'}
+                </button>
+                <button
+                  className="btn btn-sm"
+                  disabled={deriving || !group}
+                  title="深度扫描：额外遍历源码文件（@FeignClient/axios 等），更慢，但可产出端点明细"
+                  onClick={() => void runDerive('full')}
+                >
+                  {deriving ? '⏳ 扫描中...' : '🔬 深度扫描（含代码）'}
                 </button>
                 <button className="btn btn-sm" disabled={!group || Object.keys(topology.services).length === 0} onClick={() => setDeclarationFetch(true)}>📥 从仓库抓取依赖</button>
                 <button className="btn btn-sm" disabled={!group || Object.keys(topology.services).length === 0} onClick={() => setDeclarationWriteBack(true)}>💾 写回声明文件</button>
