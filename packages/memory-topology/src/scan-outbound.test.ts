@@ -369,3 +369,46 @@ public interface BlankPathClient {
     expect(blank).toBeUndefined()
   })
 })
+
+/**
+ * Regression (caught by the live config-vs-full smoke): real configs route
+ * Feign clients through gateways — `feign-client-config.internal-base.url:
+ * https://gw.example.com/12091/...` — whose HOST is not the service name. The
+ * "url key must hold an address" guard dropped every such entry, so the config
+ * scope found nothing. The key segment rescues the clue, but only for non-IP
+ * hosts: `db.url=http://127.0.0.1...` and `xkw-config.mss.url=http://10.1.21.159...`
+ * are machine addresses, and rescuing those made 'db'/'mss' candidates appear.
+ */
+describe('gateway-URL config keys (key segment rescue)', () => {
+  let root: string
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), 'helmsman-outbound-gw-'))
+    write(root, 'src/main/resources/application-dev.yml', `project:
+  feign-client-config:
+    internal-base:
+      name: internal-base
+      url: https://gw.example.com/12091/16021/internal-api-v4/base
+db:
+  url: http://127.0.0.1:5432/app
+xkw-config:
+  mss:
+    url: http://10.1.21.159:9096
+`)
+  })
+
+  afterAll(() => rmSync(root, { recursive: true, force: true }))
+
+  it('derives the target from the key when the value host is a gateway domain', async () => {
+    const clues = await scanOutboundCalls(root, { scope: 'config' })
+    const base = clues.find((c) => c.target === 'internal-base')
+    expect(base).toBeDefined()
+    expect(base!.configKey).toBe('project.feign-client-config.internal-base.url')
+  })
+
+  it('does NOT rescue IP-hosted url keys (machine addresses, not services)', async () => {
+    const clues = await scanOutboundCalls(root, { scope: 'config' })
+    expect(clues.some((c) => c.target === 'db')).toBe(false)
+    expect(clues.some((c) => c.target === 'mss')).toBe(false)
+  })
+})

@@ -647,14 +647,29 @@ function flattenYaml(value: YamlValue, prefix = ''): Array<[string, string]> {
 }
 
 /** A `*.url` / `*.host` config entry (or any k8s-DNS value) → name clue. */
+/** True when the URL's host is an IP literal — a machine address, not a service name. */
+function ipHostOf(value: string): boolean {
+  const m = value.match(/^https?:\/\/([^/:?#]+)/i)
+  if (!m) return false
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(m[1]!) || m[1]!.includes(':')
+}
+
 function configClue(entry: ConfigEntry): OutboundCall | null {
   const isUrlKey = KEY_URL_TAIL.test(entry.key)
   const isHostKey = KEY_HOST_TAIL.test(entry.key)
   const dns = k8sDnsTarget(entry.value)
   const valueTarget = dns ?? hostTarget(entry.value)
   if (!isUrlKey && !isHostKey && !dns) return null
-  // A `*.url`/`*.host` key must actually hold an address to be a clue at all.
-  if ((isUrlKey || isHostKey) && !valueTarget) return null
+  // A `*.url`/`*.host` key must actually hold an address to be a clue at all —
+  // EXCEPT when the key itself names the service and the value is an HTTP(S)
+  // URL. Real configs route through gateways (`feign-client-config.internal-base.url:
+  // https://gw.example.com/12091/...`), whose host is not the service name;
+  // the address test would drop every such entry and config-first scanning
+  // would find nothing. The key segment (segment before the property) is the
+  // declaration in that case; non-HTTP values (jdbc:, plain IPs, hostnames)
+  // are still rejected.
+  const looksHttp = /^https?:\/\//i.test(entry.value) && !ipHostOf(entry.value)
+  if ((isUrlKey || isHostKey) && !valueTarget && !looksHttp) return null
 
   const keySegment = serviceSegmentBeforeProperty(entry.key)
   if (!valueTarget && !keySegment) return null

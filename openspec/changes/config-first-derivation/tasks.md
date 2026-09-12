@@ -21,4 +21,5 @@
 - [x] 4.1 `docs/USAGE.md`:两种范围的对照表(读什么/产出什么/为什么默认快扫)、「不消耗 token」的说明、漂移措辞随范围变化
 - [x] 4.2 `docs/ARCHITECTURE.md`:scope 分层决策(模块级默认 full、产品层默认 config 的理由)
 - [x] 4.3 全仓 `pnpm typecheck && pnpm test` 通过(576 测试)
-- [ ] 4.4 真机冒烟(父对话):真实项目群 config vs full 对比(候选数/明细/耗时)
+- [x] 4.4 真机冒烟(父对话):真实项目群 config vs full 对比——config 0.10s/12 条(纯配置证据),full 0.18s/15 条(补 3 条仅代码可得的);差异即文档所述取舍;冒烟另暴露 configClue 网关 URL 缺陷,已修(见 4.5)
+- [x] 4.5 真机冒烟暴露的缺陷修复（父对话）：`configClue` 的"url 键必须可识别地址"守卫把网关形式的配置（`feign-client-config.<svc>.url: https://gw.example.com/...`，主机非服务名）全部丢弃 → config 快扫 0 候选。修：值为 http(s) 且主机**非 IP 字面量**时，按键段（属性前一段）导出目标；IP 主机（`db.url=http://127.0.0.1`、`mss.url=http://10.1.21.159`）不救——那是机器地址不是服务名。补 2 个回归测试（网关救回 + IP 不救），176 测试通过
