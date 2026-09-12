@@ -452,3 +452,187 @@ function checkboxOf(row: HTMLElement): HTMLInputElement {
   if (!input) throw new Error('candidate row has no checkbox')
   return input
 }
+
+// ---------------------------------------------------------------------------
+// declare-dependencies-in-repo：📥 从仓库抓取依赖（复用导入预览对话框）与
+// 💾 写回声明文件（只含 declared 边 + 目标路径 + 提示）。
+// ---------------------------------------------------------------------------
+
+/** 抓取结果：声明 user-service → order-service（已登记）+ internal-qp（未登记）。 */
+const declarationPreview = {
+  source: 'helmsman-declaration',
+  services: [
+    { name: 'user-service', selected: true, endpoints: [] },
+    { name: 'internal-qp', selected: true, endpoints: [] },
+  ],
+  dependencies: [
+    { from: 'user-service', to: 'order-service', method: '*', endpoints: [] },
+    { from: 'user-service', to: 'internal-qp', method: 'GET', endpoints: ['/qp/list'] },
+  ],
+  warnings: [],
+  declaration: { service: 'user-service', file: '/tmp/user-service/.helmsman/dependencies.yml' },
+  undeclaredTargets: ['internal-qp'],
+}
+
+const declaredTopology: TopologyPayload = {
+  ...twoServices,
+  restDependencies: {
+    'user-service': [
+      { toServiceId: 'order-service', endpoints: [], method: '*' },
+      { toServiceId: 'internal-qp', endpoints: ['/qp/list'], method: 'GET' },
+    ],
+  },
+}
+
+let declarationFixture: Record<string, unknown> = {
+  group: 'demo',
+  service: 'user-service',
+  file: '/tmp/user-service/.helmsman/dependencies.yml',
+  status: 'ok',
+  preview: declarationPreview,
+  errors: [],
+  warnings: [],
+  undeclaredTargets: ['internal-qp'],
+  available: true,
+}
+let importApplyBodies: Array<{ group: string; preview: Record<string, unknown> }> = []
+
+describe('ConfigPanel 仓库依赖声明（抓取 + 写回）', () => {
+  beforeEach(() => {
+    topologyFixture = twoServices
+    declarationFixture = {
+      group: 'demo',
+      service: 'user-service',
+      file: '/tmp/user-service/.helmsman/dependencies.yml',
+      status: 'ok',
+      preview: declarationPreview,
+      errors: [],
+      warnings: [],
+      undeclaredTargets: ['internal-qp'],
+      available: true,
+    }
+    importApplyBodies = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/api/topology?')) return jsonResponse({ group: 'demo', topology: topologyFixture })
+      if (url.includes('/api/topology/health')) return jsonResponse({ group: 'demo', health: cleanHealth, available: true })
+      if (url.includes('/api/topology/declaration/render')) {
+        return jsonResponse({
+          group: 'demo',
+          service: 'user-service',
+          file: '/tmp/user-service/.helmsman/dependencies.yml',
+          content: 'version: 1\nservice: user-service\ndependencies:\n  - to: order-service\n',
+          declared: 1,
+          derived: 1,
+          hint: '建议把内容写入 .helmsman/dependencies.yml 并随代码提交（Helmsman 不执行任何 git 操作）。',
+          available: true,
+        })
+      }
+      if (url.includes('/api/topology/declaration')) return jsonResponse(declarationFixture)
+      if (url.includes('/api/topology/import-apply')) {
+        importApplyBodies.push(JSON.parse(String(init?.body ?? '{}')) as { group: string; preview: Record<string, unknown> })
+        return jsonResponse({ topology: declaredTopology })
+      }
+      return jsonResponse({ ok: true })
+    }))
+  })
+
+  async function openDeclarationFetch(): Promise<ReturnType<typeof render>> {
+    const view = renderPanel(['demo'])
+    await act(async () => {})
+    fireEvent.click(view.getByRole('button', { name: '📥 从仓库抓取依赖' }))
+    await act(async () => {})
+    return view
+  }
+
+  it('抓取入口复用预览对话框核对，未登记目标可勾选登记，应用走 importApply', async () => {
+    const view = await openDeclarationFetch()
+    // 与「导入」共用同一个预览对话框，但默认在声明源上
+    const dialog = view.getByRole('dialog', { name: '导入架构' })
+    expect(within(dialog).getByText(/仓库内声明/)).toBeTruthy()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '📥 抓取仓库声明' }))
+    await act(async () => {})
+
+    // 预览：本服务 + 未登记目标（标记 + 可勾选登记）
+    expect(dialog.textContent).toContain('user-service')
+    expect(dialog.textContent).toContain('目标未登记（勾选即登记）')
+    expect(dialog.textContent).toContain('user-service→order-service, user-service→internal-qp')
+    expect(dialog.textContent).toContain('声明服务 user-service')
+    expect(dialog.textContent).toContain('/tmp/user-service/.helmsman/dependencies.yml')
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '✅ 应用声明' }))
+    await act(async () => {})
+
+    expect(importApplyBodies).toHaveLength(1)
+    expect(importApplyBodies[0]!.group).toBe('demo')
+    expect(importApplyBodies[0]!.preview).toMatchObject({ source: 'helmsman-declaration', declaration: { service: 'user-service' } })
+    expect(toast).toHaveBeenCalledWith('success', expect.stringContaining('已按仓库声明对齐依赖'))
+    // 依赖行由服务端返回的拓扑驱动（一对服务一行）
+    expect([...view.container.querySelectorAll('.dep-line .dep-label')].map((el) => el.textContent)).toEqual([
+      'user-service ──▶ order-service',
+      'user-service ──GET /qp/list──▶ internal-qp',
+    ])
+  })
+
+  it('仓库没有声明文件时给出「未声明依赖」的友好提示（非错误、不产出依赖）', async () => {
+    declarationFixture = { group: 'demo', service: 'user-service', file: '/tmp/user-service/.helmsman/dependencies.yml', status: 'missing', preview: null, errors: [], warnings: [], undeclaredTargets: [], available: true }
+    const view = await openDeclarationFetch()
+    const dialog = view.getByRole('dialog', { name: '导入架构' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '📥 抓取仓库声明' }))
+    await act(async () => {})
+
+    expect(dialog.textContent).toContain('该项目未声明依赖')
+    expect((within(dialog).getByRole('button', { name: '✅ 应用声明' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(toast).not.toHaveBeenCalledWith('error', expect.anything())
+  })
+
+  it('声明文件解析失败时列出问题且无法应用（不做部分应用）', async () => {
+    declarationFixture = {
+      group: 'demo',
+      service: 'user-service',
+      file: '/tmp/user-service/.helmsman/dependencies.yml',
+      status: 'invalid',
+      preview: null,
+      errors: ['dependencies[1] 缺少必填字段 to（被调用的服务 id）'],
+      warnings: [],
+      undeclaredTargets: [],
+      available: true,
+    }
+    const view = await openDeclarationFetch()
+    const dialog = view.getByRole('dialog', { name: '导入架构' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '📥 抓取仓库声明' }))
+    await act(async () => {})
+
+    expect(dialog.textContent).toContain('声明文件解析失败，未应用任何依赖')
+    expect(dialog.textContent).toContain('缺少必填字段 to')
+    expect((within(dialog).getByRole('button', { name: '✅ 应用声明' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('旧版本拓扑服务不支持抓取时给出提示而不是报错', async () => {
+    declarationFixture = { group: 'demo', service: 'user-service', file: null, status: 'unavailable', preview: null, errors: [], warnings: [], undeclaredTargets: [], available: false }
+    const view = await openDeclarationFetch()
+    const dialog = view.getByRole('dialog', { name: '导入架构' })
+    fireEvent.click(within(dialog).getByRole('button', { name: '📥 抓取仓库声明' }))
+    await act(async () => {})
+    expect(dialog.textContent).toContain('当前拓扑服务版本不支持仓库声明抓取')
+  })
+
+  it('写回入口展示内容与目标路径、提示提交仓库，且不含推导边', async () => {
+    const view = renderPanel(['demo'])
+    await act(async () => {})
+    fireEvent.click(view.getByRole('button', { name: '💾 写回声明文件' }))
+    await act(async () => {})
+
+    const dialog = view.getByRole('dialog', { name: '写回声明文件' })
+    expect(dialog.textContent).toContain('/tmp/user-service/.helmsman/dependencies.yml')
+    expect(dialog.textContent).toContain('建议把内容写入')
+    expect(dialog.textContent).toContain('不执行任何 git 操作')
+    // 只写 declared 边；另有 derived 边时明确说明不会写入
+    expect(dialog.textContent).toContain('本次写入 1 条')
+    expect(dialog.textContent).toContain('另有 1 条 derived 边')
+    const content = (dialog.querySelector('textarea[aria-label="声明文件内容"]') as HTMLTextAreaElement).value
+    expect(content).toContain('- to: order-service')
+    expect(content).not.toContain('derived')
+  })
+})

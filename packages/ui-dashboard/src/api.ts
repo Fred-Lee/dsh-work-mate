@@ -30,7 +30,7 @@ export interface TopologyServiceLike {
   deleteGroup(group: string): Promise<boolean>
   createGroup(group: string, name?: string): Promise<ProjectTopology>
   scanRestApis(localPath: string): Promise<Array<{ method: string; path: string; handler?: string; description?: string }>>
-  importPreview(source: 'docker-compose' | 'kubernetes' | 'openapi', text: string, inferDeps?: boolean): Promise<unknown>
+  importPreview(source: 'docker-compose' | 'kubernetes' | 'openapi' | 'helmsman-declaration', text: string, inferDeps?: boolean): Promise<unknown>
   importApply(group: string, preview: unknown): Promise<ProjectTopology>
   exportYaml(group: string): Promise<string>
   /**
@@ -53,6 +53,49 @@ export interface TopologyServiceLike {
    * undeclared target registers the service in the same action (「登记并确认」).
    */
   applyCandidates?(group: string, candidates: ApplyCandidateInputLike[]): Promise<ApplyCandidatesResultLike>
+  /**
+   * Read-only ingest of a repository's own declaration
+   * (`declare-dependencies-in-repo`, `.helmsman/dependencies.yml`). Optional for
+   * the same reason as `checkHealth`: an older installed memory-topology yields
+   * `available: false` (status `'unavailable'`) instead of an error.
+   */
+  declarationPreview?(group: string, service?: string): Promise<DeclarationPreviewLike>
+  /**
+   * Renders what a service's declaration file WOULD say — `declared` edges only,
+   * with its target path and a commit hint. Writes nothing, runs no git command.
+   */
+  declarationRender?(group: string, service: string): Promise<DeclarationRenderLike>
+}
+
+/**
+ * Structural mirror of memory-topology's declaration ingest result. The dashboard
+ * consumes the shape and declares its own copy so the two plugins stay
+ * independently installable (same rationale as `GraphHealthLike`).
+ */
+export interface DeclarationPreviewLike {
+  group: string
+  service: string
+  file: string | null
+  /**
+   * `'unavailable'` is dashboard-side only: the installed topology service has no
+   * declaration support (mirrors `available: false`).
+   */
+  status: 'ok' | 'missing' | 'invalid' | 'no-repo-path' | 'unavailable'
+  /** Existing ImportPreview shape; null unless `status === 'ok'`. */
+  preview: unknown | null
+  errors: string[]
+  warnings: string[]
+  undeclaredTargets: string[]
+}
+
+export interface DeclarationRenderLike {
+  group: string
+  service: string
+  file: string | null
+  content: string
+  declared: number
+  derived: number
+  hint: string
 }
 
 /**
@@ -504,7 +547,7 @@ export function createApiRouter(deps: DashboardApiDeps): Router {
     router.post('api/topology/import-preview', async ({ req }) => {
       const body = await readJsonBody(req)
       return await topology.importPreview(
-        body.source as 'docker-compose' | 'kubernetes' | 'openapi',
+        body.source as 'docker-compose' | 'kubernetes' | 'openapi' | 'helmsman-declaration',
         String(body.text ?? ''),
         body.inferDeps !== false,
       )
@@ -515,6 +558,49 @@ export function createApiRouter(deps: DashboardApiDeps): Router {
       const group = String(body.group ?? '')
       const topologyAfter = await topology.importApply(group, body.preview)
       return { topology: topologyAfter }
+    })
+
+    // ---------------------------------------------------------------------
+    // Repository declaration (declare-dependencies-in-repo): 「📥 从仓库抓取
+    // 依赖」 reads `<repo>/.helmsman/dependencies.yml` and hands the result to the
+    // EXISTING preview/apply dialog, and 「💾 写回声明文件」 drafts the file for the
+    // human to commit. Both are read-only here — no git operation is performed.
+    // Same degradation contract as the health/derive routes: an older installed
+    // service → `available: false`; no plugin → the route is not mounted (404).
+    // ---------------------------------------------------------------------
+
+    router.get('api/topology/declaration', async ({ query }) => {
+      const group = query.get('group') ?? ''
+      const service = query.get('service') ?? ''
+      if (!group) throw new Error('group is required')
+      const read = topology.declarationPreview
+      if (typeof read !== 'function') {
+        return {
+          group,
+          service,
+          file: null,
+          status: 'unavailable',
+          preview: null,
+          errors: [],
+          warnings: [],
+          undeclaredTargets: [],
+          available: false,
+        }
+      }
+      const result = await read.call(topology, group, service || undefined)
+      return { ...result, available: true }
+    })
+
+    router.get('api/topology/declaration/render', async ({ query }) => {
+      const group = query.get('group') ?? ''
+      const service = query.get('service') ?? ''
+      if (!group) throw new Error('group is required')
+      if (!service) throw new Error('service is required')
+      const render = topology.declarationRender
+      if (typeof render !== 'function') {
+        return { group, service, file: null, content: '', declared: 0, derived: 0, hint: '', available: false }
+      }
+      return { ...(await render.call(topology, group, service)), available: true }
     })
 
     // Topology YAML export is delivered as a registered artifact so the file

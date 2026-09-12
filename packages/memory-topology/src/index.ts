@@ -21,9 +21,25 @@ import { checkGraph, type GraphHealth } from './graph-health.ts'
 import { deriveDependencies as deriveFromTopology, type DeriveOptions, type DeriveResult } from './derive-dependencies.ts'
 import { scanMavenPom } from './scan-maven.ts'
 import { scanRestApis } from './scan-rest.ts'
-import { makeImportedTopology, previewCompose, previewKubernetes, previewOpenApi, applyPreview, type ImportPreview } from './import.ts'
+import {
+  DECLARATION_RELATIVE_PATH,
+  declarationPathFor,
+  parseDeclaration,
+  readDeclaration,
+  renderDeclaration,
+} from './declaration.ts'
+import {
+  applyDeclaration,
+  applyPreview,
+  makeImportedTopology,
+  previewCompose,
+  previewDeclaration,
+  previewKubernetes,
+  previewOpenApi,
+  type ImportPreview,
+} from './import.ts'
 import { toYaml } from './yaml.ts'
-import { dedupeDependencies, emptyTopology, mergeDependencyEdge, normalizeTopology, SERVICE_LEVEL_METHOD, type ApiEndpoint, type DownstreamReport, type ProjectTopology, type RestDependencyEdge, type ServiceNode } from './types.ts'
+import { dedupeDependencies, edgeSource, emptyTopology, mergeDependencyEdge, normalizeTopology, SERVICE_LEVEL_METHOD, type ApiEndpoint, type DownstreamReport, type ProjectTopology, type RestDependencyEdge, type ServiceNode } from './types.ts'
 
 export const name = '@helmsman/memory-topology'
 export const inject = ['tools'] as const
@@ -32,6 +48,7 @@ export type {
   ApiEndpoint,
   DownstreamEdge,
   DownstreamReport,
+  EdgeSource,
   MavenParentNode,
   ProjectNode,
   ProjectTopology,
@@ -40,13 +57,28 @@ export type {
   ServiceNode,
 } from './types.ts'
 export { emptyTopology, normalizeTopology } from './types.ts'
-export { dedupeDependencies, isServiceLevelEdge, mergeDependencyEdge, SERVICE_LEVEL_METHOD } from './types.ts'
+export { dedupeDependencies, edgeSource, isEdgeSource, isServiceLevelEdge, mergeDependencyEdge, SERVICE_LEVEL_METHOD } from './types.ts'
 export { checkGraph } from './graph-health.ts'
 export type { GraphHealth } from './graph-health.ts'
 export { deriveDependencies, matchEndpoint, candidateToEdge, wouldCreateCycle } from './derive-dependencies.ts'
 export type { Candidate, CandidateEvidence, ConfidenceTier, DependencyCandidate, DeriveOptions, DeriveResult } from './derive-dependencies.ts'
 export { scanOutboundCalls } from './scan-outbound.ts'
 export type { OutboundCall, OutboundEvidence, OutboundEvidenceKind, OutboundScanOptions } from './scan-outbound.ts'
+export {
+  DECLARATION_DIR,
+  DECLARATION_FILE,
+  DECLARATION_IMPORT_SOURCE,
+  DECLARATION_RELATIVE_PATH,
+  DECLARATION_VERSION,
+  declarationPathFor,
+  normalizeDeclarationEdge,
+  parseDeclaration,
+  readDeclaration,
+  renderDeclaration,
+} from './declaration.ts'
+export type { DeclarationParseFailure, DeclarationParseResult, DeclarationParseSuccess, DeclarationReadResult } from './declaration.ts'
+export { applyDeclaration, previewDeclaration, reconcileDeclaredEdges } from './import.ts'
+export type { DeclarationPreviewOptions } from './import.ts'
 
 export interface Config {
   /** Directory that holds <group>.json topology files. @default ~/.helmsman/topologies */
@@ -88,6 +120,54 @@ export interface TopologyService {
   exportYaml(group: string): Promise<string>
   importPreview(source: ImportPreview['source'], text: string, inferDeps?: boolean): Promise<ImportPreview>
   importApply(group: string, preview: ImportPreview): Promise<ProjectTopology>
+  /**
+   * Ingests a repository's own declaration (`declare-dependencies-in-repo`,
+   * `<repo>/.helmsman/dependencies.yml`) for ONE service. READ-ONLY: it reads the
+   * file and returns it in the existing `ImportPreview` shape so the human
+   * verifies it in the existing preview/apply UI; nothing is persisted here.
+   *
+   * `status: 'missing'` means the repo has no declaration — the explicit
+   * 「未声明依赖」 result, NOT an error. `status: 'invalid'` carries the concrete
+   * problems and a null preview (never a partial application).
+   */
+  declarationPreview(group: string, service?: string): Promise<DeclarationPreviewResult>
+  /**
+   * Renders what a service's declaration file WOULD say (declared edges only —
+   * derived edges are never frozen into a repository) plus its target path and a
+   * "commit this to the repo" hint. Performs NO git operation and writes nothing.
+   */
+  declarationRender(group: string, service: string): Promise<DeclarationRenderResult>
+}
+
+/** Result of `declarationPreview` (see `readDeclaration` for the status semantics). */
+export interface DeclarationPreviewResult {
+  group: string
+  /** Service the ingest was requested for (the group may not declare it yet). */
+  service: string
+  /** Absolute declaration path, or null when the service has no localPath. */
+  file: string | null
+  status: 'ok' | 'missing' | 'invalid' | 'no-repo-path'
+  /** Existing `ImportPreview` shape; null unless `status === 'ok'`. */
+  preview: ImportPreview | null
+  errors: string[]
+  warnings: string[]
+  /** Targets the file references that are not registered in the group (design D5). */
+  undeclaredTargets: string[]
+}
+
+/** Result of `declarationRender` (write-back draft; no file is written). */
+export interface DeclarationRenderResult {
+  group: string
+  service: string
+  /** `<localPath>/.helmsman/dependencies.yml`, or null without a localPath. */
+  file: string | null
+  /** The rendered YAML (round-trips through `parseDeclaration`). */
+  content: string
+  /** Number of `declared` edges rendered. */
+  declared: number
+  /** `derived` edges deliberately left out of the file. */
+  derived: number
+  hint: string
 }
 
 /** One candidate as confirmed by a human (see `deriveDependencies`). */
@@ -249,12 +329,37 @@ export function apply(ctx: Context, config: Config = {}) {
           return previewKubernetes(text)
         case 'openapi':
           return previewOpenApi(text)
+        case 'helmsman-declaration': {
+          // Text-only path (no group context): the file names its own service, and
+          // declared-ness of its targets cannot be judged here — no undeclared
+          // claim is made. The route-level flow (`declarationPreview`) knows the
+          // group and marks them. An unparseable file yields a preview with the
+          // problems and NO dependencies (never a partial application).
+          const parsed = parseDeclaration(text)
+          if (!parsed.ok) {
+            return {
+              source: 'helmsman-declaration',
+              services: [],
+              dependencies: [],
+              warnings: parsed.errors,
+            } satisfies ImportPreview
+          }
+          return previewDeclaration(parsed.service, parsed.edges, { warnings: parsed.warnings })
+        }
       }
     },
 
     async importApply(group, preview) {
       const existing = await store.load(group)
       const topology = existing ?? emptyTopology(group, group)
+      if (preview?.source === 'helmsman-declaration') {
+        // Design D4: declared edges follow the file (added/removed), derived edges
+        // are left untouched — then the SAME dedupe/persist path as every import.
+        const reconciled = applyDeclaration(topology, preview)
+        const deduped = dedupeDependencies(reconciled)
+        await store.save(deduped)
+        return deduped
+      }
       applyPreview(topology, preview)
       // Same invariant as saveTopology: an import that lands on legacy duplicate
       // pairs cleans them up too, and the returned topology matches what is on
@@ -263,12 +368,106 @@ export function apply(ctx: Context, config: Config = {}) {
       await store.save(deduped)
       return deduped
     },
+
+    async declarationPreview(group, service) {
+      const topology = await store.load(group)
+      if (!topology) throw new Error(`unknown project group: ${group}`)
+      const serviceId = String(service ?? '').trim() || firstServiceWithRepoPath(topology)
+      if (!serviceId) throw new Error('该项目群还没有任何服务，无法读取仓库声明')
+      const node = topology.services[serviceId]
+      if (!node) throw new Error(`service not found in group: ${serviceId}`)
+      const localPath = typeof node.localPath === 'string' ? node.localPath.trim() : ''
+      if (!localPath) {
+        return {
+          group,
+          service: serviceId,
+          file: null,
+          status: 'no-repo-path',
+          preview: null,
+          errors: [`服务 ${serviceId} 未配置本地路径（localPath），无法读取仓库声明`],
+          warnings: [],
+          undeclaredTargets: [],
+        }
+      }
+
+      const read = await readDeclaration(localPath)
+      if (read.status !== 'ok' || !read.service) {
+        // Missing file is the explicit "not declared" result; a corrupt file
+        // reports its problems and yields NO preview (nothing can be applied).
+        return {
+          group,
+          service: serviceId,
+          file: read.file,
+          status: read.status === 'ok' ? 'invalid' : read.status,
+          preview: null,
+          errors: read.errors,
+          warnings: read.warnings,
+          undeclaredTargets: [],
+        }
+      }
+
+      const warnings = [...read.warnings]
+      // The file names its own service (design D1: `service` is the `from` of every
+      // edge). A mismatch with the picked service is reported, and the file wins —
+      // otherwise edges would land on a service the repo never declared.
+      if (read.service !== serviceId) {
+        warnings.push(`声明文件里的 service 是 ${read.service}，与所选服务 ${serviceId} 不一致：应用时会写 ${read.service} 的依赖`)
+      }
+      const preview = previewDeclaration(read.service, read.edges, {
+        registered: Object.keys(topology.services),
+        file: read.file,
+        warnings,
+      })
+      return {
+        group,
+        service: serviceId,
+        file: read.file,
+        status: 'ok',
+        preview,
+        errors: [],
+        warnings,
+        undeclaredTargets: preview.undeclaredTargets ?? [],
+      }
+    },
+
+    async declarationRender(group, service) {
+      const topology = await store.load(group)
+      if (!topology) throw new Error(`unknown project group: ${group}`)
+      const serviceId = String(service ?? '').trim()
+      if (!serviceId) throw new Error('service is required')
+      const node = topology.services[serviceId]
+      if (!node) throw new Error(`service not found in group: ${serviceId}`)
+      const edges = topology.restDependencies[serviceId] ?? []
+      const declared = edges.filter((edge) => edgeSource(edge) === 'declared')
+      const localPath = typeof node.localPath === 'string' ? node.localPath.trim() : ''
+      const file = localPath ? declarationPathFor(localPath) : null
+      const derived = edges.length - declared.length
+      return {
+        group,
+        service: serviceId,
+        file,
+        content: renderDeclaration(serviceId, declared),
+        declared: declared.length,
+        derived,
+        hint: file
+          ? `建议把内容写入 ${DECLARATION_RELATIVE_PATH} 并随代码提交（Helmsman 不执行任何 git 操作）。`
+          : `该服务未配置本地路径，无法给出目标文件路径；仓库内位置固定为 ${DECLARATION_RELATIVE_PATH}。`,
+      }
+    },
   }
 
   ctx.provide('helmsman.topology', service)
 
   registerTools(ctx, service)
   console.log(`[helmsman/memory-topology] service ready (root: ${store.rootDir})`)
+}
+
+/** First service that has a working copy to read a declaration from. */
+function firstServiceWithRepoPath(topology: ProjectTopology): string {
+  for (const [id, svc] of Object.entries(topology.services)) {
+    if (typeof svc.localPath === 'string' && svc.localPath.trim() !== '') return id
+  }
+  return ''
 }
 
 function registerTools(ctx: Context, service: TopologyService): void {
@@ -367,6 +566,8 @@ export function exportTopologyYaml(t: ProjectTopology): string {
         ...(e.endpoints.length > 0 ? { endpoints: e.endpoints } : {}),
         method: e.method,
         ...(e.critical === true ? { critical: true } : {}),
+        // Provenance is explicit only for `derived` (absent = `declared`).
+        ...(edgeSource(e) === 'derived' ? { source: 'derived' } : {}),
       })),
     ),
     mavenParents: Object.entries(t.mavenParents).map(([id, m]) => ({

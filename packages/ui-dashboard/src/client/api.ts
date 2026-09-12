@@ -74,9 +74,10 @@ export interface TopologyPayload {
   /**
    * 服务间依赖，键为调用方服务 id。同一对服务只有一条边（服务端保存路径按
    * (from, to) 去重），`endpoints: []` + `method: '*'` 表示只声明了「A 调用 B」
-   * 而未细分接口的服务级边。
+   * 而未细分接口的服务级边。`source` 是边的来源标记：`'declared'`（仓库声明/
+   * 手工录入，缺省值）或 `'derived'`（推导后人工确认）——重新抓取只调和声明边。
    */
-  restDependencies: Record<string, Array<{ toServiceId: string; endpoints: string[]; method: string; critical?: boolean }>>
+  restDependencies: Record<string, Array<{ toServiceId: string; endpoints: string[]; method: string; critical?: boolean; source?: 'declared' | 'derived' }>>
 }
 
 /** 服务级边的规范 method（与 memory-topology 的 SERVICE_LEVEL_METHOD 一致）。 */
@@ -153,8 +154,46 @@ export interface ApplyCandidateInputPayload {
 export interface ImportPreviewPayload {
   source: string
   services: Array<{ name: string; image?: string; selected: boolean; endpoints: ApiEndpointPayload[] }>
-  dependencies: Array<{ from: string; to: string; method: string; endpoints: string[] }>
+  dependencies: Array<{ from: string; to: string; method: string; endpoints: string[]; critical?: boolean }>
   warnings: string[]
+  /** 仅声明文件导入（`helmsman-declaration`）：文件声明的是哪个服务。 */
+  declaration?: { service: string; file?: string }
+  /** 仅声明文件导入：文件引用但项目群尚未登记的目标（预览中标为「目标未登记」）。 */
+  undeclaredTargets?: string[]
+}
+
+/** 声明文件抓取结果（`GET api/topology/declaration`）。 */
+export interface DeclarationPayload {
+  group: string
+  service: string
+  /** 声明文件绝对路径；服务未配置 localPath 时为 null。 */
+  file: string | null
+  /**
+   * `ok` 已读取并解析；`missing` 仓库无该文件（「未声明依赖」，非错误）；
+   * `invalid` 文件存在但解析失败（`errors` 列出问题，未应用任何边）；
+   * `no-repo-path` 服务未配置本地路径；`unavailable` 拓扑服务版本过旧。
+   */
+  status: 'ok' | 'missing' | 'invalid' | 'no-repo-path' | 'unavailable'
+  /** 既有 ImportPreview 形状；仅 `status === 'ok'` 时非空。 */
+  preview: ImportPreviewPayload | null
+  errors: string[]
+  warnings: string[]
+  undeclaredTargets: string[]
+  available: boolean
+}
+
+/** 声明文件回写内容（`GET api/topology/declaration/render`）。 */
+export interface DeclarationRenderPayload {
+  group: string
+  service: string
+  file: string | null
+  content: string
+  /** 写入的 `declared` 边数。 */
+  declared: number
+  /** 刻意不写入的 `derived` 边数。 */
+  derived: number
+  hint: string
+  available: boolean
 }
 
 const BASE = '/helmsman-dashboard/api'
@@ -218,6 +257,18 @@ export const api = {
     request<ImportPreviewPayload>('/topology/import-preview', { method: 'POST', body: JSON.stringify({ source, text, inferDeps }) }),
   importApply: (group: string, preview: ImportPreviewPayload) =>
     request<{ topology: TopologyPayload }>('/topology/import-apply', { method: 'POST', body: JSON.stringify({ group, preview }) }),
+  /**
+   * 抓取仓库自身声明的依赖（`<repo>/.helmsman/dependencies.yml`）。只读：
+   * 返回既有 ImportPreview 形状交给现有预览对话框核对，确认后才走 importApply。
+   * 文件缺失是明确的「未声明依赖」结果（status 'missing'），不是错误。
+   */
+  topologyDeclaration: (group: string, service?: string) =>
+    request<DeclarationPayload>(
+      `/topology/declaration?group=${encodeURIComponent(group)}${service ? `&service=${encodeURIComponent(service)}` : ''}`,
+    ),
+  /** 回写草稿：只含 `declared` 边 + 目标路径 + 「建议提交到仓库」提示；不执行任何 git 操作。 */
+  topologyDeclarationRender: (group: string, service: string) =>
+    request<DeclarationRenderPayload>(`/topology/declaration/render?group=${encodeURIComponent(group)}&service=${encodeURIComponent(service)}`),
   exportYaml: (group: string) => request<TopologyExportResult>(`/topology/export?group=${encodeURIComponent(group)}`),
   listArtifacts: () => request<{ artifacts: ArtifactMetaPayload[]; available: boolean }>('/artifacts'),
   /** Packages a terminal task's per-agent diffs and registers the bundle. */

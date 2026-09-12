@@ -26,6 +26,8 @@ import {
   type AuditEntryPayload,
   type DeriveCandidatePayload,
   type DeriveOutcomePayload,
+  type DeclarationPayload,
+  type DeclarationRenderPayload,
   type GraphHealthPayload,
   type ImportPreviewPayload,
   type StatePayload,
@@ -1065,11 +1067,20 @@ function mergeClientEdge(edges: RestEdgePayload[], incoming: RestEdgePayload): R
   const incomingHasDetail = incoming.endpoints.length > 0
   const method = incomingHasDetail && existing.endpoints.length === 0 ? incoming.method : existing.method
   const endpoints = [...new Set([...existing.endpoints, ...incoming.endpoints])]
+  // 来源取更保守的一方：任一为 declared 则结果为 declared（推导确认不得把声明边降级）；
+  // 两侧都没有该字段时也不凭空写入（缺省即 declared，保持存量数据字节稳定）。
+  const source: RestEdgePayload['source'] =
+    existing.source === 'declared' || incoming.source === 'declared'
+      ? 'declared'
+      : existing.source === 'derived' || incoming.source === 'derived'
+        ? 'derived'
+        : undefined
   const merged: RestEdgePayload = {
     toServiceId: existing.toServiceId,
     endpoints,
     method,
     ...(existing.critical === true || incoming.critical === true ? { critical: true } : {}),
+    ...(source ? { source } : {}),
   }
   return [...edges.slice(0, at), merged, ...edges.slice(at + 1)]
 }
@@ -1190,6 +1201,9 @@ export function ConfigPanel(props: {  groups: string[]
   const [editService, setEditService] = useState<string | 'new' | null>(null)
   const [depModal, setDepModal] = useState(false)
   const [importModal, setImportModal] = useState(false)
+  // 声明文件：抓取（复用导入预览对话框）与回写草稿（declared 边 + 目标路径 + 提示）。
+  const [declarationFetch, setDeclarationFetch] = useState(false)
+  const [declarationWriteBack, setDeclarationWriteBack] = useState(false)
   const { onToast } = props
 
   useEffect(() => {
@@ -1506,6 +1520,8 @@ export function ConfigPanel(props: {  groups: string[]
                 <button className="btn btn-sm" disabled={deriving || !group} onClick={() => void runDerive()}>
                   {deriving ? '⏳ 扫描中...' : '🔍 推导候选'}
                 </button>
+                <button className="btn btn-sm" disabled={!group || Object.keys(topology.services).length === 0} onClick={() => setDeclarationFetch(true)}>📥 从仓库抓取依赖</button>
+                <button className="btn btn-sm" disabled={!group || Object.keys(topology.services).length === 0} onClick={() => setDeclarationWriteBack(true)}>💾 写回声明文件</button>
                 <button className="btn btn-sm" onClick={() => setDepModal(true)}>➕ 添加依赖</button>
               </span>
             </h4>
@@ -1519,6 +1535,7 @@ export function ConfigPanel(props: {  groups: string[]
                 return (
                   <p key={`${from}-${i}`} className="dep-line">
                     <span className="dep-label">{label}</span>
+                    {edge.source === 'derived' && <span className="badge">推导确认</span>}
                     {edge.critical && <span className="badge warn">关键路径</span>}
                     <button
                       className="btn btn-sm ghost"
@@ -1657,6 +1674,7 @@ export function ConfigPanel(props: {  groups: string[]
       {importModal && (
         <ImportModal
           group={group}
+          topology={topology}
           onToast={props.onToast}
           onClose={() => setImportModal(false)}
           onImported={(topology2, g) => {
@@ -1669,6 +1687,36 @@ export function ConfigPanel(props: {  groups: string[]
             }
             setImportModal(false)
           }}
+        />
+      )}
+
+      {/* 📥 从仓库抓取依赖（declare-dependencies-in-repo）：同一个预览对话框核对后应用；
+          应用时声明边跟文件走、推导边不动（服务端 importApply 的调和语义）。 */}
+      {declarationFetch && (
+        <ImportModal
+          group={group}
+          topology={topology}
+          initialSource="helmsman-declaration"
+          onToast={props.onToast}
+          onClose={() => setDeclarationFetch(false)}
+          onImported={(topology2, g) => {
+            if (g && g !== group) {
+              setGroup(g)
+              props.onSelectGroup(g)
+            } else {
+              applyTopology(topology2)
+            }
+            setDeclarationFetch(false)
+          }}
+        />
+      )}
+
+      {declarationWriteBack && (
+        <DeclarationWriteBackModal
+          group={group ?? ''}
+          services={Object.entries(topology?.services ?? {}).map(([id, svc]) => ({ id, localPath: svc.localPath ?? '' }))}
+          onClose={() => setDeclarationWriteBack(false)}
+          onToast={props.onToast}
         />
       )}
     </aside>
@@ -1826,15 +1874,24 @@ function DependencyModal(props: {
 
 function ImportModal(props: {
   group: string | null
+  /** 当前群拓扑：声明文件抓取需要服务的本地路径与已登记服务集合。 */
+  topology: TopologyPayload | null
+  /** 打开时预选的导入源（「📥 从仓库抓取依赖」直接进入声明源）。 */
+  initialSource?: 'docker-compose' | 'kubernetes' | 'openapi' | 'helmsman-declaration'
   onClose: () => void
   onImported: (topology: TopologyPayload, group: string | null) => void
   onToast: (kind: Toast['kind'], text: string) => void
 }) {
-  const [source, setSource] = useState<'docker-compose' | 'kubernetes' | 'openapi'>('docker-compose')
+  const [source, setSource] = useState<'docker-compose' | 'kubernetes' | 'openapi' | 'helmsman-declaration'>(props.initialSource ?? 'docker-compose')
   const [text, setText] = useState('')
   const [inferDeps, setInferDeps] = useState(true)
   const [preview, setPreview] = useState<ImportPreviewPayload | null>(null)
   const [busy, setBusy] = useState(false)
+  // 声明文件抓取：所选服务 + 只读抓取结果（未声明/解析失败都在这里明确呈现）。
+  const serviceIds = Object.keys(props.topology?.services ?? {})
+  const [declService, setDeclService] = useState(defaultDeclarationService(props.topology))
+  const [declaration, setDeclaration] = useState<DeclarationPayload | null>(null)
+  const isDeclaration = source === 'helmsman-declaration'
 
   const doPreview = async (): Promise<void> => {
     setBusy(true)
@@ -1847,11 +1904,32 @@ function ImportModal(props: {
     }
   }
 
+  const fetchDeclaration = async (): Promise<void> => {
+    if (!props.group) {
+      props.onToast('error', '请先选择项目群')
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await api.topologyDeclaration(props.group, declService || undefined)
+      setDeclaration(res)
+      // 只有解析成功（status 'ok'）才拿到可核对的预览；缺失/损坏/无路径都不产出依赖边。
+      setPreview(res.preview)
+      if (res.status === 'ok') props.onToast('success', `已读取仓库声明：${res.preview?.dependencies.length ?? 0} 条依赖待核对`)
+    } catch (err) {
+      setDeclaration(null)
+      setPreview(null)
+      props.onToast('error', err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="modal-mask" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
       <div className="modal wide" role="dialog" aria-label="导入架构">
         <header className="modal-head">
-          <h4>📥 导入架构</h4>
+          <h4>{isDeclaration ? '📥 从仓库抓取依赖' : '📥 导入架构'}</h4>
           <button className="icon-btn" onClick={props.onClose}>✕</button>
         </header>
         <fieldset className="radio-group">
@@ -1860,29 +1938,77 @@ function ImportModal(props: {
             ['docker-compose', 'docker-compose.yml（解析 services 定义）'],
             ['kubernetes', 'Kubernetes Manifest（解析 Deployment + Service）'],
             ['openapi', 'OpenAPI / Swagger（JSON，解析 API 定义）'],
+            ['helmsman-declaration', '仓库内声明 .helmsman/dependencies.yml（本仓库自己的出站依赖）'],
           ] as const).map(([value, label]) => (
             <label key={value} className="radio">
-              <input type="radio" checked={source === value} onChange={() => { setSource(value); setPreview(null) }} />
+              <input type="radio" checked={source === value} onChange={() => { setSource(value); setPreview(null); setDeclaration(null) }} />
               {label}
             </label>
           ))}
         </fieldset>
-        <label className="field">
-          文件内容（粘贴或选择文件）
-          <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder="粘贴 docker-compose.yml / K8s manifest / OpenAPI JSON 内容…" />
-          <input
-            type="file"
-            accept=".yml,.yaml,.json,.txt"
-            onChange={async (e) => {
-              const file = e.target.files?.[0]
-              if (file) setText(await file.text())
-            }}
-          />
-        </label>
-        <label className="field checkbox">
-          <input type="checkbox" checked={inferDeps} onChange={(e) => setInferDeps(e.target.checked)} />
-          自动推断服务间依赖关系（基于 depends_on 与容器名称）
-        </label>
+        {isDeclaration ? (
+          <>
+            <label className="field">
+              声明所属服务
+              <select value={declService} onChange={(e) => { setDeclService(e.target.value); setPreview(null); setDeclaration(null) }} aria-label="声明所属服务">
+                {serviceIds.map((id) => (
+                  <option key={id} value={id}>{id}{props.topology?.services[id]?.localPath ? '' : '（未配置本地路径）'}</option>
+                ))}
+              </select>
+            </label>
+            <p className="muted small">
+              只读抓取仓库里 <code>.helmsman/dependencies.yml</code> 的内容，不会自动落库：
+              下面核对无误后再点「应用声明」。应用时<strong>声明边跟文件走</strong>（文件里删掉一条，
+              该边也随之消失），推导确认的边不受影响；文件缺失只是「未声明依赖」，不算错误。
+            </p>
+            <footer className="modal-actions">
+              <button className="btn" disabled={busy || !props.group || !declService} onClick={() => void fetchDeclaration()}>
+                {busy ? '读取中...' : '📥 抓取仓库声明'}
+              </button>
+            </footer>
+            {declaration?.status === 'missing' && (
+              <p className="muted small">该项目未声明依赖：仓库里没有 <code>.helmsman/dependencies.yml</code>（不是错误，可先用「💾 写回声明文件」生成一份再提交）。</p>
+            )}
+            {declaration?.status === 'no-repo-path' && (
+              <p className="card-error">该服务未配置本地路径（localPath），无法读取仓库声明。</p>
+            )}
+            {declaration?.status === 'unavailable' && (
+              <p className="muted small">当前拓扑服务版本不支持仓库声明抓取（请升级 memory-topology 插件），可继续用「➕ 添加依赖」手工录入。</p>
+            )}
+            {declaration && declaration.errors.length > 0 && (
+              <div className="preview-box">
+                <p className="card-error">声明文件解析失败，未应用任何依赖：</p>
+                {declaration.errors.map((err, i) => (
+                  <p key={i} className="card-error">· {err}</p>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <label className="field">
+              文件内容（粘贴或选择文件）
+              <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder="粘贴 docker-compose.yml / K8s manifest / OpenAPI JSON 内容…" />
+              <input
+                type="file"
+                accept=".yml,.yaml,.json,.txt"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0]
+                  if (file) setText(await file.text())
+                }}
+              />
+            </label>
+            <label className="field checkbox">
+              <input type="checkbox" checked={inferDeps} onChange={(e) => setInferDeps(e.target.checked)} />
+              自动推断服务间依赖关系（基于 depends_on 与容器名称）
+            </label>
+            <footer className="modal-actions">
+              <button className="btn" disabled={busy || !text.trim()} onClick={() => void doPreview()}>
+                {busy ? '解析中...' : '🔍 预览解析结果'}
+              </button>
+            </footer>
+          </>
+        )}
         {preview && (
           <div className="preview-box">
             <h5>预览解析结果：发现 {preview.services.length} 个服务</h5>
@@ -1899,10 +2025,18 @@ function ImportModal(props: {
                   }
                 />
                 {s.name} {s.image && <span className="muted small">({s.image})</span>}
+                {/* 声明引用的服务尚未登记：勾选即在本流程内登记，应用后不会留下悬空引用。 */}
+                {preview.undeclaredTargets?.includes(s.name) && <span className="badge warn">目标未登记（勾选即登记）</span>}
               </label>
             ))}
             {preview.dependencies.length > 0 && (
               <p className="muted small">依赖: {preview.dependencies.map((d) => `${d.from}→${d.to}`).join(', ')}</p>
+            )}
+            {preview.declaration && (
+              <p className="muted small">
+                声明服务 <strong>{preview.declaration.service}</strong>
+                {preview.declaration.file ? `　文件：${preview.declaration.file}` : ''}
+              </p>
             )}
             {preview.warnings.map((w, i) => (
               <p key={i} className="card-error">{w}</p>
@@ -1910,9 +2044,6 @@ function ImportModal(props: {
           </div>
         )}
         <footer className="modal-actions">
-          <button className="btn" disabled={busy || !text.trim()} onClick={() => void doPreview()}>
-            {busy ? '解析中...' : '🔍 预览解析结果'}
-          </button>
           <button
             className="btn btn-primary"
             disabled={!preview}
@@ -1926,16 +2057,127 @@ function ImportModal(props: {
                   await api.createGroup(group)
                 }
                 const { topology } = await api.importApply(group, preview)
-                props.onToast('success', `已导入 ${preview.services.filter((s) => s.selected).length} 个服务`)
+                props.onToast(
+                  'success',
+                  isDeclaration
+                    ? `已按仓库声明对齐依赖（${preview.dependencies.length} 条声明边）`
+                    : `已导入 ${preview.services.filter((s) => s.selected).length} 个服务`,
+                )
                 props.onImported(topology, group)
               } catch (err) {
                 props.onToast('error', err instanceof Error ? err.message : String(err))
               }
             }}
           >
-            📥 导入
+            {isDeclaration ? '✅ 应用声明' : '📥 导入'}
           </button>
           <button className="btn" onClick={props.onClose}>取消</button>
+        </footer>
+      </div>
+    </div>
+  )
+}
+
+/** 默认取第一个有本地路径的服务（没有则第一个服务）。 */
+function defaultDeclarationService(topology: TopologyPayload | null): string {
+  const entries = Object.entries(topology?.services ?? {})
+  return (entries.find(([, svc]) => (svc.localPath ?? '') !== '') ?? entries[0])?.[0] ?? ''
+}
+
+/**
+ * 💾 写回声明文件（design D6）：展示回写内容（只含 `declared` 边）、目标路径与
+ * 「建议提交到仓库」提示。**不执行任何 git 操作**，也不写文件——由人提交。
+ */
+function DeclarationWriteBackModal(props: {
+  group: string
+  services: Array<{ id: string; localPath: string }>
+  onClose: () => void
+  onToast: (kind: Toast['kind'], text: string) => void
+}) {
+  const [service, setService] = useState(() => (props.services.find((s) => s.localPath) ?? props.services[0])?.id ?? '')
+  const [result, setResult] = useState<DeclarationRenderPayload | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const { onToast } = props
+
+  const load = async (id: string): Promise<void> => {
+    if (!props.group || !id) return
+    setBusy(true)
+    setError(null)
+    try {
+      setResult(await api.topologyDeclarationRender(props.group, id))
+    } catch (err) {
+      setResult(null)
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    void load(service)
+    // 仅随服务变化重新取；load 每次渲染都是新身份，不入依赖。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [service, props.group])
+
+  return (
+    <div className="modal-mask" onClick={(e) => e.target === e.currentTarget && props.onClose()}>
+      <div className="modal wide" role="dialog" aria-label="写回声明文件">
+        <header className="modal-head">
+          <h4>💾 写回声明文件</h4>
+          <button className="icon-btn" onClick={props.onClose}>✕</button>
+        </header>
+        <label className="field">
+          服务
+          <select value={service} onChange={(e) => setService(e.target.value)} aria-label="写回服务">
+            {props.services.map((s) => (
+              <option key={s.id} value={s.id}>{s.id}{s.localPath ? '' : '（未配置本地路径）'}</option>
+            ))}
+          </select>
+        </label>
+        {error && <p className="card-error">{error}</p>}
+        {busy && <p className="muted small">生成中...</p>}
+        {result && (
+          <>
+            <p className="muted small">
+              目标文件：<code>{result.file ?? '（该服务未配置本地路径）'}</code>
+            </p>
+            <label className="field">
+              声明内容（只含 declared 边，可直接写回仓库）
+              <textarea rows={10} readOnly value={result.content} aria-label="声明文件内容" />
+            </label>
+            <p className="muted small">
+              本次写入 {result.declared} 条 <strong>declared</strong> 边
+              {result.derived > 0
+                ? `；另有 ${result.derived} 条 derived 边（推导确认）不写入——推导结果不应被固化成「仓库声明」，确需固化请先人工确认来源。`
+                : '。'}
+            </p>
+            <p className="muted small">{result.hint}</p>
+          </>
+        )}
+        <footer className="modal-actions">
+          <button
+            className="btn"
+            disabled={!result || !result.content}
+            onClick={async () => {
+              if (!result) return
+              if (result.file) {
+                // 只做本地下载：真正的写入与提交由人在仓库里完成（不执行 git）。
+                downloadText('.helmsman-dependencies.yml', result.content)
+                onToast('success', `已下载声明文件内容，请放入 ${result.file} 并提交`)
+                return
+              }
+              try {
+                await navigator.clipboard.writeText(result.content)
+                onToast('success', '已复制到剪贴板')
+              } catch {
+                onToast('error', '浏览器不支持剪贴板，请手工选中文本复制')
+              }
+            }}
+          >
+            {result?.file ? '⬇ 下载声明内容' : '📋 复制'}
+          </button>
+          <button className="btn" onClick={props.onClose}>关闭</button>
         </footer>
       </div>
     </div>

@@ -90,6 +90,90 @@
      `{ group, applied, registered, topology }`（`topology` 是落库后的整份拓扑）。
    - 旧版本拓扑服务没有这些能力时 `available: false`，界面给出提示（不影响手工录入）。
 
+### 从仓库抓取依赖声明（📥 从仓库抓取依赖 / 💾 写回声明文件）
+
+把依赖索引**前移进项目里**：每个仓库用一份小而显眼的 YAML 声明**自己的出站依赖**，
+Helmsman 抓取后人工只**核对**。反向关系（谁调用我）仍由工具推导——因此每条边只有一个家
+（调用方），从根上避免「A 里写我调用 B、B 里写谁调用我」两处迟早不一致。
+
+**文件位置**：`<仓库根>/.helmsman/dependencies.yml`（随代码走、进 PR 评审、不经过 Helmsman 也能读到）。
+
+最小声明（只说明「我调用谁」）：
+
+```yaml
+version: 1
+service: homework-server       # 必填：本服务在项目群中的 id，是每条依赖边的调用方
+dependencies:
+  - to: internal-homework
+```
+
+带明细的声明（需要精确到接口时）：
+
+```yaml
+version: 1
+service: homework-server
+dependencies:
+  - to: internal-homework
+  - to: internal-qp
+    method: GET
+    endpoints:
+      - /qp/list
+      - /qp/detail
+    critical: true             # 关键路径（影响级联调度优先级）
+```
+
+格式要点：
+
+- 只声明**出站**依赖；文件里**不需要**（也不应有）「谁调用我」的列表。
+- 缺 `service`、或某条依赖缺 `to` → 整个文件**报错、不部分应用**（边的 `from` 无从确定）。
+- 需要声明「没有任何出站依赖」时写 `dependencies: []`；把 `dependencies` 整个漏掉会报错
+  （避免一个键名笔误就把某服务的声明边全部清空）。
+- `version` 省略按 `1` 处理；写了别的值（如 `version: 2`）会报错。
+- 同一目标写两条会合并成一条（明细取并集），与「一对服务一行」一致。
+- **文件缺失不是错误**：界面明确提示「该项目未声明依赖」。
+
+**抓取 → 核对 → 应用**
+
+1. 配置面板 → 🕸️ 依赖拓扑 → 📥 从仓库抓取依赖 → 选择服务 → 📥 抓取仓库声明。
+   （也可以走 📥 导入对话框，把导入源选成「仓库内声明」。）
+2. 工具**只读**读取该服务工作副本里的 `.helmsman/dependencies.yml`（不联网、不写库），把结果放进
+   **同一个导入预览对话框**核对——没有第二套审核界面：
+   - **服务清单**：勾选即在项目群中建立服务条目。声明引用的**未登记目标**标为
+     「目标未登记（勾选即登记）」且默认勾选，应用后不会立刻变成体检里的悬空引用；
+     若手工取消勾选，依赖边仍会落库，但会被体检报为 ⚠️ 悬空引用（不静默接受）。
+   - **依赖行**：`调用方→被调用方` 一览，末尾注明声明所属服务与文件路径。
+   - **解析问题**（缺字段、版本不支持、类型不对等）逐条列出，此时**无法应用**。
+3. 核对无误 → ✅ 应用声明。
+
+**应用时的调和语义（重点）**：对声明服务而言，声明文件是**声明边**的唯一事实源。
+
+- 文件里**新增**的边被加上；文件里**删掉**的 `declared` 边**被移除**——文件是权威。
+- 带 `derived` 标记的边（「🔍 推导候选」确认落库的边）**不受影响**：它没有仓库归宿，
+  不应被一次抓取清理掉。依赖行上的「推导确认」徽标即这类边。
+- 同一对服务若既声明又推导，合并为**一行**，来源按 `declared`（明细取并集）。
+- 因此**重复抓取是幂等的**：文件没改，依赖集合不变；抓取也不会覆盖服务已扫描的 API 端点。
+- 应用后服务端仍做一次图体检（环/悬空引用/孤立服务），有问题在配置页顶部提示。
+
+**回写声明文件（让「不用手写」成立）**
+
+1. 🕸️ 依赖拓扑 → 💾 写回声明文件 → 选择服务。
+2. 界面展示该服务当前 **declared 边**序列化出的 YAML、目标文件路径（`<localPath>/.helmsman/dependencies.yml`）
+   与「建议写入并随代码提交」的提示。`derived` 边**不会**被写入——推导结果不该被静默固化成
+   「仓库声明」，否则下次无法区分来源；确需固化请先人工确认来源再手工加进文件。
+3. ⬇ 下载（或 📋 复制）后把内容写进该文件并提交。**Helmsman 不执行任何 git 操作**。
+
+**只读接口**（脚本/调试）：
+
+- `GET /helmsman-dashboard/api/topology/declaration?group=<群名>&service=<服务>` →
+  `{ group, service, file, status, preview, errors, warnings, undeclaredTargets, available }`。
+  `status` 取值：`ok`（已读取，`preview` 可核对）/ `missing`（未声明依赖，**非错误**）/
+  `invalid`（解析失败，`errors` 列出问题，未应用任何边）/ `no-repo-path`（服务未配本地路径）/
+  `unavailable`（拓扑服务版本过旧）。
+- `GET /helmsman-dashboard/api/topology/declaration/render?group=&service=` →
+  `{ content, file, declared, derived, hint, available }`（只含 declared 边，不写文件）。
+- 应用走既有 `POST /helmsman-dashboard/api/topology/import-apply`，payload 就是上一步的 `preview`
+  （服务端按声明语义调和后落库并返回整份拓扑）。
+
 ## 2. 工作台（Helmsman Workbench）
 
 装入 `@helmsman/ui-workbench` 后，DSH 网页侧边栏底部出现 **🚀 Helmsman** 按钮：

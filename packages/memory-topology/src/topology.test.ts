@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import {
   SERVICE_LEVEL_METHOD,
   dedupeDependencies,
+  edgeSource,
   emptyTopology,
   isServiceLevelEdge,
   mergeDependencyEdge,
@@ -101,6 +102,54 @@ describe('mergeDependencyEdge (one edge per service pair)', () => {
     mergeDependencyEdge(existing, incoming)
     expect(existing.endpoints).toEqual(['/api/x'])
     expect(incoming.endpoints).toEqual(['/api/y'])
+  })
+})
+
+describe('edge provenance (declare-dependencies-in-repo)', () => {
+  it('keeps `derived` through a normalize round trip and defaults every other edge to declared', () => {
+    const t = normalizeTopology({
+      projectGroupId: 'g',
+      services: { a: {}, b: {}, c: {} },
+      restDependencies: {
+        a: [
+          { toServiceId: 'b', endpoints: [], method: SERVICE_LEVEL_METHOD, source: 'derived' },
+          { toServiceId: 'c', endpoints: [], method: SERVICE_LEVEL_METHOD },
+          { toServiceId: 'c', endpoints: ['/api/x'], method: 'GET', source: 'bogus' },
+        ],
+      },
+    })
+    const [derivedEdge, legacyEdge] = t.restDependencies['a']!
+    expect(derivedEdge!.source).toBe('derived')
+    expect(edgeSource(derivedEdge!)).toBe('derived')
+    // legacy / illegal values fall back to the default WITHOUT inventing a field
+    expect(legacyEdge).toEqual({ toServiceId: 'c', endpoints: [], method: SERVICE_LEVEL_METHOD })
+    expect(edgeSource(legacyEdge!)).toBe('declared')
+    expect('source' in normalizeTopology(t).restDependencies['a']![0]!).toBe(true)
+  })
+
+  it('a declared edge is never downgraded by merging a derived one (declared wins)', () => {
+    const declared: RestDependencyEdge = { toServiceId: 'b', endpoints: [], method: SERVICE_LEVEL_METHOD, source: 'declared' }
+    const derived: RestDependencyEdge = { toServiceId: 'b', endpoints: [], method: SERVICE_LEVEL_METHOD, source: 'derived' }
+    expect(edgeSource(mergeDependencyEdge(declared, derived))).toBe('declared')
+    expect(edgeSource(mergeDependencyEdge(derived, declared))).toBe('declared')
+    // two derived sides stay derived
+    expect(edgeSource(mergeDependencyEdge(derived, derived))).toBe('derived')
+    // legacy (field-less) edges are declared, so merging cannot turn them derived
+    expect(edgeSource(mergeDependencyEdge(edge('b', '*', []), derived))).toBe('declared')
+    // merging does not invent a field for legacy data (byte-stable persistence)
+    expect(mergeDependencyEdge(edge('b', '*', []), edge('b', '*', []))).toEqual(edge('b', '*', []))
+  })
+
+  it('dedupe keeps provenance while merging the details of a pair', () => {
+    const t = emptyTopology('g')
+    t.restDependencies['a'] = [
+      { toServiceId: 'b', endpoints: [], method: SERVICE_LEVEL_METHOD, source: 'derived' },
+      { toServiceId: 'b', endpoints: ['/api/x'], method: 'GET', source: 'declared' },
+    ]
+    const out = dedupeDependencies(t)
+    expect(out.restDependencies['a']).toEqual([
+      { toServiceId: 'b', endpoints: ['/api/x'], method: 'GET', source: 'declared' },
+    ])
   })
 })
 

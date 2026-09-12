@@ -387,6 +387,122 @@ describe('dashboard API router', () => {
     const router = createApiRouter({ orchestrator: fakeOrchestrator() })
     expect(await router.handle(fakeReq('POST', { group: 'g' }), fakeRes().res, '/api/topology/apply-candidates')).toBe(false)
   })
+
+  // 仓库声明抓取/回写（declare-dependencies-in-repo）：只读路由，语义与 health/derive 一致。
+  it('GET api/topology/declaration forwards group + service and returns the ingest result', async () => {
+    const preview = {
+      source: 'helmsman-declaration',
+      services: [{ name: 'homework-server', selected: true, endpoints: [] }],
+      dependencies: [{ from: 'homework-server', to: 'internal-homework', method: 'GET', endpoints: ['/api/homework/{hwId}'] }],
+      warnings: [],
+      declaration: { service: 'homework-server', file: '/repo/.helmsman/dependencies.yml' },
+      undeclaredTargets: [],
+    }
+    const declarationPreview = vi.fn(async () => ({
+      group: '作业服务群',
+      service: 'homework-server',
+      file: '/repo/.helmsman/dependencies.yml',
+      status: 'ok' as const,
+      preview,
+      errors: [],
+      warnings: [],
+      undeclaredTargets: [],
+    }))
+    const router = createApiRouter({ orchestrator: fakeOrchestrator(), topology: { ...fakeTopology, declarationPreview } })
+    const { res, status, body } = fakeRes()
+    const handled = await router.handle(fakeReq('GET'), res, `/api/topology/declaration?group=${encodeURIComponent('作业服务群')}&service=homework-server`)
+    expect(handled).toBe(true)
+    expect(status()).toBe(200)
+    expect(declarationPreview).toHaveBeenCalledWith('作业服务群', 'homework-server')
+    expect(JSON.parse(body())).toEqual({
+      group: '作业服务群',
+      service: 'homework-server',
+      file: '/repo/.helmsman/dependencies.yml',
+      status: 'ok',
+      preview,
+      errors: [],
+      warnings: [],
+      undeclaredTargets: [],
+      available: true,
+    })
+  })
+
+  it('declaration route requires a group and degrades to available:false for an older service', async () => {
+    const router = createApiRouter({ orchestrator: fakeOrchestrator(), topology: fakeTopology })
+    const bad = fakeRes()
+    await router.handle(fakeReq('GET'), bad.res, '/api/topology/declaration?service=s')
+    expect(bad.status()).toBe(500)
+    expect(JSON.parse(bad.body()).error).toContain('group is required')
+
+    const missing = fakeRes()
+    await router.handle(fakeReq('GET'), missing.res, '/api/topology/declaration?group=g&service=s')
+    expect(JSON.parse(missing.body())).toEqual({
+      group: 'g',
+      service: 's',
+      file: null,
+      status: 'unavailable',
+      preview: null,
+      errors: [],
+      warnings: [],
+      undeclaredTargets: [],
+      available: false,
+    })
+  })
+
+  it('declaration route is not mounted without the topology plugin (host answers 404)', async () => {
+    const router = createApiRouter({ orchestrator: fakeOrchestrator() })
+    expect(await router.handle(fakeReq('GET'), fakeRes().res, '/api/topology/declaration?group=g&service=s')).toBe(false)
+  })
+
+  it('GET api/topology/declaration/render returns the draft content + target path + hint', async () => {
+    const declarationRender = vi.fn(async (_group: string, service: string) => ({
+      group: 'g',
+      service,
+      file: '/repo/.helmsman/dependencies.yml',
+      content: 'version: 1\nservice: homework-server\ndependencies:\n  - to: internal-homework\n',
+      declared: 1,
+      derived: 2,
+      hint: '建议把内容写入 .helmsman/dependencies.yml 并随代码提交（Helmsman 不执行任何 git 操作）。',
+    }))
+    const router = createApiRouter({ orchestrator: fakeOrchestrator(), topology: { ...fakeTopology, declarationRender } })
+    const { res, status, body } = fakeRes()
+    const handled = await router.handle(fakeReq('GET'), res, '/api/topology/declaration/render?group=g&service=homework-server')
+    expect(handled).toBe(true)
+    expect(status()).toBe(200)
+    expect(declarationRender).toHaveBeenCalledWith('g', 'homework-server')
+    const data = JSON.parse(body())
+    expect(data.content).toContain('- to: internal-homework')
+    expect(data.declared).toBe(1)
+    expect(data.derived).toBe(2)
+    expect(data.hint).toContain('git')
+    expect(data.available).toBe(true)
+  })
+
+  it('render route requires service and degrades when the method is absent', async () => {
+    const router = createApiRouter({ orchestrator: fakeOrchestrator(), topology: fakeTopology })
+    const bad = fakeRes()
+    await router.handle(fakeReq('GET'), bad.res, '/api/topology/declaration/render?group=g')
+    expect(bad.status()).toBe(500)
+    expect(JSON.parse(bad.body()).error).toContain('service is required')
+
+    const missing = fakeRes()
+    await router.handle(fakeReq('GET'), missing.res, '/api/topology/declaration/render?group=g&service=s')
+    expect(JSON.parse(missing.body())).toEqual({
+      group: 'g',
+      service: 's',
+      file: null,
+      content: '',
+      declared: 0,
+      derived: 0,
+      hint: '',
+      available: false,
+    })
+  })
+
+  it('render route is not mounted without the topology plugin', async () => {
+    const router = createApiRouter({ orchestrator: fakeOrchestrator() })
+    expect(await router.handle(fakeReq('GET'), fakeRes().res, '/api/topology/declaration/render?group=g&service=s')).toBe(false)
+  })
 })
 
 describe('approval gate + audit routes', () => {

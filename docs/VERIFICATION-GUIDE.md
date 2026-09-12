@@ -566,6 +566,223 @@ rm -f ~/.helmsman/topologies/$G.json      # 或配置面板 🗗️ 删除（需
 > 未装 memory-topology 时两条路由都不挂载（宿主 404）；装了但版本较早时返回
 > `{"available": false}`（界面提示手工录入，不会静默失败）。
 
+### 3.8 仓库依赖声明：抓取 → 核对 → 应用 → 回写（declare-dependencies-in-repo）
+
+在一个**临时仓库**上放一份声明文件，核对六件事：**抓取只读且可核对**、**应用后一对服务一行**、
+**文件删掉一条 → 该声明边消失**、**推导确认的边不被冲击**、**重复抓取幂等**、
+**回写内容只含 declared 边**。全程走真实 HTTP 路由，无需 agent。
+
+```bash
+B=http://127.0.0.1:3080
+API=$B/helmsman-dashboard/api
+G=decl-check-demo
+R=/tmp/helmsman-decl-smoke
+rm -rf $R && mkdir -p $R/.helmsman
+
+cat > $R/.helmsman/dependencies.yml <<'EOF'
+version: 1
+service: homework-server
+dependencies:
+  - to: internal-homework
+  - to: internal-qp
+    method: GET
+    endpoints:
+      - /qp/list
+EOF
+```
+
+**① 登记服务：调用方带 localPath；`internal-qp` 故意不登记（未登记目标）；并造一条
+`derived` 边与一条「文件里没有的 declarative 边」**
+
+```bash
+curl -s -X POST $API/topology/save -H 'content-type: application/json' -d "{
+  \"topology\": {
+    \"projectGroupId\": \"$G\",
+    \"services\": {
+      \"homework-server\":   { \"name\": \"homework-server\", \"localPath\": \"$R\",
+                              \"apiEndpoints\": [ { \"method\": \"GET\", \"path\": \"/api/self\" } ] },
+      \"internal-homework\": { \"name\": \"internal-homework\" },
+      \"internal-ugc\":      { \"name\": \"internal-ugc\" },
+      \"internal-legacy\":   { \"name\": \"internal-legacy\" }
+    },
+    \"restDependencies\": {
+      \"homework-server\": [
+        { \"toServiceId\": \"internal-ugc\", \"endpoints\": [], \"method\": \"*\" },
+        { \"toServiceId\": \"internal-legacy\", \"endpoints\": [\"/api/legacy\"], \"method\": \"GET\", \"source\": \"derived\" }
+      ]
+    }
+  }
+}" > /dev/null
+
+cp ~/.helmsman/topologies/$G.json /tmp/decl-before.json     # 用于核对「抓取不写库」
+```
+
+**② 抓取（只读）并核对预览**
+
+```bash
+curl -s "$API/topology/declaration?group=$G&service=homework-server" | python3 -c "
+import sys,json
+r=json.load(sys.stdin)
+print('status:',r['status'],'| file:',r['file'])
+print('undeclared:',r['undeclaredTargets'])
+print('services:',[s['name'] for s in r['preview']['services']])
+print('deps:',[(d['from'],d['to'],d['method'],d['endpoints']) for d in r['preview']['dependencies']])"
+
+diff /tmp/decl-before.json ~/.helmsman/topologies/$G.json && echo '抓取未写库 (identical)'
+```
+
+期望：
+
+```
+status: ok | file: /tmp/helmsman-decl-smoke/.helmsman/dependencies.yml
+undeclared: ['internal-qp']
+services: ['homework-server', 'internal-qp']
+deps: [('homework-server', 'internal-homework', '*', []), ('homework-server', 'internal-qp', 'GET', ['/qp/list'])]
+抓取未写库 (identical)
+```
+
+要点：`status: ok` 表示已读到并解析；`internal-qp` 未登记 → 出现在 `undeclaredTargets`，
+并在预览里作为**可勾选登记**的服务（默认勾选）；抓取本身**不写库**（`diff` 为空）。
+
+**③ 应用（把②的 preview 原样提交）→ 一对服务一行，且未登记目标被登记**
+
+```bash
+curl -s "$API/topology/declaration?group=$G&service=homework-server" \
+  | python3 -c "import sys,json;print(json.dumps({'group':'$G','preview':json.load(sys.stdin)['preview']}))" > /tmp/decl-apply.json
+
+curl -s -X POST $API/topology/import-apply -H 'content-type: application/json' -d @/tmp/decl-apply.json | python3 -c "
+import sys,json
+t=json.load(sys.stdin)['topology']
+rows=[(f,e['toServiceId'],e['method'],e.get('endpoints',[]),e.get('source','declared')) for f,edges in t['restDependencies'].items() for e in edges]
+for r in sorted(rows): print(r[0],'->',r[1],r[2],r[3],'source =',r[4])
+print('services:',sorted(t['services']))"
+```
+
+期望（每对服务一行；`internal-ugc` 被文件「删除」，`internal-legacy` 的 derived 边原样保留）：
+
+```
+homework-server -> internal-homework * [] source = declared
+homework-server -> internal-legacy GET ['/api/legacy'] source = derived
+homework-server -> internal-qp GET ['/qp/list'] source = declared
+services: ['homework-server', 'internal-homework', 'internal-legacy', 'internal-qp', 'internal-ugc']
+```
+
+```bash
+curl -s "$API/topology/health?group=$G" | python3 -c 'import sys,json;h=json.load(sys.stdin)["health"];print("cyclic:",h["cyclic"],"dangling:",h["dangling"],"isolated:",h["isolated"])'
+```
+
+期望（未登记目标已随抓取登记 → **无悬空引用**；`internal-ugc` 因边被移除而成为孤立服务，
+只是提示）：
+
+```
+cyclic: False dangling: [] isolated: ['internal-ugc']
+```
+
+**④ 重复抓取幂等**（再执行一次「抓取 + 应用」，依赖集合不变）
+
+```bash
+curl -s "$API/topology/declaration?group=$G&service=homework-server" \
+  | python3 -c "import sys,json;print(json.dumps({'group':'$G','preview':json.load(sys.stdin)['preview']}))" > /tmp/decl-apply2.json
+curl -s -X POST $API/topology/import-apply -H 'content-type: application/json' -d @/tmp/decl-apply2.json > /dev/null
+
+curl -s "$API/topology?group=$G" | python3 -c "import sys,json;print(json.dumps(json.load(sys.stdin)['topology']['restDependencies'],ensure_ascii=False,sort_keys=True))"
+curl -s -X POST $API/topology/import-apply -H 'content-type: application/json' -d @/tmp/decl-apply2.json > /dev/null
+curl -s "$API/topology?group=$G" | python3 -c "import sys,json;print(json.dumps(json.load(sys.stdin)['topology']['restDependencies'],ensure_ascii=False,sort_keys=True))"
+```
+
+两次输出**逐字节相同**（同一份未改动的声明连续应用不改变依赖集合）。
+
+**⑤ 文件里删掉一条 → 该声明边消失，derived 边不动**
+
+```bash
+cat > $R/.helmsman/dependencies.yml <<'EOF'
+version: 1
+service: homework-server
+dependencies:
+  - to: internal-qp
+EOF
+
+curl -s "$API/topology/declaration?group=$G&service=homework-server" \
+  | python3 -c "import sys,json;print(json.dumps({'group':'$G','preview':json.load(sys.stdin)['preview']}))" > /tmp/decl-apply3.json
+curl -s -X POST $API/topology/import-apply -H 'content-type: application/json' -d @/tmp/decl-apply3.json | python3 -c "
+import sys,json
+t=json.load(sys.stdin)['topology']
+print([(e['toServiceId'],e.get('source','declared')) for e in t['restDependencies']['homework-server']])"
+```
+
+期望（`internal-homework` 的 declared 边被移除；`internal-legacy` 仍为 derived，未被抓取清理）：
+
+```
+[('internal-legacy', 'derived'), ('internal-qp', 'declared')]
+```
+
+**⑥ 回写内容 = declared 边（不含 derived），并给出目标路径与提交提示**
+
+```bash
+curl -s "$API/topology/declaration/render?group=$G&service=homework-server" | python3 -c "
+import sys,json
+r=json.load(sys.stdin)
+print('target:',r['file'],'| declared:',r['declared'],'| derived:',r['derived'])
+print(r['content'])
+print('hint:',r['hint'])"
+```
+
+期望（内容与当前 declared 边一致、可被自身解析；`internal-legacy` 不出现）：
+
+```
+target: /tmp/helmsman-decl-smoke/.helmsman/dependencies.yml | declared: 1 | derived: 1
+version: 1
+service: homework-server
+dependencies:
+  - to: internal-qp
+    method: GET
+    endpoints: [/qp/list]
+
+hint: 建议把内容写入 .helmsman/dependencies.yml 并随代码提交（Helmsman 不执行任何 git 操作）。
+```
+
+要点：回写的是**当前 declared 边**（含此前从声明文件并入的端点明细），所以把这段内容放回
+`$R/.helmsman/dependencies.yml` 再抓取，结果不变（互为往返）。`derived` 的
+`internal-legacy` **不出现**——推导结果不会被静默固化成「仓库声明」。
+
+**⑦ 无文件 ≠ 错误；损坏文件不部分应用**
+
+```bash
+mv $R/.helmsman/dependencies.yml /tmp/decl.bak
+curl -s "$API/topology/declaration?group=$G&service=homework-server" \
+  | python3 -c 'import sys,json;r=json.load(sys.stdin);print("status:",r["status"],"| preview:",r["preview"],"| errors:",r["errors"])'
+
+printf 'version: 1\ndependencies:\n  - method: GET\n' > $R/.helmsman/dependencies.yml
+curl -s "$API/topology/declaration?group=$G&service=homework-server" \
+  | python3 -c 'import sys,json;r=json.load(sys.stdin);print("status:",r["status"],"| preview:",r["preview"],"| errors:",r["errors"])'
+```
+
+期望：
+
+```
+status: missing | preview: None | errors: []
+status: invalid | preview: None | errors: ['缺少必填字段 service（本服务在项目群中的 id，是每条依赖边的调用方）', 'dependencies[0] 缺少必填字段 to（被调用的服务 id）']
+```
+
+`missing` 是明确的「该项目未声明依赖」（界面提示，不是报错）；`invalid` 时 `preview` 为 null
+（**无部分应用**），问题逐条列出。
+
+**收尾**：
+
+```bash
+rm -rf $R /tmp/decl-before.json /tmp/decl-apply*.json /tmp/decl.bak
+rm -f ~/.helmsman/topologies/$G.json      # 或配置面板 🗗️ 删除（需一次性确认令牌）
+```
+
+> 说明：两条声明路由都是**只读**的（`GET api/topology/declaration`、
+> `GET api/topology/declaration/render`）；应用复用既有 `POST api/topology/import-apply`，
+> 服务端在其中按「声明边跟文件走、derived 边不动」调和后再走既有的成对去重与存盘路径。
+> 未装 memory-topology 时两条路由都不挂载（宿主 404）；装了但版本较早（无
+> `declarationPreview`/`declarationRender`）时返回 `{"available": false}`，界面提示
+> 升级插件而不是静默失败。界面入口在配置面板 🕸️ 依赖拓扑 区块：
+> 「📥 从仓库抓取依赖」（复用导入预览对话框核对）与「💾 写回声明文件」（展示内容 + 目标路径 + 提交提示，
+> **不执行任何 git 操作**）。
+
 ---
 
 ## 4. 端到端：任务 → 时间线 → 门控 → 审计 → 产物

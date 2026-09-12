@@ -39,6 +39,27 @@ export interface MavenParentNode {
  */
 export const SERVICE_LEVEL_METHOD = '*'
 
+/**
+ * Where an edge came from (`declare-dependencies-in-repo` design D3):
+ *  - `'declared'` — the repo declares it (a declaration file / manual entry /
+ *    import); the repository is its home, so a re-ingest may add or remove it;
+ *  - `'derived'` — discovered from outbound calls and confirmed by a human; it has
+ *    no repository home, so reconciliation never touches it.
+ * Missing means `'declared'` (legacy data participates in reconciliation), which
+ * is also the canonical encoding: only `'derived'` is ever written explicitly.
+ */
+export type EdgeSource = 'declared' | 'derived'
+
+/** True for the two legal `source` values (anything else normalizes to absent). */
+export function isEdgeSource(value: unknown): value is EdgeSource {
+  return value === 'declared' || value === 'derived'
+}
+
+/** The effective source of an edge — absent means `'declared'` (design D3). */
+export function edgeSource(edge: Pick<RestDependencyEdge, 'source'>): EdgeSource {
+  return edge.source === 'derived' ? 'derived' : 'declared'
+}
+
 export interface RestDependencyEdge {
   toServiceId: string
   /**
@@ -57,6 +78,12 @@ export interface RestDependencyEdge {
   method: string
   /** Marks the edge as critical-path; affects cascade scheduling priority. */
   critical?: boolean
+  /**
+   * Provenance of this edge (`declare-dependencies-in-repo` design D3). Optional
+   * and additive: absent means `'declared'` (see `edgeSource`). A re-ingest of a
+   * repository declaration reconciles ONLY `'declared'` edges.
+   */
+  source?: EdgeSource
 }
 
 /**
@@ -183,6 +210,9 @@ export function normalizeTopology(input: unknown): ProjectTopology {
         endpoints,
         method,
         ...(e.critical === true ? { critical: true } : {}),
+        // Provenance survives a round trip (design D3): the two legal values are
+        // kept verbatim, anything else is dropped to the default (`declared`).
+        ...(isEdgeSource(e.source) ? { source: e.source } : {}),
       }
     })
   }
@@ -196,6 +226,7 @@ function cloneEdge(edge: RestDependencyEdge): RestDependencyEdge {
     endpoints: [...edge.endpoints],
     method: edge.method,
     ...(edge.critical === true ? { critical: true } : {}),
+    ...(isEdgeSource(edge.source) ? { source: edge.source } : {}),
   }
 }
 
@@ -211,7 +242,12 @@ function cloneEdge(edge: RestDependencyEdge): RestDependencyEdge {
  *  - a detail-less side never displaces details: the side that declared
  *    endpoints owns the resulting method, and two detail-less sides keep the
  *    existing method (stable → merging is idempotent);
- *  - `critical` is sticky (OR).
+ *  - `critical` is sticky (OR);
+ *  - provenance takes the more conservative side: `declared` wins over
+ *    `derived` (design D3), so a derived confirmation can never downgrade a
+ *    declared edge. The field is written only when it is explicit in an input
+ *    (`derived`) or when `declared` was spelled out — absent still means
+ *    `declared`, which keeps legacy data byte-identical through a merge.
  */
 export function mergeDependencyEdge(existing: RestDependencyEdge, incoming: RestDependencyEdge): RestDependencyEdge {
   const existingHasDetail = existing.endpoints.length > 0
@@ -225,11 +261,14 @@ export function mergeDependencyEdge(existing: RestDependencyEdge, incoming: Rest
     seen.add(key)
     endpoints.push(endpoint)
   }
+  const source: EdgeSource = edgeSource(existing) === 'declared' || edgeSource(incoming) === 'declared' ? 'declared' : 'derived'
+  const sourceIsExplicit = source === 'derived' || existing.source === 'declared' || incoming.source === 'declared'
   return {
     toServiceId: existing.toServiceId || incoming.toServiceId,
     endpoints,
     method,
     ...(existing.critical === true || incoming.critical === true ? { critical: true } : {}),
+    ...(sourceIsExplicit ? { source } : {}),
   }
 }
 

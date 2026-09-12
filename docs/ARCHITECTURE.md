@@ -59,6 +59,31 @@ webServer (DSH 内置) ←─ inject ── ui-dashboard, ui-diff, ui-workbench,
   （证据/端点取并集、置信度取高档）、排除自环、**无证据不产出候选**，未登记目标
   **保留**并标 `targetDeclared: false`，会与既有图成环的候选**标注**而非丢弃。
   两个模块都沿用 `scan-rest` 的同一套上限与 root containment，且不做任何网络请求。
+- **仓库内依赖声明（memory-topology）**：依赖索引可以**前移进项目**——每个仓库在
+  `<repo>/.helmsman/dependencies.yml` 声明**自己的出站依赖**（`version` / `service`
+  （必填，是每条边的调用方）/ `dependencies[]`，每项必填 `to` + 可选
+  `method`/`endpoints`/`critical`；只声明出站，不声明入站）。声明作为**第四个导入源**
+  （`source: 'helmsman-declaration'`）接入既有 `importPreview → 人工核对 → importApply`
+  链路：解析结果就是既有 `ImportPreview`（`services[]` + `dependencies[]`），
+  人复用的还是那个「预览 → 勾选 → 应用」对话框，应用走的还是同一条
+  `applyPreview` 合并 + 保存去重路径——**没有第二套审核 UI，也没有新的写入路径**。
+  - `declaration.ts`：解析与回写互为往返（`renderDeclaration` 的输出能被
+    `parseDeclaration` 解析回等价集合）。缺 `service` 或某条依赖缺 `to` → 整体报错、
+    **不产出部分边**；文件缺失 → 明确的 `missing` 结果（非错误）；存在但解析失败 →
+    报出完整的问题清单且**不应用任何边**。
+    回写只序列化 `declared` 边（`derived` 不写入，避免把系统发现静默固化成「仓库声明」）。
+  - **边的来源标记**：`RestDependencyEdge.source?: 'declared' | 'derived'`（**可选新增**，
+    缺省即 `declared`，故存量数据自然参与调和）。`normalizeTopology` 保留两个合法值、
+    其余丢弃为缺省；`mergeDependencyEdge` 在同一对上取更保守的一方（任一 `declared`
+    则结果 `declared`，推导确认不能把声明边降级）；只有 `derived` 会被显式写出，
+    `'declared'` 保持隐式缺省（存量文件字节稳定）、导出 YAML 也沿用该编码。
+  - **重新抓取的调和规则**：对声明服务，文件是其 `declared` 边的唯一事实源——文件里有的
+    补上/并入、文件里没有的 `declared` 边移除；`derived` 边**不增不删**（同一对若被文件
+    声明则合并，来源按 `declared`、明细取并集）。因此重复抓取**幂等**，且不会冲掉此前
+    确认过的推导结果。抓取只读、离线（只读本地文件与已存拓扑）。
+  - 未登记目标沿用推导变更的「登记并确认」路径（预览里标出、勾选即登记），使应用后不会
+    立刻产生体检里的悬空引用；回写只产出「建议提交到仓库」的提示与目标路径，**不执行任何
+    git 操作**。
 - **orchestrator**：框架无关的 `OrchestratorCore`（单测覆盖），插件入口只做
   cordis 装配 + 4 个 agent 工具注册。任务状态机与 PRD §4.2 一致；
   限流(429)按 2s/8s/32s 指数退避重试（默认 3 次），认证失效不重试，
