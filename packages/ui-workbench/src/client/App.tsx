@@ -1,8 +1,11 @@
 /**
  * Helmsman Workbench UI — three mount shapes from one panel body:
- *  - WorkbenchToggle: sidebar.footer.action entry (opens the drawer)
- *  - WorkbenchDrawer: shell.overlay right-side drawer (self-contained chrome)
- *  - App: standalone full-page mount (host-served /helmsman-workbench)
+ *  - App: standalone full-page mount (host-served /helmsman-workbench) and the
+ *    body of the「🚀 Helmsman」better-sidebar tab, the live entry point
+ *  - WorkbenchToggle: sidebar.footer.action button — the former LEFT-SIDEBAR
+ *    entry, no longer registered (kept so it can be restored)
+ *  - WorkbenchDrawer: shell.overlay right-side drawer, which only that toggle
+ *    opened; kept alongside it for the same reason
  *
  * Panels show generation records, the DRAFT ARTIFACTS they produced (research
  * notes / PRD drafts — viewable and archivable into the Tolaria vault), and a
