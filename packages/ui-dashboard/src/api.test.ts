@@ -325,6 +325,7 @@ describe('dashboard API router', () => {
       scannedAt: 1700000000000,
       scanned: ['homework-server'],
       skipped: [{ serviceId: 'internal-homework', reason: '未配置本地路径（localPath）' }],
+      ignored: [{ key: 'homework-server→oss', at: 1 }],
     }
     const deriveDependencies = vi.fn(async () => result)
     const router = createApiRouter({ orchestrator: fakeOrchestrator(), topology: { ...fakeTopology, deriveDependencies } })
@@ -333,7 +334,7 @@ describe('dashboard API router', () => {
     expect(handled).toBe(true)
     expect(status()).toBe(200)
     expect(deriveDependencies).toHaveBeenCalledWith('作业服务群', { scope: 'config' })
-    expect(JSON.parse(body())).toEqual({ group: '作业服务群', result, available: true })
+    expect(JSON.parse(body())).toEqual({ group: '作业服务群', result, available: true, ignored: result.ignored })
   })
 
   it('derive route degrades to available:false when the installed service has no deriveDependencies', async () => {
@@ -342,7 +343,7 @@ describe('dashboard API router', () => {
     const handled = await router.handle(fakeReq('GET'), res, '/api/topology/derive?group=g')
     expect(handled).toBe(true)
     expect(status()).toBe(200)
-    expect(JSON.parse(body())).toEqual({ group: 'g', result: null, available: false })
+    expect(JSON.parse(body())).toEqual({ group: 'g', result: null, available: false, ignored: [] })
   })
 
   it('derive route is not mounted without the topology plugin (host answers 404)', async () => {

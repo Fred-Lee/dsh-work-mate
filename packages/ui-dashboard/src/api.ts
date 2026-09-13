@@ -53,6 +53,10 @@ export interface TopologyServiceLike {
    * undeclared target registers the service in the same action (「登记并确认」).
    */
   applyCandidates?(group: string, candidates: ApplyCandidateInputLike[]): Promise<ApplyCandidatesResultLike>
+  /** 忽略并记住：把候选按服务对加入该群的持久化忽略清单（幂等）。可选：旧版服务无此能力。 */
+  ignoreCandidates?(group: string, keys: readonly string[]): Promise<Array<{ key: string; at: number; note?: string }>>
+  /** 恢复被忽略的候选（keys 缺省 = 全部恢复）。 */
+  restoreIgnoredCandidates?(group: string, keys?: readonly string[]): Promise<Array<{ key: string; at: number; note?: string }>>
   /**
    * Read-only ingest of a repository's own declaration
    * (`declare-dependencies-in-repo`, `.helmsman/dependencies.yml`). Optional for
@@ -214,6 +218,8 @@ export interface DeriveResultLike {
   sources?: { config: number; code: number }
   scanned?: string[]
   skipped?: Array<{ serviceId: string; reason: string }>
+  /** The group's persisted ignore list (echoed so the UI renders 「已忽略」). */
+  ignored?: Array<{ key: string; at: number; note?: string }>
 }
 
 export interface ApplyCandidateInputLike {
@@ -582,8 +588,32 @@ export function createApiRouter(deps: DashboardApiDeps): Router {
       // explicit deep scan that also walks source code for endpoint detail.
       const scope = query.get('scope') === 'full' ? 'full' : 'config'
       const derive = topology.deriveDependencies
-      if (typeof derive !== 'function') return { group, result: null, available: false }
-      return { group, result: await derive.call(topology, group, { scope }), available: true }
+      if (typeof derive !== 'function') return { group, result: null, available: false, ignored: [] }
+      const result = await derive.call(topology, group, { scope })
+      return { group, result, available: true, ignored: result.ignored ?? [] }
+    })
+
+    // 忽略并记住（persist-derive-ignores）: persist per-pair ignores so a
+    // candidate never comes back on re-derive (or in the drift verdict); the
+    // restore path brings it back. Both degrade like the derive route.
+    router.post('api/topology/derive/ignore', async ({ req }) => {
+      const body = await readJsonBody(req)
+      const group = String(body.group ?? '')
+      const keys = Array.isArray(body.keys) ? body.keys.map(String) : []
+      if (!group || keys.length === 0) throw new Error('group and keys are required')
+      const ignore = topology.ignoreCandidates
+      if (typeof ignore !== 'function') return { group, ignored: [], available: false }
+      return { group, ignored: await ignore.call(topology, group, keys), available: true }
+    })
+
+    router.post('api/topology/derive/restore', async ({ req }) => {
+      const body = await readJsonBody(req)
+      const group = String(body.group ?? '')
+      if (!group) throw new Error('group is required')
+      const keys = Array.isArray(body.keys) ? body.keys.map(String) : undefined
+      const restore = topology.restoreIgnoredCandidates
+      if (typeof restore !== 'function') return { group, ignored: [], available: false }
+      return { group, ignored: await restore.call(topology, group, keys), available: true }
     })
 
     // Human confirmation of (a subset of) those candidates. The topology service

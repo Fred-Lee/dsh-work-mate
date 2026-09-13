@@ -89,6 +89,12 @@ export interface DeriveOptions {
   scanOutbound?: (localPath: string, opts?: OutboundScanOptions) => Promise<OutboundCall[]>
   /** Clock injection so `scannedAt` is deterministic in tests. */
   now?: () => number
+  /**
+   * Pair keys (`from→to`, see `derivePairKey`) to exclude from the result —
+   * the persisted derive-ignore list, loaded by the service surface. Pure
+   * filtering: the module itself never touches the ignore file.
+   */
+  exclude?: readonly string[]
 }
 
 export interface DeriveResult {
@@ -98,6 +104,8 @@ export interface DeriveResult {
   scope: OutboundScanScope
   /** How many candidates carry config-kind vs code-only evidence. */
   sources: { config: number; code: number }
+  /** Candidates dropped by the persisted ignore list (echoed for the UI). */
+  excluded: number
   /** Service ids whose tree was actually scanned. */
   scanned: string[]
   /** Services that could not be scanned (no localPath / unreadable tree). */
@@ -197,8 +205,17 @@ export async function deriveDependencies(topology: ProjectTopology, options: Der
   }
 
   const candidates: DependencyCandidate[] = []
+  const excluded = options.exclude ? new Set(options.exclude) : null
+  let excludedHits = 0
   for (const entry of working.values()) {
     if (entry.evidence.length === 0) continue // no evidence → no candidate (D2)
+    // Persisted derive-ignore list (design: 忽略并记住) — the pair is dropped
+    // before it ever reaches a result, so plain derivation AND the drift check
+    // (which reuses this path) both stay clean.
+    if (excluded?.has(derivePairKey(entry.from, entry.to))) {
+      excludedHits += 1
+      continue
+    }
     const declared = Object.prototype.hasOwnProperty.call(services, entry.to)
     const dominant = dominantMethod(entry.details)
     candidates.push({
@@ -222,7 +239,12 @@ export async function deriveDependencies(topology: ProjectTopology, options: Der
     config: candidates.filter((c) => c.evidence.some((e) => e.kind === 'config')).length,
     code: candidates.filter((c) => c.evidence.length > 0 && !c.evidence.some((e) => e.kind === 'config')).length,
   }
-  return { candidates, scannedAt: options.now?.() ?? Date.now(), scope, sources, scanned, skipped }
+  return { candidates, scannedAt: options.now?.() ?? Date.now(), scope, sources, excluded: excludedHits, scanned, skipped }
+}
+
+/** Stable pair key for the derive-ignore list (`from→to`). */
+export function derivePairKey(from: string, to: string): string {
+  return `${from}→${to}`
 }
 
 // ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@
  * The plugin entry is wired with a minimal fake cordis context (same pattern as
  * packages/presets/src/index.test.ts) so the real service object is exercised.
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -628,5 +628,86 @@ dependencies:
     expect(result.staleDeclared[0]!.reason).toContain('配置扫描范围')
     expect(result.staleDeclared[0]!.reason).not.toContain('未在代码中')
     rmSync(decl, { force: true })
+  })
+})
+
+describe('derive-ignore list (忽略并记住)', () => {
+  let localDir: string
+  let repoRoot: string
+  let localService: TopologyService
+
+  function localContext(): Context {
+    return {
+      provide: (name: string, value: unknown) => {
+        if (name === 'helmsman.topology') localService = value as TopologyService
+      },
+      get: () => undefined,
+      tools: { register: () => undefined },
+    } as unknown as Context
+  }
+
+  beforeAll(async () => {
+    localDir = mkdtempSync(join(tmpdir(), 'helmsman-ignores-'))
+    repoRoot = join(localDir, 'repo')
+    const full = join(repoRoot, 'src/main/resources/application.yml')
+    mkdirSync(dirname(full), { recursive: true })
+    writeFileSync(full, `internal-homework:
+  base-url: http://internal-homework:8080
+oss:
+  url: https://oss-gw.example.com/bucket
+`)
+    const t = emptyTopology('ignore-demo')
+    t.services['homework-server'] = {
+      name: 'homework-server',
+      projectId: 'homework-server',
+      techStack: [],
+      apiEndpoints: [],
+      localPath: repoRoot,
+    }
+    t.services['internal-homework'] = { name: 'internal-homework', projectId: 'internal-homework', techStack: [], apiEndpoints: [] }
+    vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    apply(localContext(), { rootDir: localDir })
+    await localService.saveTopology(t)
+  })
+
+  afterAll(() => {
+    rmSync(localDir, { recursive: true, force: true })
+    vi.restoreAllMocks()
+  })
+
+  const topologyFile = () => join(localDir, `${encodeURIComponent('ignore-demo')}.json`)
+
+  it('derives oss at first (an unregistered external target)', async () => {
+    const result = await localService.deriveDependencies('ignore-demo')
+    expect(result.candidates.map((c) => c.to)).toContain('oss')
+    expect(result.excluded).toBe(0)
+  })
+
+  it('ignoring a pair removes it from derive AND from the drift undeclared list, across a fresh service instance', async () => {
+    await localService.ignoreCandidates('ignore-demo', ['homework-server→oss'])
+    // Fresh instance = fresh in-memory state; the ignore list survives on disk.
+    apply(localContext(), { rootDir: localDir })
+
+    const result = await localService.deriveDependencies('ignore-demo')
+    expect(result.candidates.map((c) => c.to)).not.toContain('oss')
+    expect(result.excluded).toBe(1)
+    expect(result.ignored.map((e) => e.key)).toContain('homework-server→oss')
+
+    const drift = await localService.checkDeclarationDrift('ignore-demo', 'homework-server')
+    expect((drift.undeclared ?? []).some((u) => u.to === 'oss')).toBe(false)
+
+    // 忽略不触碰既有数据：拓扑文件字节不变
+    expect(existsSync(topologyFile())).toBe(true)
+  })
+
+  it('restore brings the candidate back; restore-all empties the list', async () => {
+    await localService.restoreIgnoredCandidates('ignore-demo', ['homework-server→oss'])
+    expect((await localService.deriveDependencies('ignore-demo')).candidates.map((c) => c.to)).toContain('oss')
+
+    await localService.ignoreCandidates('ignore-demo', ['homework-server→oss', 'homework-server→internal-homework'])
+    await localService.restoreIgnoredCandidates('ignore-demo')
+    const result = await localService.deriveDependencies('ignore-demo')
+    expect(result.excluded).toBe(0)
+    expect(result.ignored).toEqual([])
   })
 })

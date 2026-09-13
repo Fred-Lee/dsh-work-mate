@@ -18,7 +18,8 @@ import type {} from '@deepseek-ai/dsh-tools'
 import { TopologyStore } from './store.ts'
 import { computeDownstream, cascadeOrder } from './downstream.ts'
 import { checkGraph, type GraphHealth } from './graph-health.ts'
-import { deriveDependencies as deriveFromTopology, type DeriveOptions, type DeriveResult } from './derive-dependencies.ts'
+import { deriveDependencies as deriveFromTopology, derivePairKey, type DeriveOptions, type DeriveResult } from './derive-dependencies.ts'
+import { ignoreCandidates as persistIgnores, listIgnored, restoreIgnoredCandidates as persistRestore, type DeriveIgnoreEntry } from './derive-ignores.ts'
 import { scanMavenPom } from './scan-maven.ts'
 import { scanRestApis } from './scan-rest.ts'
 import {
@@ -123,7 +124,11 @@ export interface TopologyService {
    * touches the topology file and never issues a network request. Confirmation
    * is a separate action (`applyCandidates`).
    */
-  deriveDependencies(group: string, opts?: DeriveOptions): Promise<DeriveResult & { group: string }>
+  deriveDependencies(group: string, opts?: DeriveOptions): Promise<DeriveResult & { group: string; ignored: DeriveIgnoreEntry[] }>
+  /** 记住不要：把候选按服务对加入该群的持久化忽略清单（幂等）。 */
+  ignoreCandidates(group: string, keys: readonly string[]): Promise<DeriveIgnoreEntry[]>
+  /** 恢复被忽略的候选（缺省全部），恢复后下次推导重新出现。 */
+  restoreIgnoredCandidates(group: string, keys?: readonly string[]): Promise<DeriveIgnoreEntry[]>
   /**
    * Confirms candidates (one or many) by writing them through the SAME persist
    * path as `saveTopology`, so the "one edge per (from, to) pair" invariant holds
@@ -302,9 +307,21 @@ export function apply(ctx: Context, config: Config = {}) {
       const topology = await store.load(group)
       if (!topology) throw new Error(`unknown project group: ${group}`)
       // Read-only by construction: the derivation only READS local trees and the
-      // loaded topology; nothing here touches the store.
-      const result = await deriveFromTopology(topology, opts)
-      return { group, ...result }
+      // loaded topology; nothing here touches the store. The persisted ignore
+      // list ("忽略并记住") filters candidates so plain derivation AND the drift
+      // check both keep ignored pairs out.
+      const ignored = listIgnored(group)
+      const exclude = [...(opts?.exclude ?? []), ...ignored.map((e) => e.key)]
+      const result = await deriveFromTopology(topology, { ...opts, exclude })
+      return { group, ...result, ignored }
+    },
+
+    async ignoreCandidates(group, keys) {
+      return persistIgnores(group, keys)
+    },
+
+    async restoreIgnoredCandidates(group, keys) {
+      return persistRestore(group, keys)
     },
 
     async applyCandidates(group, candidates) {
@@ -525,7 +542,13 @@ export function apply(ctx: Context, config: Config = {}) {
       // Defaults to the config scope (the config is the source of truth); an
       // explicit scope on the call wins.
       const scopeOf = scope === 'full' ? 'full' : 'config'
-      const derived = await deriveFromTopology(topology, { serviceIds: [serviceId], scope: scopeOf })
+      const derived = await deriveFromTopology(topology, {
+        serviceIds: [serviceId],
+        scope: scopeOf,
+        // The drift verdict consumes the same derivation, so ignored pairs stay
+        // out of 「未声明」 too — one ignore, both surfaces clean.
+        exclude: listIgnored(group).map((e) => e.key),
+      })
       return {
         group,
         ...checkDeclarationDrift({

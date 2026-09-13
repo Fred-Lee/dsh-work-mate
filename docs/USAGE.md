@@ -82,6 +82,10 @@
      单列一组「目标未登记（可登记并确认）」。
      - 「📝 登记并确认」：以候选给出的名字建立服务条目并同时落库 → 体检不会报悬空引用；
      - 「仅确认依赖」：会先弹确认提示——落库的边会被体检报为 ⚠️ **悬空引用**（不静默接受）。
+   - **不想要的目标（忽略并记住）**：推导偶尔会提出**外部基础设施**目标（如 `oss.url` 产生的 `oss`）——
+     不是错，但也不是要在微服务拓扑里登记的「服务」。点该行的「🙈 忽略」会把这一对
+     （`服务 → 目标`）写入 `~/.helmsman/derive-ignores.json`（按项目群）：
+     **下次推导与漂移核对的「未声明」都不再出现**；推导结果区的「🙈 已忽略（N）」可逐条或全部恢复。
    - **将形成环**：该候选会与既有依赖图构成环（「架构不应有循环调用」是约定），单独标注且
      **默认不勾选**；「✅ 全部确认（不含成环项）」**不会**带上它们（即使手工勾上也一样），
      确实要写就逐条点它自己的「✅ 确认」。
@@ -408,6 +412,7 @@ REST/SSE 补充端点（供脚本/调试）：
 - `GET /api/topology/derive?group=<群名>&scope=config|full` — 只读推导候选（默认 config 快扫；full 为深扫），无变更面；
   `result.candidates[].evidence` 即界面展示的证据，`skipped` 列出没能扫描的服务及原因。
 - `POST /api/topology/apply-candidates` — 确认候选落库（`{group, candidates:[{from,to,endpoints?,method?,register?}]}`）；
+- `POST /api/topology/derive/ignore` / `POST /api/topology/derive/restore` — 忽略并记住 / 恢复推导候选（按服务对，持久化于 ~/.helmsman/derive-ignores.json）；
   复用按服务对合并语义，故确认不会产生重复行；`register: true` 同时登记未登记的目标服务。
 - merge/discard/cancel 与 `POST /api/topology/delete` 均需携带 `confirmationToken`（confirm-required 时）。
 

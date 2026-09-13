@@ -132,6 +132,16 @@ export type TopologyDerivePayload = {
   result: DeriveOutcomePayload | null
   /** 老版本拓扑服务无该能力时为 false。 */
   available: boolean
+  /** 该群的持久化忽略清单（服务端回显，驱动「已忽略」区）。 */
+  ignored?: Array<{ key: string; at: number; note?: string }>
+}
+
+export type TopologyIgnorePayload = {
+  group: string
+  /** 操作后的忽略清单全量（忽略返回追加后的、恢复返回剩余的）。 */
+  ignored: Array<{ key: string; at: number; note?: string }>
+  /** 老版本拓扑服务无该能力时为 false。 */
+  available: boolean
 }
 
 export interface ApplyCandidatesPayload {
@@ -299,6 +309,15 @@ export const api = {
   /** 只读推导候选（出站调用 + 配置线索）；不写库，老版本服务返回 available=false。 */
   topologyDerive: (group: string, scope: 'config' | 'full' = 'config') =>
     request<TopologyDerivePayload>(`/topology/derive?group=${encodeURIComponent(group)}&scope=${scope}`),
+  /**
+   * 忽略并记住（persist-derive-ignores）：把候选按服务对写入持久化忽略清单。
+   * 服务端在推导层过滤，所以普通推导与漂移核对的「未声明」都不会再出现该候选。
+   */
+  deriveIgnore: async (group: string, keys: string[]): Promise<TopologyIgnorePayload> =>
+    request<TopologyIgnorePayload>('/topology/derive/ignore', { method: 'POST', body: JSON.stringify({ group, keys }) }),
+  /** 恢复被忽略的候选（keys 缺省 = 全部恢复），恢复后下次推导重新出现。 */
+  deriveRestore: async (group: string, keys?: string[]): Promise<TopologyIgnorePayload> =>
+    request<TopologyIgnorePayload>('/topology/derive/restore', { method: 'POST', body: JSON.stringify({ group, ...(keys ? { keys } : {}) }) }),
   /**
    * 确认候选落库：服务端复用 `mergeDependencyEdge` 的按服务对合并语义，
    * 所以确认同一对服务不会造出重复行。返回落库后的整份拓扑以便即时刷新依赖行。

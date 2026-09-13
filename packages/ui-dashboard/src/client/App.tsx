@@ -1338,6 +1338,9 @@ export function ConfigPanel(props: {  groups: string[]
   const [deriveAvailable, setDeriveAvailable] = useState(true)
   const [deriving, setDeriving] = useState(false)
   const [ignoredCandidates, setIgnoredCandidates] = useState<string[]>([])
+  // 忽略并记住（persist-derive-ignores）：服务端回显的持久化清单 + 记住上次推导范围（恢复后重跑用）。
+  const [persistedIgnored, setPersistedIgnored] = useState<Array<{ key: string; at: number; note?: string }>>([])
+  const [deriveScope, setDeriveScope] = useState<'config' | 'full'>('config')
   const [selectedCandidates, setSelectedCandidates] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [scanning, setScanning] = useState<string | null>(null)
@@ -1428,6 +1431,8 @@ export function ConfigPanel(props: {  groups: string[]
     setDeriving(true)
     try {
       const res = await api.topologyDerive(group, scope)
+      setDeriveScope(scope)
+      setPersistedIgnored(res.ignored ?? [])
       setDeriveAvailable(res.available)
       if (!res.available || !res.result) {
         setDerive(null)
@@ -1554,8 +1559,33 @@ export function ConfigPanel(props: {  groups: string[]
     void confirmCandidates([{ candidate, register }])
   }
   const ignoreOne = (candidate: DeriveCandidatePayload): void => {
+    // 先本地移出（即时反馈），再落库持久化；服务端在推导层过滤，普通推导与漂移都不会再出现。
     setIgnoredCandidates((prev) => [...prev, candidateId(candidate)])
     setSelectedCandidates((prev) => prev.filter((id) => id !== candidateId(candidate)))
+    if (!group) return
+    void (async () => {
+      try {
+        const res = await api.deriveIgnore(group, [`${candidate.from}→${candidate.to}`])
+        if (res.available) setPersistedIgnored(res.ignored ?? [])
+        onToast('success', '🙈 已忽略并记住（下次推导与漂移核对不再出现）')
+      } catch (err) {
+        onToast('error', err instanceof Error ? err.message : String(err))
+      }
+    })()
+  }
+
+  const restoreIgnored = (keys?: string[]): void => {
+    if (!group) return
+    void (async () => {
+      try {
+        const res = await api.deriveRestore(group, keys)
+        if (res.available) setPersistedIgnored(res.ignored ?? [])
+        onToast('success', '♻️ 已恢复，正在重新推导…')
+        await runDerive(deriveScope)
+      } catch (err) {
+        onToast('error', err instanceof Error ? err.message : String(err))
+      }
+    })()
   }
 
   return (
@@ -1835,6 +1865,18 @@ export function ConfigPanel(props: {  groups: string[]
                   onConfirm={confirmOne}
                   onIgnore={ignoreOne}
                 />
+                {persistedIgnored.length > 0 && (
+                  <details className="candidate-group">
+                    <summary className="muted small">🙈 已忽略（{persistedIgnored.length}）— 展开可恢复</summary>
+                    {persistedIgnored.map((entry) => (
+                      <p key={entry.key} className="dep-line">
+                        {entry.key.replaceAll('→', ' ──▶ ')}
+                        <button className="btn btn-sm ghost" onClick={() => restoreIgnored([entry.key])}>♻️ 恢复</button>
+                      </p>
+                    ))}
+                    <button className="btn btn-sm ghost" onClick={() => restoreIgnored()}>♻️ 全部恢复</button>
+                  </details>
+                )}
                 {visibleCandidates.length > 0 && (
                   <div className="service-actions">
                     <button

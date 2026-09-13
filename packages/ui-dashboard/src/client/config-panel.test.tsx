@@ -313,18 +313,36 @@ const appliedTopology: TopologyPayload = {
 let deriveFixture: DeriveOutcomePayload | null = deriveOutcome
 let deriveAvailable = true
 let applyBodies: Array<{ group: string; candidates: unknown[] }> = []
+let ignoreBodies: Array<{ group: string; keys: string[] }> = []
+let restoreBodies: Array<{ group: string; keys?: string[] }> = []
+let deriveIgnored: Array<{ key: string; at: number; note?: string }> = []
 
 describe('ConfigPanel 推导候选区块', () => {
   beforeEach(() => {
     deriveFixture = deriveOutcome
     deriveAvailable = true
     applyBodies = []
+    ignoreBodies = []
+    restoreBodies = []
+    deriveIgnored = []
     topologyFixture = twoServices
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.includes('/api/topology?')) return jsonResponse({ group: 'demo', topology: topologyFixture })
       if (url.includes('/api/topology/health')) return jsonResponse({ group: 'demo', health: cleanHealth, available: true })
-      if (url.includes('/api/topology/derive')) return jsonResponse({ group: 'demo', result: deriveFixture, available: deriveAvailable })
+      if (url.includes('/api/topology/derive/ignore')) {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { group: string; keys: string[] }
+        ignoreBodies.push(body)
+        return jsonResponse({ group: 'demo', ignored: body.keys.map((k) => ({ key: k, at: 1 })), available: true })
+      }
+      if (url.includes('/api/topology/derive/restore')) {
+        const body = JSON.parse(String(init?.body ?? '{}')) as { group: string; keys?: string[] }
+        restoreBodies.push(body)
+        return jsonResponse({ group: 'demo', ignored: (body.keys ?? []).map((k) => ({ key: k, at: 1 })), available: true })
+      }
+      if (url.includes('/api/topology/derive')) {
+        return jsonResponse({ group: 'demo', result: deriveFixture, available: deriveAvailable, ignored: deriveIgnored })
+      }
       if (url.includes('/api/topology/apply-candidates')) {
         const body = JSON.parse(String(init?.body ?? '{}')) as { group: string; candidates: unknown[] }
         applyBodies.push(body)
@@ -434,16 +452,36 @@ describe('ConfigPanel 推导候选区块', () => {
     expect(applyBodies[0]!.candidates).toEqual([{ from: 'user-service', to: 'internal-bc-es' }])
   })
 
-  it('「忽略」把候选移出清单且不落库', async () => {
+  it('「忽略」落库为持久化忽略清单，行即时移出，并出现「已忽略」区', async () => {
     const view = await renderWithCandidates()
     const declared = view.container.querySelector('[data-candidate="user-service → order-service"]') as HTMLElement
     fireEvent.click(within(declared).getByRole('button', { name: '🙈 忽略' }))
     await act(async () => {})
 
+    // 落库：POST /derive/ignore，键为 from→to（服务对）
+    expect(ignoreBodies).toEqual([{ group: 'demo', keys: ['user-service→order-service'] }])
+    expect(applyBodies).toHaveLength(0)
     expect(rows(view)).toHaveLength(2)
     expect(view.container.querySelector('[data-candidate="user-service → order-service"]')).toBeNull()
-    expect(applyBodies).toHaveLength(0)
-    expect(view.container.textContent).toContain('另有 1 条已忽略')
+  })
+
+  it('「已忽略」区可逐条恢复与全部恢复，恢复后重跑推导', async () => {
+    deriveIgnored = [{ key: 'user-service→oss', at: 1 }]
+    const view = await renderWithCandidates()
+    expect(view.container.textContent).toContain('已忽略（1）')
+
+    fireEvent.click(view.getByRole('button', { name: '♻️ 恢复' }))
+    await act(async () => {})
+    expect(restoreBodies).toEqual([{ group: 'demo', keys: ['user-service→oss'] }])
+
+    fireEvent.click(view.getByRole('button', { name: '♻️ 全部恢复' }))
+    await act(async () => {})
+    expect(restoreBodies[1]).toEqual({ group: 'demo' })
+  })
+
+  it('无持久化忽略时不显示「已忽略」区', async () => {
+    const view = await renderWithCandidates()
+    expect(view.container.textContent).not.toContain('已忽略（')
   })
 
   it('老版本拓扑服务（available:false）给出提示而不是报错', async () => {
