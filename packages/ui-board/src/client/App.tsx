@@ -32,6 +32,7 @@ import {
   type WipPayload,
 } from './api'
 import { RunPanel } from './RunPanel'
+import { StartRunDialog } from './StartRunDialog'
 
 export interface BoardViewProps {
   className?: string
@@ -87,6 +88,8 @@ export function BoardView({ className }: BoardViewProps = {}): JSX.Element {
   const [runsData, setRunsData] = useState<RunsPayload | null>(null)
   const [migrations, setMigrations] = useState<BoardEventPayload[]>([])
   const [createOpen, setCreateOpen] = useState(false)
+  /** Card whose 「▶ 发起执行」 dialog is open (design D4: the card stays put). */
+  const [startRunCard, setStartRunCard] = useState<BoardCardPayload | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const dragId = useRef<string | null>(null)
 
@@ -311,6 +314,20 @@ export function BoardView({ className }: BoardViewProps = {}): JSX.Element {
     setToast(`请先补齐:${gap.label}`)
   }, [config?.diffMount])
 
+  /** Same card behaves the same in every column (the entry itself is dev-only). */
+  const cardBindings = useCallback(
+    (card: BoardCardPayload) => ({
+      card,
+      selected: urlState.card === card.id,
+      refusal: refusals[card.id]?.reason ?? null,
+      dashboardMount: config?.dashboardMount ?? '/helmsman-dashboard',
+      onSelect: selectCard,
+      onDragStart: onCardDragStart,
+      onStartRun: setStartRunCard,
+    }),
+    [urlState.card, refusals, config?.dashboardMount, selectCard, onCardDragStart],
+  )
+
   return (
     <div className={`board-app${className ? ` ${className}` : ''}`} data-role="board">
       <header className="board-topbar" data-role="board-topbar">
@@ -431,29 +448,13 @@ export function BoardView({ className }: BoardViewProps = {}): JSX.Element {
                     <div className="domain-group" data-role="domain-group" data-key={group.key} key={group.key}>
                       <div className="domain-label">{group.key}</div>
                       {group.cards.map((card) => (
-                        <Card
-                          key={card.id}
-                          card={card}
-                          selected={urlState.card === card.id}
-                          refusal={refusals[card.id]?.reason ?? null}
-                          onSelect={selectCard}
-                          onDragStart={onCardDragStart}
-                        />
+                        <Card key={card.id} {...cardBindings(card)} />
                       ))}
                     </div>
                   ))
                 : visible
                     .filter((card) => card.stage === stage)
-                    .map((card) => (
-                      <Card
-                        key={card.id}
-                        card={card}
-                        selected={urlState.card === card.id}
-                        refusal={refusals[card.id]?.reason ?? null}
-                        onSelect={selectCard}
-                        onDragStart={onCardDragStart}
-                      />
-                    ))}
+                    .map((card) => <Card key={card.id} {...cardBindings(card)} />)}
               {loading ? <p className="muted small">加载中…</p> : null}
             </div>
           </section>
@@ -496,6 +497,26 @@ export function BoardView({ className }: BoardViewProps = {}): JSX.Element {
         />
       ) : null}
 
+      {startRunCard ? (
+        <StartRunDialog
+          card={startRunCard}
+          dashboardMount={config?.dashboardMount ?? '/helmsman-dashboard'}
+          onCancel={() => setStartRunCard(null)}
+          onStarted={async (taskId) => {
+            // The card does not move and nothing is written locally: the page
+            // only re-reads the server (spec 「只发起、不复制操作」). The run's
+            // `runs[]`/SSE timeline is the EXISTING persistence's job.
+            setToast(`已发起执行:${taskId} · 取消/重试/审批/合并请去执行看板`)
+            await refresh()
+          }}
+          onOpenCard={() => {
+            const id = startRunCard.id
+            setStartRunCard(null)
+            selectCard(id)
+          }}
+        />
+      ) : null}
+
       {toast ? (
         <div className="board-toast" data-role="toast" role="status" onClick={() => setToast(null)}>
           {toast}
@@ -509,17 +530,24 @@ export function BoardView({ className }: BoardViewProps = {}): JSX.Element {
 // Card
 // ---------------------------------------------------------------------------
 
-function Card(props: {
+interface CardProps {
   card: BoardCardPayload
   selected: boolean
   refusal: string | null
+  /** Dashboard mount — the 「去执行看板」 link target (design D4). */
+  dashboardMount: string
   onSelect: (id: string) => void
   onDragStart: (event: DragEvent, card: BoardCardPayload) => void
-}): JSX.Element {
+  /** Opens the 发起执行 dialog; only 第 ③ 列 cards render the entry. */
+  onStartRun: (card: BoardCardPayload) => void
+}
+
+function Card(props: CardProps): JSX.Element {
   const { card, selected, refusal } = props
   const queueReason = card.queueingReason ?? refusal
   const dotState = queueReason ? 'queued' : card.runState
   const dotLabel = queueReason ? '排队' : card.runStateLabel
+  const dashboardHref = `${props.dashboardMount.replace(/\/+$/, '')}/`
   return (
     <article
       className={`board-card${queueReason ? ' is-queued' : ''}${selected ? ' is-selected' : ''}`}
@@ -582,6 +610,53 @@ function Card(props: {
       {queueReason ? (
         <div className="card-queue" data-role="card-queue">
           排队:{queueReason}
+        </div>
+      ) : null}
+
+      {/*
+        第 ③ 列专属:发起执行入口 (spec card-start-run). Gated on
+        `projectGroup` × ≥1 installed agent — an unmet gate renders the
+        「请先在执行看板发起」 hint instead of a button that fails on submit.
+        cancel/retry/approval/merge are NOT offered here: the only jump-off is
+        the 「去执行看板」 link (design D4).
+      */}
+      {card.stage === 'dev' ? (
+        <div className="card-start-run" data-role="card-start-run">
+          {card.startRun.available ? (
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              data-role="start-run"
+              title="调既有 runParallelTask 起一个新 run(卡片原地不动)"
+              onClick={(event) => {
+                // the card itself is a click target (it opens the drawer)
+                event.stopPropagation()
+                props.onStartRun(card)
+              }}
+            >
+              ▶ 发起执行
+            </button>
+          ) : (
+            <span className="card-start-hint" data-role="start-run-hint">
+              请先在执行看板发起
+              {card.startRun.reason ? (
+                <span className="muted small" data-role="start-run-hint-reason">
+                  ({card.startRun.reason})
+                </span>
+              ) : null}
+            </span>
+          )}
+          <a
+            className="card-dashboard-link"
+            data-role="start-run-dashboard-link"
+            href={dashboardHref}
+            target="_blank"
+            rel="noreferrer"
+            title="取消 / 重试 / 审批 / 合并仍在执行看板完成"
+            onClick={(event) => event.stopPropagation()}
+          >
+            去执行看板
+          </a>
         </div>
       ) : null}
     </article>

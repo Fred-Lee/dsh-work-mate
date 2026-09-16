@@ -5,6 +5,7 @@ import {
   nextStage,
   runRefState,
   stageIndex,
+  startRunCapability,
   toCardPayload,
   type ArtifactLike,
   type BoardApiDeps,
@@ -195,6 +196,9 @@ function makeOrchestrator(): OrchestratorLike {
     listPendingConfirmations: vi.fn(() => [
       { approvalId: 'ap-1', op: 'merge', scope: 'merge:task:t-1', source: 'ui', requestedAt: 4_000, expiresAt: 9_000 },
     ]),
+    // change `enable-card-start-run`: the two seams the 发起执行 entry uses.
+    checkAgents: vi.fn(async () => ({ claude: { installed: true, version: '1.2.3' }, codex: { installed: true } })),
+    runParallelTask: vi.fn(async () => ({ taskId: 't-new' })),
   }
 }
 
@@ -660,6 +664,242 @@ describe('GET api/board/events (migration trail)', () => {
   })
 })
 
+describe('发起执行入口 gating(projectGroup × 已装 agent,design D1)', () => {
+  async function startRunOf(router: Router, itemId = 'wi-1'): Promise<Record<string, unknown>> {
+    const { body } = await call(router, 'GET', '/api/items')
+    const card = (body.items as Array<Record<string, unknown>>).find((c) => c.id === itemId)
+    expect(card, `card ${itemId}`).toBeDefined()
+    return card!.startRun as Record<string, unknown>
+  }
+
+  it('可用:卡片有 projectGroup 且该群至少一个 agent 已装(未装的其它 agent 不进 installed)', async () => {
+    const checkAgents = vi.fn(async () => ({ claude: { installed: true }, codex: { installed: false } }))
+    const router = makeRouter({ orchestrator: () => ({ ...makeOrchestrator(), checkAgents }), agentsTtlMs: 0 })
+    expect(await startRunOf(router)).toEqual({ available: true, reason: null, projectGroup: '订单中台', installed: ['claude'] })
+  })
+
+  it('缺少 projectGroup → 不可用并给中文原因(渲染「请先在执行看板发起」引导)', async () => {
+    // wi-3 在 dev 列,repoScope 只有 baseRepo
+    const startRun = await startRunOf(makeRouter({ orchestrator: makeOrchestrator, agentsTtlMs: 0 }), 'wi-3')
+    expect(startRun).toMatchObject({ available: false, projectGroup: null })
+    expect(String(startRun.reason)).toContain('projectGroup')
+  })
+
+  it('该群一个 agent 都没装 → 不可用', async () => {
+    const checkAgents = vi.fn(async () => ({ claude: { installed: false }, codex: { installed: false } }))
+    const router = makeRouter({ orchestrator: () => ({ ...makeOrchestrator(), checkAgents }), agentsTtlMs: 0 })
+    const startRun = await startRunOf(router)
+    expect(startRun).toMatchObject({ available: false, installed: [] })
+    expect(String(startRun.reason)).toContain('暂无已安装的 agent')
+  })
+
+  it('orchestrator 缺失 / 方法缺失(旧版安装) → 降级为引导而不是必失败的按钮', async () => {
+    expect((await startRunOf(makeRouter({}))).available).toBe(false)
+    const orch = makeOrchestrator()
+    delete (orch as { checkAgents?: unknown }).checkAgents
+    const startRun = await startRunOf(makeRouter({ orchestrator: () => orch, agentsTtlMs: 0 }))
+    expect(startRun.available).toBe(false)
+    expect(String(startRun.reason)).toContain('编排服务')
+  })
+
+  it('探测失败(抛错)也降级', async () => {
+    const checkAgents = vi.fn(async () => {
+      throw new Error('agent CLI not on PATH')
+    })
+    const router = makeRouter({ orchestrator: () => ({ ...makeOrchestrator(), checkAgents }), agentsTtlMs: 0 })
+    expect((await startRunOf(router)).available).toBe(false)
+  })
+
+  it('一次探测按 TTL 复用(轮询不反复 spawn CLI),但不可用结果不被缓存', async () => {
+    const checkAgents = vi.fn(async () => ({ claude: { installed: true } }))
+    const router = makeRouter({ orchestrator: () => ({ ...makeOrchestrator(), checkAgents }) })
+    await call(router, 'GET', '/api/items')
+    await call(router, 'GET', '/api/items')
+    expect(checkAgents).toHaveBeenCalledTimes(1) // 默认 TTL 内复用
+
+    // 懒解析:先没有 orchestrator(不缓存),再接上时必须立即可用
+    let orch: OrchestratorLike | undefined
+    const late = makeRouter({ orchestrator: () => orch })
+    expect((await startRunOf(late)).available).toBe(false)
+    orch = makeOrchestrator()
+    expect((await startRunOf(late)).available).toBe(true)
+  })
+})
+
+describe('POST api/item/:id/run(发起执行:唯一写路径)', () => {
+  /** Request body builder (the SPA shape; `agents` doubles as the comma form). */
+  const req = (prompt: string, agents: unknown, cascade?: boolean) => ({
+    prompt,
+    agents,
+    ...(cascade === undefined ? {} : { cascade }),
+  })
+  const runRouter = (orchestrator: OrchestratorLike) => makeRouter({ orchestrator: () => orchestrator, agentsTtlMs: 0 })
+
+  it('只调既有 runParallelTask,参数恰为 {prompt, agents, projectGroupId, cascade}', async () => {
+    const orchestrator = makeOrchestrator()
+    const { status, body: res } = await call(
+      runRouter(orchestrator),
+      'POST',
+      '/api/item/wi-1/run',
+      req('登录接口并行改造\n\n重构登录接口并补充单测。', ['claude'], true),
+    )
+    expect(status).toBe(200)
+    expect(res).toMatchObject({ ok: true, taskId: 't-new', projectGroupId: '订单中台', cascade: true })
+    expect(orchestrator.runParallelTask).toHaveBeenCalledTimes(1)
+    // 深度相等 = 一个多余参数都不传(timeoutSec / repoPath 都不暴露)
+    expect(orchestrator.runParallelTask).toHaveBeenCalledWith({
+      prompt: '登录接口并行改造\n\n重构登录接口并补充单测。',
+      agents: ['claude'],
+      projectGroupId: '订单中台',
+      cascade: true,
+    })
+  })
+
+  it('接受逗号分隔的 agent 串(headless 工具入参形态),去重且忽略空串', async () => {
+    const orchestrator = makeOrchestrator()
+    const { body: res } = await call(runRouter(orchestrator), 'POST', '/api/item/wi-1/run', req('做点事', 'claude, codex, claude,'))
+    expect(orchestrator.runParallelTask).toHaveBeenCalledWith({
+      prompt: '做点事',
+      agents: ['claude', 'codex'],
+      projectGroupId: '订单中台',
+      cascade: false, // 复选框没勾 → false,但字段照传
+    })
+    expect(res.cascade).toBe(false)
+  })
+
+  it('唯一写入是「把 run 关联回卡片」;不碰拓扑/声明/忽略,阶段与门不变', async () => {
+    const board = makeBoard()
+    const orchestrator = makeOrchestrator()
+    const topology = makeTopology()
+    const artifacts = makeArtifacts()
+    const router = makeRouter({ board, orchestrator: () => orchestrator, topology: () => topology, artifacts: () => artifacts, agentsTtlMs: 0 })
+    const { body: res } = await call(router, 'POST', '/api/item/wi-1/run', req('做点事', ['claude'], true))
+    expect(res.ok).toBe(true)
+
+    // spec「起跑后把 run 关联回卡片」:这是本能力唯一被允许的看板写入
+    expect(board.associate).toHaveBeenCalledTimes(1)
+    const [linkedId, association] = board.associate.mock.calls[0] as unknown as [string, { type: string; refId: string }]
+    expect(linkedId).toBe('wi-1')
+    expect(association.type).toBe('run')
+    expect(association.refId).toBe(res.taskId)
+    expect(res.linked).toBe(true)
+
+    // 其余看板写入一律没有:阶段/门/摘要/创建/解除都不动
+    for (const method of ['create', 'update', 'advance', 'disassociate', 'setSummary'] as const) {
+      expect(board[method], `board.${method}`).not.toHaveBeenCalled()
+    }
+    // 门 / WIP 不参与 → 列内追加 run 不被 WIP 拦
+    expect(board.gate).not.toHaveBeenCalled()
+    // 拓扑与产物服务一次都没被问过 → 拓扑 / 声明 / 忽略清单不可能被改
+    expect(topology.loadTopology).not.toHaveBeenCalled()
+    expect(artifacts.resolve).not.toHaveBeenCalled()
+    // 也没有第二个 orchestrator 通道(取消/合并等生命周期操作仍留在执行看板)
+    expect(orchestrator.history.getEvents).not.toHaveBeenCalled()
+    expect(orchestrator.listPendingConfirmations).not.toHaveBeenCalled()
+  })
+
+  it('关联失败不回滚 run:仍返回 taskId,并如实报告原因', async () => {
+    const board = makeBoard()
+    board.associate = vi.fn(async () => {
+      throw new Error('board store unavailable')
+    }) as unknown as typeof board.associate
+    const orchestrator = makeOrchestrator()
+    const router = makeRouter({ board, orchestrator: () => orchestrator, agentsTtlMs: 0 })
+    const { body: res } = await call(router, 'POST', '/api/item/wi-1/run', req('做点事', ['claude'], true))
+
+    // run 已经起跑 → 不回滚,只报告未挂上
+    expect(res.ok).toBe(true)
+    expect(res.taskId).toBe('t-new')
+    expect(res.linked).toBe(false)
+    expect(String(res.linkError)).toContain('board store unavailable')
+  })
+
+  it('看板服务不支持 associate(旧版)→ run 起跑但明确报告未挂上', async () => {
+    const board = makeBoard()
+    delete (board as { associate?: unknown }).associate
+    const orchestrator = makeOrchestrator()
+    const router = makeRouter({ board, orchestrator: () => orchestrator, agentsTtlMs: 0 })
+    const { body: res } = await call(router, 'POST', '/api/item/wi-1/run', req('做点事', ['claude'], true))
+
+    expect(res.ok).toBe(true)
+    expect(res.linked).toBe(false)
+    expect(String(res.linkError)).toContain('associate')
+  })
+
+  it('已在第 ③ 列且冲突域已满的卡片仍可发起(WIP 只拦进列)', async () => {
+    const board = makeBoard({
+      get: vi.fn(async () => makeItem({ stage: 'dev', scope: { module: 'a' }, queueingReason: '冲突域 order-core:a 已达上限' })),
+    })
+    const runParallelTask = vi.fn(async () => ({ taskId: 't-wip' }))
+    const router = makeRouter({ board, orchestrator: () => ({ ...makeOrchestrator(), runParallelTask }), agentsTtlMs: 0 })
+    const { status, body: res } = await call(router, 'POST', '/api/item/wi-1/run', req('继续迭代', ['codex'], false))
+    expect(status).toBe(200)
+    expect(res).toMatchObject({ ok: true, taskId: 't-wip' })
+    expect(board.advance).not.toHaveBeenCalled()
+    expect(board.gate).not.toHaveBeenCalled()
+  })
+
+  it('不可用场景一律 200 + ok:false + 中文原因(不 500),且不调用工具', async () => {
+    const orchestrator = makeOrchestrator()
+
+    // 缺 projectGroup
+    const noGroup = makeBoard({ get: vi.fn(async () => makeItem({ repoScope: { baseRepo: 'order-core' } })) })
+    let out = await call(makeRouter({ board: noGroup, orchestrator: () => orchestrator, agentsTtlMs: 0 }), 'POST', '/api/item/wi-1/run', req('x', ['claude']))
+    expect(out.status).toBe(200)
+    expect(out.body).toMatchObject({ ok: false })
+    expect(String(out.body.reason)).toContain('projectGroup')
+
+    // 没有 orchestrator / 没有 runParallelTask(旧版安装)
+    out = await call(makeRouter(), 'POST', '/api/item/wi-1/run', req('x', ['claude']))
+    expect(out.status).toBe(200)
+    expect(String(out.body.reason)).toContain('编排服务')
+    const noRun = makeOrchestrator()
+    delete (noRun as { runParallelTask?: unknown }).runParallelTask
+    out = await call(makeRouter({ orchestrator: () => noRun, agentsTtlMs: 0 }), 'POST', '/api/item/wi-1/run', req('x', ['claude']))
+    expect(String(out.body.reason)).toContain('编排服务')
+
+    // 该群没有已装 agent
+    const noneInstalled = makeOrchestrator()
+    ;(noneInstalled.checkAgents as ReturnType<typeof vi.fn>).mockResolvedValue({ claude: { installed: false } })
+    out = await call(makeRouter({ orchestrator: () => noneInstalled, agentsTtlMs: 0 }), 'POST', '/api/item/wi-1/run', req('x', ['claude']))
+    expect(String(out.body.reason)).toContain('暂无已安装的 agent')
+
+    // 用户指定了一个未装的 agent:如实拒绝,不回退到别的 agent
+    const onlyClaude = makeOrchestrator()
+    ;(onlyClaude.checkAgents as ReturnType<typeof vi.fn>).mockResolvedValue({ claude: { installed: true }, codex: { installed: false } })
+    out = await call(makeRouter({ orchestrator: () => onlyClaude, agentsTtlMs: 0 }), 'POST', '/api/item/wi-1/run', req('x', ['codex']))
+    expect(out.status).toBe(200)
+    expect(String(out.body.reason)).toContain('agent 未安装:codex')
+    expect(onlyClaude.runParallelTask).not.toHaveBeenCalled()
+    expect(orchestrator.runParallelTask).not.toHaveBeenCalled()
+  })
+
+  it('工具本身拒绝(如项目群没有 localPath)→ 可展示原因,不是 500', async () => {
+    const runParallelTask = vi.fn(async () => {
+      throw new Error('no repoPath: provide params.repoPath or configure services with localPath in the project group topology')
+    })
+    const { status, body: res } = await call(
+      makeRouter({ orchestrator: () => ({ ...makeOrchestrator(), runParallelTask }), agentsTtlMs: 0 }),
+      'POST',
+      '/api/item/wi-1/run',
+      req('x', ['claude'], true),
+    )
+    expect(status).toBe(200)
+    expect(res).toMatchObject({ ok: false })
+    expect(String(res.reason)).toContain('no repoPath')
+  })
+
+  it('400 缺 prompt / agents 非法;404 卡片不存在', async () => {
+    const router = makeRouter({ orchestrator: makeOrchestrator, agentsTtlMs: 0 })
+    expect((await call(router, 'POST', '/api/item/wi-1/run', { agents: ['claude'] })).status).toBe(400)
+    expect((await call(router, 'POST', '/api/item/wi-1/run', req('   ', ['claude']))).status).toBe(400)
+    expect((await call(router, 'POST', '/api/item/wi-1/run', req('x', []))).status).toBe(400)
+    expect((await call(router, 'POST', '/api/item/wi-1/run', req('x', ' , '))).status).toBe(400)
+    expect((await call(router, 'POST', '/api/item/wi-1/run', req('x', [1, 2]))).status).toBe(400)
+    expect((await call(router, 'POST', '/api/item/nope/run', req('x', ['claude']))).status).toBe(404)
+  })
+})
+
 describe('pure helpers', () => {
   it('derives the card run state from board refs and live tasks', () => {
     expect(runRefState({ taskId: 't', startedAt: 1 }, undefined)).toBe('idle')
@@ -672,5 +912,21 @@ describe('pure helpers', () => {
     const card = toCardPayload(makeItem({ queueingReason: '冲突域 order-core:* 已满', runs: [] }), null)
     expect(card.runState).toBe('queued')
     expect(card.queueingReason).toContain('已满')
+  })
+
+  it('derives the 发起执行 gate from projectGroup × installed agents', () => {
+    const installed = { available: true, installed: ['claude'], agents: [{ name: 'claude', installed: true }] }
+    expect(toCardPayload(makeItem(), null, installed).startRun).toEqual({
+      available: true,
+      reason: null,
+      projectGroup: '订单中台',
+      installed: ['claude'],
+    })
+    expect(toCardPayload(makeItem({ repoScope: { baseRepo: 'order-core' } }), null, installed).startRun).toMatchObject({
+      available: false,
+      reason: '卡片未配置项目群(projectGroup)',
+    })
+    expect(startRunCapability(makeItem(), { available: true, installed: [], agents: [] }).reason).toBe('该项目群暂无已安装的 agent')
+    expect(startRunCapability(makeItem(), null).reason).toBe('编排服务不可用或无法探测 agent 安装状态')
   })
 })

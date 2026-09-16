@@ -134,6 +134,17 @@ webServer (DSH 内置) ←─ inject ── ui-dashboard, ui-diff, ui-workbench,
     标注 `generatedBy: fallback`，**摘要失败不丢卡**）→ `helmsman.board.create`。
   - `ui-board`：看板页 `/helmsman-board`，按四阶段列展示卡片、推进阶段、查看关联与摘要；
     与 ui-workbench 一样对 `helmsman.board` 做**惰性 `ctx.get`** 并降级。
+    **第 ③ 列同时是"发起入口"**（change `enable-card-start-run`）：卡片带 `projectGroup` 且该群
+    至少一个 agent 已装（`OrchestratorService.checkAgents()` 只读探测，按 TTL 缓存）时才渲染
+    「▶ 发起执行」，否则只给「请先在执行看板发起」引导。提交经 `POST /api/item/:id/run` 复用
+    **既有** `runParallelTask({prompt, agents, projectGroupId, cascade})`——不新增通路、不复制执行看板；
+    卡片**原地不动**，run 经既有持久化挂回 `runs[]`，run 面板复用 change A 的 SSE 时间线。
+    **run 的生命周期仍全部在执行看板**（`/helmsman-dashboard/`：取消 / 重试 / 审批 / 合并），
+    看板只提供跳转链接。`agent` 的「按场景自适应」是**本地纯函数启发式**（0 token、0 网络，
+    `ui-board/client/start-run.ts`），默认档可被用户一键改写，手动指定即原样提交。
+    `POST api/item/:id/run` 是 ui-board **唯一的写路径**，且只写一个 orchestrator 任务：
+    不写 board 存储、不改依赖图 / 声明文件 / 忽略清单。**WIP 规则不变**：只拦"进第 ③ 列"，
+    不拦列内追加 run（已锁定）。
 
 ## 3. 数据流
 
@@ -149,6 +160,11 @@ WorkItem (board, ~/.helmsman/board/items.json)
         ▲                              │
         │ 推进(仅 +1, 带门缺口清单)     │ 看板渲染
    ui-workbench /api/task-from-conversation   ui-board /helmsman-board
+        │ 建档 = create + 会话关联       │ 第 ③ 列发起执行 = runParallelTask(既有通路)
+        │ (唯一的卡片写入口)             │ 只注入一个 run,卡片不动;WIP 仍只拦"进列"
+        ▼                              ▼
+   board.create/associate          orchestrator.runParallelTask → taskId ──▶ runs[](既有持久化)
+                                   取消/重试/审批/合并仍在执行看板 /helmsman-dashboard/
 ```
 
 ```

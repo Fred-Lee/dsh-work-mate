@@ -6,6 +6,7 @@ import { vi } from 'vitest'
 import type {
   BoardCardPayload,
   CardRunPayload,
+  CardStartRunPayload,
   ConfigPayload,
   ItemDetailPayload,
   ItemsPayload,
@@ -58,6 +59,17 @@ export function installFetch(
   return { calls }
 }
 
+/** The 发起执行 gate as the board router reports it for one card. */
+export function makeStartRun(overrides: Partial<CardStartRunPayload> = {}): CardStartRunPayload {
+  return {
+    available: true,
+    reason: null,
+    projectGroup: '订单中台',
+    installed: ['claude', 'codex'],
+    ...overrides,
+  }
+}
+
 export function makeCard(overrides: Partial<BoardCardPayload> = {}): BoardCardPayload {
   const stage: Stage = overrides.stage ?? 'spec'
   return {
@@ -76,6 +88,7 @@ export function makeCard(overrides: Partial<BoardCardPayload> = {}): BoardCardPa
     runStateLabel: '无执行',
     runCount: 0,
     queueingReason: null,
+    startRun: makeStartRun(),
     createdAt: 1_000,
     updatedAt: 2_000,
     ...overrides,

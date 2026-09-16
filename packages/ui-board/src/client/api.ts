@@ -83,6 +83,19 @@ export interface BadgeCounts {
   services: number
 }
 
+/**
+ * The 第 ③ 列 「▶ 发起执行」 capability of one card (design D1). `available` is
+ * the only gate the card renders on; `reason` is the Chinese hint shown when it
+ * is false. `installed` is the `checkAgents()` install list the dialog's
+ * 按场景自适应 rule resolves against — it never leaves the page.
+ */
+export interface CardStartRunPayload {
+  available: boolean
+  reason: string | null
+  projectGroup: string | null
+  installed: string[]
+}
+
 export interface BoardCardPayload {
   id: string
   title: string
@@ -99,6 +112,7 @@ export interface BoardCardPayload {
   runStateLabel: string
   runCount: number
   queueingReason: string | null
+  startRun: CardStartRunPayload
   createdAt: number
   updatedAt: number
 }
@@ -214,6 +228,26 @@ export interface AdvancePayload {
   queueingReason?: string
 }
 
+/**
+ * Answer of `POST api/item/:id/run` (change `enable-card-start-run`). It starts
+ * an existing `runParallelTask` and NOTHING else: no stage/association write,
+ * no lifecycle operation — hence a refusal is a displayable `ok:false + reason`
+ * (HTTP 200), exactly like a gate/WIP refusal.
+ */
+export interface StartRunPayload {
+  ok: boolean
+  taskId?: string
+  reason?: string
+  prompt?: string
+  agents?: string[]
+  projectGroupId?: string
+  cascade?: boolean
+  /** 是否已把该 run 关联回卡片(runs[] 会显示它)。 */
+  linked?: boolean
+  /** 关联失败原因:run 已起跑,不回滚,如实告知以便稍后重关联。 */
+  linkError?: string
+}
+
 export interface BoardEventPayload {
   seq?: number
   ts?: number
@@ -278,6 +312,12 @@ export const api = {
     }),
   advance: (id: string, body: { to?: Stage; allowSkip?: boolean }) =>
     request<AdvancePayload>(`/item/${encodeURIComponent(id)}/advance`, { method: 'POST', body: JSON.stringify(body) }),
+  /**
+   * 第 ③ 列「▶ 发起执行」→ the existing `runParallelTask` (via the board router).
+   * Only these three fields travel; the project group comes from the card.
+   */
+  startRun: (id: string, body: { prompt: string; agents: string[]; cascade: boolean }) =>
+    request<StartRunPayload>(`/item/${encodeURIComponent(id)}/run`, { method: 'POST', body: JSON.stringify(body) }),
   gate: (id: string, to?: Stage) =>
     request<{ ok: boolean; from: Stage; to: Stage | null; gaps: GateGap[]; queueingReason?: string; terminal?: boolean }>(
       `/item/${encodeURIComponent(id)}/gate${to ? `?to=${encodeURIComponent(to)}` : ''}`,

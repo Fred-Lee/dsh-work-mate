@@ -16,6 +16,16 @@
  * `queueingReason` the UI displays, and the card does not move. A refusal is
  * answered with HTTP 200 + `ok:false` (it is a normal outcome, not an error);
  * only unknown ids (404) and malformed bodies (400) are non-200.
+ *
+ * Change `enable-card-start-run` adds one WRITE path — `POST api/item/:id/run`
+ * — and it writes nothing but an orchestrator task: it delegates to the
+ * EXISTING `OrchestratorService.runParallelTask({prompt, agents,
+ * projectGroupId, cascade})` and returns the `taskId`. The card does not move,
+ * no topology/declaration/ignore/board file is touched (spec card-start-run
+ * 「不修改任何既有数据」) and WIP is NOT consulted, because a saturated conflict
+ * domain gates ENTERING the dev column, not adding another run inside it
+ * (spec 「WIP 不拦列内追加 run」). Cancel / retry / approval / merge stay in the
+ * execution dashboard (design D4): this route never calls them.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readJsonBody, Router, sendJson } from './http.ts'
@@ -255,6 +265,30 @@ export interface PendingApproval {
 }
 
 /**
+ * One adapter's CLI install state, as reported by `checkAgents()`.
+ * The orchestrator owns this probe; the board only reads it.
+ */
+export interface AgentStatusLike {
+  installed: boolean
+  version?: string
+}
+
+/**
+ * Parameters of the EXISTING change A/C `runParallelTask` tool. Declared in
+ * full so the call this package makes is checkable against the real service
+ * signature, but the kanban only ever passes
+ * `{ prompt, agents, projectGroupId, cascade }` (design D3).
+ */
+export interface RunParallelTaskInput {
+  prompt: string
+  agents: string[]
+  projectGroupId?: string
+  repoPath?: string
+  cascade?: boolean
+  timeoutSec?: number
+}
+
+/**
  * The change-A surface ui-board reads (durable timeline + live tail). The
  * optional members exist on the real service and are used when present; the
  * page degrades to a single live read when they are absent.
@@ -269,6 +303,20 @@ export interface OrchestratorLike {
   }
   /** Read-only approval lookups (change C presentation surface). */
   listPendingConfirmations?(): PendingApproval[]
+  /**
+   * Per-adapter CLI install state (`{ claude: { installed: true }, … }`) — the
+   * ONLY service-discovery seam the 「▶ 发起执行」 entry uses (design D1/D2,
+   * spec 「智能 agent 选择」). It takes no project-group argument: install state
+   * is a machine fact, so the reachable reading of "该群已安装 agent" is the
+   * group existing plus this probe reporting ≥1 installed agent.
+   */
+  checkAgents?(): Promise<Record<string, AgentStatusLike>>
+  /**
+   * The EXISTING multi-agent fan-out tool. Starting a run from the kanban goes
+   * through this method and nothing else — no new pathway, and no lifecycle
+   * operations (design D4: 取消/重试/审批/合并 仍留在执行看板).
+   */
+  runParallelTask?(params: RunParallelTaskInput): Promise<{ taskId: string }>
 }
 
 export interface ArtifactMetaLike {
@@ -317,6 +365,13 @@ export interface BoardApiDeps {
   workbenchMount?: string
   /** Coarse polling interval used when SSE is unavailable. @default 5000 */
   pollMs?: number
+  /**
+   * How long one `checkAgents()` probe is reused. The probe spawns the agent
+   * CLIs, while `/api/items` is polled every few seconds, so it is cached;
+   * `0` disables the cache (tests / "always fresh" deployments).
+   * @default 30000
+   */
+  agentsTtlMs?: number
   now?: () => number
 }
 
@@ -340,6 +395,38 @@ export interface BadgeCounts {
   services: number
 }
 
+/** One adapter's install state, flattened for the SPA. */
+export interface AgentInstallPayload {
+  name: string
+  installed: boolean
+  version?: string
+}
+
+/**
+ * Result of one `checkAgents()` probe. Shared by every card payload of a
+ * response, so an unavailable probe never makes an individual card look
+ * startable (spec 「不满足时仅显示引导」).
+ */
+export interface AgentsProbePayload {
+  /** False when the orchestrator (or its `checkAgents`) is missing/failed. */
+  available: boolean
+  installed: string[]
+  agents: AgentInstallPayload[]
+}
+
+/**
+ * The 第 ③ 列 「▶ 发起执行」 capability of ONE card (design D1). `available` is
+ * the single gate the card renders on; `reason` is the Chinese hint shown
+ * when it is false, so the page never offers a button that fails on submit.
+ * `installed` is what the dialog's 按场景自适应 rule resolves against.
+ */
+export interface CardStartRunPayload {
+  available: boolean
+  reason: string | null
+  projectGroup: string | null
+  installed: string[]
+}
+
 export interface BoardCardPayload {
   id: string
   title: string
@@ -357,6 +444,8 @@ export interface BoardCardPayload {
   runStateLabel: string
   runCount: number
   queueingReason: string | null
+  /** 第 ③ 列 「发起执行」 gate + the installed agents the dialog offers. */
+  startRun: CardStartRunPayload
   createdAt: number
   updatedAt: number
 }
@@ -411,6 +500,25 @@ export interface CardRunPayload {
   mergedAt: number | null
   mergedFiles: string[]
   serviceCandidates: Array<{ refId: string; label: string; reason: string }>
+}
+
+/**
+ * Answer of `POST api/item/:id/run`. `ok:false` carries a displayable Chinese
+ * `reason` (same convention as a gate/WIP refusal: a normal outcome, HTTP 200).
+ */
+export interface StartRunPayload {
+  ok: boolean
+  taskId?: string
+  reason?: string
+  /** True when the started run was attached to the card (runs[] now shows it). */
+  linked?: boolean
+  /** Why the link failed — the run still started; the card can be re-linked. */
+  linkError?: string
+  /** Echo of what was handed to `runParallelTask` (audit of the one write). */
+  prompt?: string
+  agents?: string[]
+  projectGroupId?: string
+  cascade?: boolean
 }
 
 export interface ConfigPayload {
@@ -484,7 +592,11 @@ export function cardRunState(item: WorkItem, tasks: Map<string, TaskStatusLike> 
   return state
 }
 
-export function toCardPayload(item: WorkItem, tasks: Map<string, TaskStatusLike> | null = null): BoardCardPayload {
+export function toCardPayload(
+  item: WorkItem,
+  tasks: Map<string, TaskStatusLike> | null = null,
+  agents: AgentsProbePayload | null = null,
+): BoardCardPayload {
   const state = cardRunState(item, tasks)
   return {
     id: item.id,
@@ -502,9 +614,29 @@ export function toCardPayload(item: WorkItem, tasks: Map<string, TaskStatusLike>
     runStateLabel: RUN_DOT_LABELS[state],
     runCount: item.runs?.length ?? 0,
     queueingReason: item.queueingReason ?? null,
+    startRun: startRunCapability(item, agents),
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   }
+}
+
+/**
+ * The D1 entry gate, in one place: the card needs a `projectGroup` (the
+ * topology the run is resolved through) AND that group needs at least one
+ * installed agent (design D1). Anything else renders the 「请先在执行看板发起」
+ * hint instead of a button that would fail on submit.
+ *
+ * The check does NOT consult WIP or the stage gate: WIP gates entering the
+ * dev column, never adding another run inside it (spec 「WIP 不拦列内追加 run」).
+ */
+export function startRunCapability(item: WorkItem, agents: AgentsProbePayload | null): CardStartRunPayload {
+  const projectGroup = item.repoScope?.projectGroup ?? null
+  const installed = agents?.installed ?? []
+  const base = { projectGroup, installed }
+  if (!projectGroup) return { ...base, available: false, reason: '卡片未配置项目群(projectGroup)' }
+  if (!agents?.available) return { ...base, available: false, reason: '编排服务不可用或无法探测 agent 安装状态' }
+  if (installed.length === 0) return { ...base, available: false, reason: '该项目群暂无已安装的 agent' }
+  return { ...base, available: true, reason: null }
 }
 
 function normalizeGap(raw: unknown): GateGap {
@@ -560,6 +692,8 @@ export function createBoardApiRouter(deps: BoardApiDeps): Router {
   const diffMount = (deps.diffMount ?? '/helmsman-diff').replace(/\/+$/, '')
   const workbenchMount = (deps.workbenchMount ?? '/helmsman-workbench').replace(/\/+$/, '')
   const pollMs = deps.pollMs ?? 5_000
+  const agentsTtlMs = deps.agentsTtlMs ?? 30_000
+  let agentsCache: { at: number; payload: AgentsProbePayload } | null = null
 
   const orchestrator = () => deps.orchestrator?.()
   const artifacts = () => deps.artifacts?.()
@@ -576,6 +710,44 @@ export function createBoardApiRouter(deps: BoardApiDeps): Router {
     } catch {
       return null
     }
+  }
+
+  const NO_AGENTS: AgentsProbePayload = { available: false, installed: [], agents: [] }
+
+  /**
+   * One `checkAgents()` probe per TTL window. The probe spawns the agent CLIs
+   * and `/api/items` is polled every few seconds, so the result is reused.
+   * A missing/failed probe is NEVER cached: an orchestrator that is plugged in
+   * later must not stay invisible (optional services resolve per request).
+   */
+  async function probeAgents(): Promise<AgentsProbePayload> {
+    const orch = orchestrator()
+    const check = orch?.checkAgents
+    if (!orch || typeof check !== 'function') return NO_AGENTS
+    if (agentsCache && agentsTtlMs > 0 && now() - agentsCache.at < agentsTtlMs) return agentsCache.payload
+    try {
+      const raw = await check.call(orch)
+      const agents: AgentInstallPayload[] = Object.entries(raw ?? {}).map(([name, status]) => ({
+        name,
+        installed: status?.installed === true,
+        ...(typeof status?.version === 'string' && status.version !== '' ? { version: status.version } : {}),
+      }))
+      const payload: AgentsProbePayload = {
+        available: true,
+        installed: agents.filter((agent) => agent.installed).map((agent) => agent.name),
+        agents,
+      }
+      if (agentsTtlMs > 0) agentsCache = { at: now(), payload }
+      return payload
+    } catch {
+      return NO_AGENTS
+    }
+  }
+
+  /** Card payload with the (cached) agent probe folded in, so every response
+   *  reports the 发起执行 gate truthfully rather than defaulting it off. */
+  async function cardPayload(item: WorkItem): Promise<BoardCardPayload> {
+    return toCardPayload(item, taskIndex(), await probeAgents())
   }
 
   async function loadItem(id: string): Promise<WorkItem | null> {
@@ -815,7 +987,10 @@ export function createBoardApiRouter(deps: BoardApiDeps): Router {
       ...(stage ? { stage } : {}),
     })
     const tasks = taskIndex()
-    const cards = items.map((item) => toCardPayload(item, tasks))
+    // One probe per response (cached per TTL): every card carries the same
+    // installed set, but its own projectGroup decides whether it is startable.
+    const agents = await probeAgents()
+    const cards = items.map((item) => toCardPayload(item, tasks, agents))
     return {
       serverTime: now(),
       items: cards,
@@ -869,7 +1044,7 @@ export function createBoardApiRouter(deps: BoardApiDeps): Router {
         })
       }
     }
-    return { ok: true, item: toCardPayload(item, taskIndex()) }
+    return { ok: true, item: await cardPayload(item) }
   })
 
   router.get('api/item/:id', async ({ params, res }) => {
@@ -879,7 +1054,7 @@ export function createBoardApiRouter(deps: BoardApiDeps): Router {
     const gate = to ? await evaluateGate(item, to) : { to: null, ok: true, gaps: [] as GateGap[] }
     return {
       ok: true,
-      item: toCardPayload(item, taskIndex()),
+      item: await cardPayload(item),
       nextStage: to,
       nextStageLabel: to ? STAGE_LABELS[to] : null,
       gate,
@@ -914,7 +1089,7 @@ export function createBoardApiRouter(deps: BoardApiDeps): Router {
       const update = requireService(board, 'update', '@helmsman/board')
       updated = await update.call(board, item.id, patch)
     }
-    return { ok: true, item: toCardPayload(updated, taskIndex()) }
+    return { ok: true, item: await cardPayload(updated) }
   })
 
   // ---- gate + advance (the ONLY stage-write path; never local) ------------
@@ -966,7 +1141,7 @@ export function createBoardApiRouter(deps: BoardApiDeps): Router {
           from: item.stage,
           to,
           moved: false,
-          item: toCardPayload(item, taskIndex()),
+          item: await cardPayload(item),
           gaps,
           ...(queueingReason ? { queueingReason } : {}),
         }
@@ -977,7 +1152,7 @@ export function createBoardApiRouter(deps: BoardApiDeps): Router {
         from: item.stage,
         to: updated.stage,
         moved: updated.stage !== item.stage,
-        item: toCardPayload(updated, taskIndex()),
+        item: await cardPayload(updated),
         gaps: [],
       }
     } catch (err) {
@@ -988,7 +1163,7 @@ export function createBoardApiRouter(deps: BoardApiDeps): Router {
           from: item.stage,
           to,
           moved: false,
-          item: toCardPayload(item, taskIndex()),
+          item: await cardPayload(item),
           gaps: refusal.gaps,
           ...(refusal.queueingReason ? { queueingReason: refusal.queueingReason } : {}),
         }
@@ -1015,7 +1190,7 @@ export function createBoardApiRouter(deps: BoardApiDeps): Router {
       ...(typeof body.label === 'string' && body.label !== '' ? { label: body.label } : {}),
       at: now(),
     })
-    return { ok: true, item: toCardPayload(updated, taskIndex()) }
+    return { ok: true, item: await cardPayload(updated) }
   })
 
   // refId is a path for docs/artifacts, so it travels as a query parameter
@@ -1031,7 +1206,7 @@ export function createBoardApiRouter(deps: BoardApiDeps): Router {
     if (!refId) return header(res, 400, { error: 'refId is required' })
     const disassociate = requireService(board, 'disassociate', '@helmsman/board')
     const updated = await disassociate.call(board, item.id, { type, refId })
-    return { ok: true, item: toCardPayload(updated, taskIndex()) }
+    return { ok: true, item: await cardPayload(updated) }
   })
 
   // ---- WIP occupancy ------------------------------------------------------
@@ -1068,6 +1243,106 @@ export function createBoardApiRouter(deps: BoardApiDeps): Router {
       streamUrlTemplate: cfg.streamUrlTemplate,
       pollMs: cfg.pollMs,
       diffMount: cfg.diffMount,
+    }
+  })
+
+  // ---- start a run for a card (the only write path of this package) ------
+
+  /**
+   * `POST api/item/:id/run` — 第 ③ 列卡片的「▶ 发起执行」(change
+   * `enable-card-start-run`).
+   *
+   * Body: `{ prompt, agents, cascade? }` (`agents` = array, or a comma-separated
+   * string as the headless tool takes). The project group is taken from the CARD
+   * — never from the request — so a card can only ever start runs inside its own
+   * topology.
+   *
+   * Semantics locked by the spec:
+   *  - delegates to the EXISTING `runParallelTask` with exactly
+   *    `{ prompt, agents, projectGroupId, cascade }` — no new pathway, no
+   *    timeout/repoPath overrides (design D3: 其余参数不暴露);
+   *  - writes nothing else — no board store write, no topology/declaration/ignore
+   *    write (spec 「不修改任何既有数据」). Linking the returned `taskId` into the
+   *    card's `runs[]` is deliberately NOT done here (that is a board-store write);
+   *    it is the host's existing persistence channel, and this route only proves
+   *    the run was injected by echoing the `taskId` back;
+   *  - does NOT consult WIP or the stage gate — a saturated conflict domain
+   *    gates entering the dev column, not adding a run inside it
+   *    (spec 「WIP 不拦列内追加 run」);
+   *  - does NOT offer cancel/retry/approval/merge (design D4) — those stay in
+   *    the execution dashboard;
+   *  - refuses as `200 + ok:false + reason` (a displayable outcome, exactly like
+   *    a gate/WIP refusal) when the entry would fail: missing projectGroup, no
+   *    orchestrator, no installed agent, an agent that is not installed, or the
+   *    service rejecting the task. Only a malformed body (400) / unknown card
+   *    (404) is non-200.
+   */
+  router.post('api/item/:id/run', async ({ req, params, res }) => {
+    const item = await loadItem(params.id!)
+    if (!item) return header(res, 404, { error: `item not found: ${params.id}` })
+    const body = await readJsonBody(req)
+    const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
+    if (prompt === '') return header(res, 400, { error: 'prompt is required' })
+    const agents = parseAgents(body.agents)
+    if (agents === null) return header(res, 400, { error: 'agents must be a non-empty array of agent names' })
+
+    const projectGroup = item.repoScope?.projectGroup ?? null
+    if (!projectGroup) {
+      return { ok: false, reason: '卡片未配置项目群(projectGroup),无法解析项目拓扑' }
+    }
+    const orch = orchestrator()
+    const runParallelTask = orch?.runParallelTask
+    if (!orch || typeof runParallelTask !== 'function') {
+      return { ok: false, reason: '编排服务(orchestrator)不可用,请先在执行看板发起' }
+    }
+    const probe = await probeAgents()
+    if (probe.installed.length === 0) {
+      return { ok: false, reason: '该项目群暂无已安装的 agent,请先在执行看板发起' }
+    }
+    // An agent the user picked explicitly is sent VERBATIM (spec 「用户主动改」:
+    // no silent fallback) — an uninstalled one is refused loudly instead.
+    const missing = agents.filter((agent) => !probe.installed.includes(agent))
+    if (missing.length > 0) {
+      return { ok: false, reason: `agent 未安装:${missing.join('、')}` }
+    }
+
+    const cascade = body.cascade === true
+    let taskId: string
+    try {
+      // EXACTLY these four fields — the existing tool does the rest.
+      const started = await runParallelTask.call(orch, { prompt, agents, projectGroupId: projectGroup, cascade })
+      taskId = started.taskId
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : String(err) }
+    }
+
+    // Attach the started run to the card so its runs[] and run panel see it
+    // (user decision ④: run 挂到卡片、SSE 实时滚动). This is the ONLY board
+    // write this capability performs — it links an existing run id to the card
+    // and changes no stage/gate/WIP. A failure here must NOT roll back the run:
+    // it already started, so we report the reason and let the user re-link.
+    const associate = board.associate
+    let linked = false
+    let linkError: string | undefined
+    if (typeof associate === 'function') {
+      try {
+        await associate.call(board, item.id, { type: 'run', refId: taskId, label: prompt.slice(0, 80), at: now() })
+        linked = true
+      } catch (err) {
+        linkError = err instanceof Error ? err.message : String(err)
+      }
+    } else {
+      linkError = '看板服务不支持关联(associate),run 已起跑但未挂到卡片'
+    }
+    return {
+      ok: true,
+      taskId,
+      prompt,
+      agents,
+      projectGroupId: projectGroup,
+      cascade,
+      linked,
+      ...(linkError ? { linkError } : {}),
     }
   })
 
@@ -1126,6 +1401,22 @@ function parseConversation(raw: unknown): CreateWorkItemInput['conversation'] {
     sessionId,
     ...(typeof c.transcriptPath === 'string' && c.transcriptPath !== '' ? { transcriptPath: c.transcriptPath } : {}),
   }
+}
+
+/**
+ * Accepts the SPA's array form and the headless tool's comma-separated form.
+ * Returns null for anything unusable (the route answers 400) — an empty list is
+ * never silently widened to "all agents".
+ */
+function parseAgents(raw: unknown): string[] | null {
+  const list =
+    typeof raw === 'string'
+      ? raw.split(',')
+      : Array.isArray(raw)
+        ? raw.filter((entry): entry is string => typeof entry === 'string')
+        : []
+  const names = [...new Set(list.map((name) => name.trim()).filter((name) => name !== ''))]
+  return names.length > 0 ? names : null
 }
 
 function parseAfter(raw: string | null): number {

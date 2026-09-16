@@ -59,10 +59,25 @@
 - **WHEN** 卡片已在第 ③ 列,同域已满
 - **THEN** 卡片内"发起执行"按钮仍可用(创建新 run 不被 WIP 拦)
 
-### Requirement: 不修改任何既有数据
-发起动作 SHALL 不修改依赖图、声明文件、忽略清单、看板存储;只往 orchestrator 注入一个 run 任务,
-该 run 持久化于既有历史/审计/产物通道(change A/C/D 复用)。
+### Requirement: 起跑后把 run 关联回卡片
+run 成功创建后,系统 SHALL 把该 run 关联到发起它的卡片(`board.associate(id, {type:'run', refId:taskId})`),
+使卡片的 `runs[]` 与卡片内 run 面板能看到它。**这是本能力唯一被允许的看板写入**——它只把已存在的 run
+挂到卡片上(不改阶段、不改门、不改 WIP、不写依赖)。关联失败 SHALL NOT 回滚已起跑的 run,
+而是按既有的"拒绝即如实报告"约定返回可见原因(卡片可稍后手工重关联)。
+
+#### Scenario: 关联使卡片看到该 run
+- **WHEN** 从卡片发起并按后端返回拿到 taskId
+- **THEN** 该 taskId 出现在卡片的 `runs[]`(关联写入 `type:'run'`)
+
+#### Scenario: 关联失败不吞掉 run
+- **WHEN** 关联调用失败(看板服务不可用等)
+- **THEN** 仍返回已起跑的 taskId 与失败原因,卡片阶段不变,不回滚 run
+
+### Requirement: 不改动其余任何数据
+发起动作 SHALL NOT 修改依赖图、声明文件、忽略清单、卡片阶段/门/WIP;除上述"关联 run"这一处外
+SHALL NOT 写入看板存储。run 本身的持久化走既有历史/审计/产物通道(change A/C/D 复用)。
 
 #### Scenario: 发起不污染状态
 - **WHEN** 用户点「▶ 发起执行」
-- **THEN** 拓扑文件、声明文件、忽略文件均不变(此卡片与该次 run 的入站变化都经既有持久化通道)
+- **THEN** 拓扑文件、声明文件、忽略文件、卡片阶段与门均不变;看板存储仅新增一条 run 关联
+
