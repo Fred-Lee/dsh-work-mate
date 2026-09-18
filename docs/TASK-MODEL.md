@@ -182,16 +182,22 @@ GET  /helmsman-workbench/api/sessions?limit=20
 **运行时依赖**：`helmsman.board`、`sessionQuery`、`sessionTitle` 全部是**可选**依赖，宿主每次请求用
 `ctx.get` 惰性解析（与 `ArtifactRegisterLike` / `KnowledgeLike` 同一约定），未装即降级。
 
-## 10. 借鉴的形状（B 级，来自 DSH-INTEGRATION-NOTES.md）
+## 10. 借鉴的形状（来自 DSH-INTEGRATION-NOTES.md）
 
-以下形状取自 DSH-Work-Buddy（MIT）的生产代码，**尚未在本机 Helmsman 验证**，本模型按「可用即用、
-缺省降级」接入，落地验证方式写在后：
+以下形状取自 DSH-Work-Buddy（MIT）的生产代码，本模型按「可用即用、缺省降级」接入。
+**采用情况**：其绑定序列的标识符（`prepare-session` / `workspace.create` / `session.create` /
+`workspaceId` / `agentTemplate`）在本仓 `packages/*/src` 里**全部 0 处命中** —— 只借鉴了
+**形状**，没有引入其代码或 API。
 
-| 借鉴点 | 本模型的落点 | 验证方式 |
-|---|---|---|
-| 会话/工作区绑定序列：`prepare-session`（写 per-task `AGENTS.md`/`MEMORY.md`）→ 幂等 `workspace.create({path})` → `session.create({workspaceId})` → 快照 `{sessionId, v:1}` | `conversation` 关联不只存 `sessionId`，还带工作区绑定字段 | 建档时快照写入后重启宿主，卡片仍能解析到同一会话 |
-| per-task 目录即 cwd + per-task 记忆（人格与长期记忆分离） | 解释「这个任务当时被怎么指挥的」靠的是关联集，而不是对话正文 | 归档 manifest 与关联集字段对齐后再验证 |
-| 归档 manifest 形状 `{taskId, title, startedAt, endedAt, …, files[], conversation[]}` | `artifacts[]` + 归档联动的字段参考 | change D 交付后按 manifest 实读一次 |
+| 借鉴点 | 本模型的落点 | 验证方式 | 状态（2026-09-19） |
+|---|---|---|---|
+| 会话/工作区绑定序列：`prepare-session`（写 per-task `AGENTS.md`/`MEMORY.md`）→ 幂等 `workspace.create({path})` → `session.create({workspaceId})` → 快照 `{sessionId, v:1}` | `conversation` 关联不只存 `sessionId`，还带工作区绑定字段 | 建档时快照写入后重启宿主，卡片仍能解析到同一会话 | ✅ **已验证**：建档产出 `{type:'conversation', refId:<sessionId>, label:<title>}`；停掉宿主、重启后 `/api/items` 的 `badges.conversations` 仍为 1，关联可解析。run 关联同样存活（同一次重启里 `run:<taskId>` 仍在，且归档门仍可裁决） |
+| per-task 目录即 cwd + per-task 记忆（人格与长期记忆分离） | 解释「这个任务当时被怎么指挥的」靠的是关联集，而不是对话正文 | 归档 manifest 与关联集字段对齐后再验证 | ⏳ **未验证**：`add-task-kanban-board` 的归档动作不产出 manifest（归档 = 阶段推进到 `done` + 卡片关联集），本机没有可对齐的 manifest 实体 |
+| 归档 manifest 形状 `{taskId, title, startedAt, endedAt, …, files[], conversation[]}` | `artifacts[]` + 归档联动的字段参考 | change D 交付后按 manifest 实读一次 | ⏳ **未验证**：change D（`add-artifact-delivery-endpoints`，2026-09-11 归档）交付的是**产物注册表**，不是 WorkBuddy 形状的归档 manifest。本条目缺少对照实体，**维持借鉴** |
+
+**未验证项的共同原因**：后两条的验证方式都要求一个「归档 manifest」实体，而 Helmsman 的归档模型
+是「阶段推进 + 关联集引用」，不生成该形状的文件。这是**设计差异**而非待办缺失——若将来确要
+引入 manifest，应作为独立变更立项，而不是挂在原条目下等待。
 
 边界：只借鉴形状与序列，不引入其代码；其内置 harness（rc.7）与本项目目标版本不在同一条发布线，
 不可用于验证（见 `docs/DSH-INTEGRATION-NOTES.md` §C）。

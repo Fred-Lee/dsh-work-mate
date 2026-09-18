@@ -1344,10 +1344,106 @@ head= 对话主题是用 Helmsman 深度研究工作流为"MCP 协议一句话�
 看板 run 面板对冲突**只标注并跳转 `/helmsman-diff/`**，页面内没有自动合并或一键采纳控件；
 `packages/ui-board/src/client/run-panel.test.tsx` 有专门断言守护这一点，防止回归成系统代选。
 
-### 6.8 已知未实现（如实记录）
+### 6.8 全链路：dev 起真 run → merge → 归档**成功**（2026-09-19 实测）
 
-**聊天消息侧「保存为任务」按钮**未实现：当前建档入口是看板页「+ 新建任务」表单，以及上面
-可直接调用的 `POST api/task-from-conversation`。聊天消息动作属 DSH client slot 增强，留待后续。
+§6.5 记录的是归档门**被拦**的状态。本节补上它的另一半：链路能真正走通到 `done`。
+前置：冒烟仓 `/tmp/helmsman-board-smoke`，且该群的服务配了 `localPath`（起 run 时
+`repoPath` 从拓扑解析，见 `orchestrator/src/core.ts:434-445`）。
+
+**① 从卡片发起 run**（走 `enable-card-start-run` 的入口，agent 用 `claude`）
+
+```bash
+BB=http://127.0.0.1:3080/helmsman-board
+curl -s -X POST $BB/api/item/$AID/run -H 'content-type: application/json' -d '{
+  "prompt":"在当前工作目录创建文件 SMOKE.md，内容为一行：helmsman kanban smoke ok。只创建这一个文件，不要做其他改动。",
+  "agents":["claude"],"cascade":false}'
+# 实测：{"ok":true,"taskId":"t-mu7ahbyz-07fc68","linked":true}
+```
+
+期望：`linked:true`；卡片原地不动，`runs[]` 新增一条 `{taskId, startedAt}`（注意
+`GET api/item/:id` 返回的是**精简卡片载荷**、不含 `runs`——要看到它请查
+`~/.helmsman/board/items.json`，或看载荷里的 `runCount`）。
+
+**② 等 run 到终态**：`task-state` 序列为
+`CREATING_WORKTREES → RUNNING → AGGREGATING → COMPLETED`（实测 7 条事件 / ~10s）。
+
+**③ 审批门控合并**（策略默认 `merge: confirm-required`）
+
+```bash
+DF=http://127.0.0.1:3080/helmsman-diff
+APID=$(curl -s -X POST $DF/api/approvals -H 'content-type: application/json' \
+  -d "{\"op\":\"merge\",\"taskId\":\"$TID\"}" | python3 -c "import sys,json;print(json.load(sys.stdin)['approvalId'])")
+TOKEN=$(curl -s -X POST $DF/api/approvals/$APID/decision -H 'content-type: application/json' \
+  -d '{"approve":true}' | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+curl -s -X POST $DF/api/task/$TID/merge -H 'content-type: application/json' \
+  -d "{\"confirmationToken\":\"$TOKEN\"}"
+# 实测：{"results":[{"agent":"claude","ok":true,"committed":true,"message":"merged 1 file(s) from claude","conflictFiles":[]}]}
+```
+
+期望：目标仓多一个 `helmsman: merge claude for task <taskId>` 提交；该 run 的时间线出现
+`merge-decision{outcome:'merged'}`；`~/.helmsman/audit/audit.jsonl` 出现
+`{"type":"run-completion","operation":"merge","outcome":"completed","source":"ui"}`。
+
+**④ 归档推进（本节的重点——接线前这一步不可能通过）**
+
+```bash
+curl -s $BB/api/item/$AID | python3 -c "import sys,json;g=json.load(sys.stdin)['gate'];print('ok=',g['ok'],'gaps=',[x['key'] for x in g['gaps']])"
+# 实测：ok= True gaps= []
+curl -s -X POST $BB/api/item/$AID/advance -H 'content-type: application/json' -d '{}' \
+  | python3 -c "import sys,json;d=json.load(sys.stdin);print('ok=',d['ok'],'moved=',d['moved'],'stage=',d['item']['stageLabel'])"
+# 实测：ok= True moved= True stage= 验收归档
+```
+
+**归档门的探针接线**：`dev → done` 需要 `GateProbe` 同时裁决「有已合并的 run」与「有合并审计在案」。
+两者都是 board 之外的事实，由宿主注入 —— `packages/ui-board/src/gate-probe.ts` 从
+orchestrator 的持久化时间线与审计日志读取，在 `packages/ui-board/src/index.ts` 的 `apply` 里
+经 `board.setGateProbe(...)` 挂上（board 本身保持自足、`inject: []`）。
+**探针读的是磁盘**：停掉宿主、重启后为一张新卡裁决同一个 run，仍得 `ok=True gaps=[]`（实测）。
+
+**两个只有真跑才会撞到的前提**（本机实测，非代码缺陷）：
+
+1. **claude 在 worktree 里默认写不了。** 适配器默认 argv 是
+   `claude -p <prompt> --output-format text`，而 agent worktree 既不受信任、也无法交互批准，
+   因此每次 `Write`/`Edit` 都被拒，run 产出空 diff、合并报 `no changes to merge`。
+   实测对照：同一提示词、同一 `/tmp` 目录，默认参数→被拒；加 `--permission-mode acceptEdits`→文件建成。
+   本项目验证时在 profile 层加该参数（`~/.dsh/profiles/web/cordis.patch.yml` 的
+   `helmsman-adapter-claude.args`），**未改仓库默认值**。
+2. **旧格式会话读不出来（降级，不阻塞）。** §6.6 的 `generatedBy=model` 需要宿主能读到会话正文；
+   若目标会话是 format v0 旧格式，`sessionQuery` 迁移器会拒绝
+   （`@deepseek-ai/dsh-session-format-v0-to-v1 refuses this format v0 Session: …
+   source summary requires notice form`），此时摘要退化为 `fallback`、`context.messages=0`，
+   **但卡片照建、`conversation` 关联照写**——这正是设计里的「不因摘要失败丢卡」。
+
+### 6.9 聊天消息「保存为任务」（2026-09-19 落地）
+
+原先记录为「已知未实现」的聊天侧入口已实现，落在 `@helmsman/ui-workbench` 的 client 半：
+注册到宿主 slot `conversation.chat.assistant-actions`（assistant 回合的操作行），点击后弹窗，
+提交到**既有**路由 `POST /helmsman-workbench/api/task-from-conversation`，请求体只带
+`{ title, sessionId }` —— 仓库由宿主回退到会话 cwd，不由浏览器猜。
+
+两条实现约束值得记住（否则会踩坑）：
+
+- `slots` **不能写进 module 级 `export const inject`**：那是硬依赖，缺失会让整个 client half
+  停在 PENDING，连既有的「🚀 Helmsman」tab 一起失效。改用 `ctx.inject(['slots'], scope => …)`
+  局部子 fiber，随注册表出现/消失而挂载/卸载。实测构建产物里 `inject=["betterSidebar"]` 保持不变。
+- slot 注册**必须两步式** `slots.inject(key, () => slots.register({…}, C))`；直接 `register`
+  会触发 ui-slots 的 `not declared (a parent entry's children table must declare it)` 校验抛错。
+
+**已验证到什么程度**：单元/组件测试 31 个（渲染、无会话上下文时隐藏、只提交
+`{title, sessionId}`、拒绝原文呈现、可重试）；构建产物含正确注册；真机页面确认
+`@helmsman/ui-workbench/workbench.css` 已注入（137 个插件样式标签之一），即 client 半在宿主里
+确实执行了 `apply()`。
+**未完成**：浏览器里的**点击穿透**验证 —— 本次会话的浏览器工具反复丢失页面（重启间
+`about:blank`），重试 7 次未成，故未截图取证。要做的话：打开一个会话 → 发一条消息 →
+在 assistant 回合的操作行（copy 与 branch 按钮之间）找「💾 保存为任务」。
+
+### 6.10 已知未实现（如实记录）
+
+**无。** 原 §6.8 记录的两项状态如下：
+
+- 聊天消息侧「保存为任务」按钮 —— **已实现**，见 §6.9（浏览器点击穿透待补）。
+- `pi` / `oh-my-pi` 适配器 —— 本机未安装这两个 CLI，选中会被明确拒绝为 `agent 未安装:pi`，
+  这是环境限制而非功能缺失。
 
 ---
 

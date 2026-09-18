@@ -35,4 +35,4 @@
 - [x] 6.1 `toolchain.json` `helmsman.plugins` 登记 `@helmsman/board`(15 个),`packages/bundle/cordis.patch.yml` 同步,`pnpm verify:toolchain` 通过
 - [x] 6.2 插件计数同步 15(README / FEATURES / DISTRIBUTION / WORKBENCH-SETUP / bundle README / USAGE)
 - [x] 6.3 跨车道接口对齐:`RunRef.terminal` 统一为宿主写入的结果标签(字符串);门控文案统一中文(界面原样渲染)
-- [ ] 6.4 真机冒烟:建档 → 推进 → 开发 → 归档 全链路(父对话执行,见 `docs/VERIFICATION-GUIDE.md` §6)
+- [x] 6.4 真机冒烟:建档 → 推进 → 开发 → 归档 全链路(父对话执行,见 `docs/VERIFICATION-GUIDE.md` §6) —— 2026-09-19 实测:全链路跑通到 `done`(`gate ok=True gaps=[]`,卡片 `wi_1409dfe57c39408a`);关联集在宿主重启后可解析。**归档门此前不可能通过**:`GateProbe` 从未接线,本次补上(`packages/ui-board/src/gate-probe.ts` + `BoardService.setGateProbe`),并实测新进程读磁盘即可裁决

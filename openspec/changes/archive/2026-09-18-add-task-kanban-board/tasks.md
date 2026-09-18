@@ -28,14 +28,14 @@
 - [x] 5.1 卡片 run 展开区:run 列表(引用 board + orchestrator 读取);复制 ~60 行 EventSource helper(指向 dashboard SSE,注释指向源,可配置 mount 基址),SSE 实时 timeline + 断线重连续传
 - [x] 5.2 冲突标注行只跳转 `/helmsman-diff`;看板内不提供自动合并/自动裁决控件;审批挂起显示"待审批令牌"提示(消费 change C 呈现面);已 merge run 提供"确认影响服务"(候选 → board associate)
 - [x] 5.3 页面内"+ 新建任务"表单(仓库/项目组/初始阶段/可选文档预设)→ board create + 摘要生成
-- [ ] 5.4 "保存为任务"client half:注册聊天消息动作,把当前 DSH 会话 id/上下文带入建档弹窗(复用 ui-workbench 注入方式);无会话上下文时隐藏该入口
+- [x] 5.4 "保存为任务"client half:注册聊天消息动作,把当前 DSH 会话 id/上下文带入建档弹窗(复用 ui-workbench 注入方式);无会话上下文时隐藏该入口 —— 落在 `ui-workbench/src/client/`(`SaveAsTaskAction.tsx` / `save-as-task.ts`),注册到宿主的 `conversation.chat.assistant-actions` slot;31 个单测/组件测试 + 真机确认 client 半已执行。**浏览器点击穿透待补**(见 `VERIFICATION-GUIDE.md` §6.9)
 - [x] 5.5 Router/组件测试:建档表单校验、会话入口上下文注入、SSE 驱动 run 行更新(假 EventSource)
 - [x] 5.6 组件测试:run 冲突行仅渲染"跳转对比"入口,页面树中不存在自动合并/一键采纳控件(防止回归成系统代选)
 
 ## 6. 集成与文档
 
 - [x] 6.1 全仓 `pnpm typecheck` 与 `pnpm exec vitest run packages/ui-board` 通过
-- [ ] 6.2 真实 profile 冒烟(手动,记录 commit message):建档→推进→dev 跑 run→merge→归档 全链路;SSE 断线续传;拖拽门拦截
+- [x] 6.2 真实 profile 冒烟(手动,记录 commit message):建档→推进→dev 跑 run→merge→归档 全链路;SSE 断线续传;拖拽门拦截 —— 实测见 `VERIFICATION-GUIDE.md` §6.1–6.8。全链路**跑通到归档成功**(`gate ok=True gaps=[]`),为此补了 `GateProbe` 宿主接线(`ui-board/src/gate-probe.ts` + `board.setGateProbe`)。SSE 游标续传实测通过;**拖拽门拦截**在接口层验证(拒绝且卡片不移动),浏览器拖拽未取证
 - [x] 6.3 并入 bundle:更新 `packages/bundle` 13→15(+board/ui-board),README 交付物表、`toolchain.json` `helmsman.plugins`、`docs/DISTRIBUTION.md` 计数一致;更新 `docs/USAGE.md`、`docs/ARCHITECTURE.md`
 
 ## 7. 说明（父对话记录）

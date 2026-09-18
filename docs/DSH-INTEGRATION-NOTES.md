@@ -120,7 +120,7 @@ DSH 的 agent preset 发现会扫描 `<DSH_HOME>/.agent-presets`（默认 `~/.ds
 
 ---
 
-## B. 借鉴：会话/工作区绑定序列（待本地验证）
+## B. 借鉴：会话/工作区绑定序列（**Helmsman 未采用该路径**）
 
 WorkBuddy 的 `ensureHarnessSession` 把"任务 ↔ agent 工作区"绑定成了一条固定序列。Helmsman 的
 任务工作项模型若要关联对话/工作区，可直接采用同一顺序：
@@ -134,19 +134,46 @@ WorkBuddy 的 `ensureHarnessSession` 把"任务 ↔ agent 工作区"绑定成了
 人格（`agentTemplate`）与长期记忆同步到 `data/agents/<tplId>/MEMORY.md`、归档时落
 `manifest.json`（含 tokens / sizeBytes / fileCount / conversation 转录）。
 
+> **采用情况（2026-09-19 实测核对的结论）**：上述标识符
+> （`prepare-session` / `workspace.create` / `session.create` / `workspaceId` / `agentTemplate`）
+> 在 `packages/*/src` 里**全部 0 处命中** —— Helmsman 既没有走这条序列，也没有引入其 API。
+> 它自足地实现了等价物：`helmsman.worktree` 管 worktree、`helmsman.board` 的关联集存
+> `{ type, refId, label, at }`、会话读取走 `ctx.get('sessionQuery')`。
+>
+> **因此本条目按「参考对照」保留，不再作为待验证的落地项。** 唯一被真机验证的是**它想解决的
+> 那个问题**（关联在宿主重启后可解析），验证方式与结果见 `docs/TASK-MODEL.md` §10。
+
 ---
 
-## B. 借鉴：HTTP RPC 信封与事件流契约（待本地验证）
+## B. 借鉴：HTTP RPC 信封与事件流契约（部分条目已更正/降级）
 
 - **RPC 信封**：`POST /api/<method>`，body `{ type: 'client-request', rpcId, method, payload }`，
   响应 `env.result.ok` / `env.result.value` / `env.result.error.message`。
   （本机实测时**未**走通带令牌的成功路径，因此标为 B 级。）
-- **事件流**：单一 WebSocket `/api/events.mux`，**下行专用**；审批/提问回执走 `POST /api/respond`。
-  帧类型：`session/event`、`session/queue`、`approval/requested|resolved`、
-  `question/requested|resolved`、`stream/error`。`session/event` 的 chunk 类型：
-  `block-start | text-delta | reasoning-delta | tool-call-delta | block-end | usage | finish`。
+  **2026-09-19 复核**：信封形状在宿主源码中得到确认
+  （`packages/api/gateway/tests/gateway.host.spec.ts:1199` 的 `type: 'client-request'`），
+  但带鉴权的成功路径**仍未走通**（`/api/*` 返回 401；从 URL 取到的 `?token=` 以 query 传入无效，
+  实际机制未查明）—— **维持 B 级**，且不宣称其可用。
+
+- **事件流**：单一 WebSocket，**下行专用**；审批/提问回执走 `POST /api/respond`。
+  **⚠️ 路径已更正**：原文记的 `/api/events.mux` 是**旧版**的浏览器下行载体
+  （宿主 `2026-08-04` 架构笔记描述的状态）。现行宿主（`0.1.2-alpha.5`）已改为单一
+  WebSocket **`/api/remote.mux`**，host 流降级为它内部的 logical endpoint `$events`
+  （宿主 `2026-08-10` / `2026-08-18` 两篇 `implemented/` 笔记）。
+  证据（强于 live 探测）：`events.mux` 在宿主全仓 **含 `lib/` 编译产物在内零命中**；
+  而 `REMOTE_STREAM_MUX_PATH = '/api/remote.mux'` 同时出现在
+  `packages/api/gateway/src/stream-protocol.ts:6` 与编译产物 `lib/client.js:60` / `lib/index.js:11`。
+  帧类型（`session/event`、`session/queue`、`approval/requested|resolved`、
+  `question/requested|resolved`、`stream/error`）与 `session/event` 的 chunk 类型
+  （`block-start | text-delta | reasoning-delta | tool-call-delta | block-end | usage | finish`）
+  **未在现行宿主上复验**，随路径一并视为待更新。
+
 - **易错点**：斜杠命令必须走 `commands/execute`，用 `session.prompt` 发 `/xxx` 文本**不会**
   触发命令，会被当普通消息送进模型。
+  **2026-09-19 复核**：`commands/execute` 在宿主源码中存在且签名明确
+  （`packages/interaction/commands/lib/typert.remote-client.d.ts:16`：
+  `(agentId, line, images, signal?) => Promise<RemoteResult<CommandExecution | undefined>>`）。
+  该「易错点」的**行为差异未实测**（需要可用的带鉴权 RPC 通道）。
 
 ---
 
