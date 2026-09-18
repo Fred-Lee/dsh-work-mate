@@ -219,6 +219,19 @@ export interface BoardService {
    */
   evaluateWip(target: RepoScope | WipQuery, scope?: Scope): WipDecision
   queryEvents(filter?: EventQuery): Promise<BoardEvent[]>
+  /**
+   * Wires (or clears) the archival-gate adjudicator after construction.
+   *
+   * The adjudicated facts (merged run, audit record) live outside board, so the
+   * host that owns them has to inject the probe — but it may only reach this
+   * service after this plugin loaded. Config remains the other seam; this one
+   * exists so wiring does not have to be serializable.
+   *
+   * `gate()` reads the probe on every call, so this must be set for the
+   * read-only gap query and `advance` to agree (design D4: the drawer's gap list
+   * is the same list that refuses the move).
+   */
+  setGateProbe(probe: GateProbe | undefined): void
 }
 
 export class BoardServiceImpl implements BoardService {
@@ -226,7 +239,7 @@ export class BoardServiceImpl implements BoardService {
   readonly wipLimits: Required<WipLimits>
   readonly allowSkip: boolean
   private readonly existenceProbe: ExistenceProbe | undefined
-  private readonly gateProbe: GateProbe | undefined
+  private gateProbe: GateProbe | undefined
 
   constructor(config: BoardServiceConfig = {}) {
     this.store = new BoardStore(config)
@@ -242,6 +255,15 @@ export class BoardServiceImpl implements BoardService {
   /** State root actually in use (for logging / diagnostics). */
   get rootDir(): string {
     return this.store.rootDir
+  }
+
+  /**
+   * Late wiring seam for the archival gate (see `BoardService.setGateProbe`).
+   * Passing `undefined` restores the standalone behaviour: the gate reports
+   * "unconfigured" and refuses instead of silently passing.
+   */
+  setGateProbe(probe: GateProbe | undefined): void {
+    this.gateProbe = probe
   }
 
   /**

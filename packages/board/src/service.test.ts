@@ -300,6 +300,41 @@ describe('board: DoR/DoD gates', () => {
     expect(result.item.stage).toBe('dev')
   })
 
+  // `advance` takes a per-call probe, but the read-only `gate()` query does not
+  // — it only ever sees the configured one. Without a late seam the drawer
+  // would render gaps that the very same advance would accept, so the host has
+  // to be able to wire the probe onto the service itself.
+  it('setGateProbe makes the read-only gate query agree with advance', async () => {
+    const item = await toDev((await create()).id)
+    await board.associate(item.id, { type: 'run', refId: 'task-1' })
+
+    expect((await board.gate(item.id, 'done')).map((gap) => gap.key)).toEqual([
+      'run-merged',
+      'audit-on-record',
+    ])
+
+    board.setGateProbe(allPassProbe)
+    expect(await board.gate(item.id, 'done')).toEqual([])
+
+    // Clearing restores the standalone refusal rather than leaving a stale pass.
+    board.setGateProbe(undefined)
+    expect((await board.gate(item.id, 'done')).map((gap) => gap.key)).toEqual([
+      'run-merged',
+      'audit-on-record',
+    ])
+  })
+
+  it('setGateProbe adjudicates without moving the card', async () => {
+    const item = await toDev((await create()).id)
+    await board.associate(item.id, { type: 'run', refId: 'task-1' })
+    const before = await board.queryEvents({ type: 'advance' })
+
+    board.setGateProbe(allPassProbe)
+
+    expect((await board.get(item.id))!.stage).toBe('dev')
+    expect(await board.queryEvents({ type: 'advance' })).toHaveLength(before.length)
+  })
+
   it('archives once a run is merged and the audit record is on file', async () => {
     const item = await toDev((await create()).id)
     await board.associate(item.id, { type: 'run', refId: 'task-1', label: 'fleet run' })

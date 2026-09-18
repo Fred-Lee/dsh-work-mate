@@ -219,6 +219,13 @@ export interface BoardServiceLike {
   evaluateWip?(input: { repo: string; module?: string; excludeId?: string }): Promise<WipDecision | undefined>
   /** Lifecycle/migration events (spec task-kanban "阶段迁移留痕"). */
   queryEvents?(query?: { itemId?: string; kind?: string; limit?: number }): Promise<unknown[]>
+  /**
+   * Late wiring seam for the `dev → done` archival gate. The adjudicated facts
+   * live outside board, and this host is the one that can reach them, so it
+   * injects the probe after both services are up (`gate()` reads it on every
+   * call, so the drawer's gap list and `advance` agree).
+   */
+  setGateProbe?(probe: GateProbeLike | undefined): void
 }
 
 export interface TaskRunLike {
@@ -317,6 +324,33 @@ export interface OrchestratorLike {
    * operations (design D4: 取消/重试/审批/合并 仍留在执行看板).
    */
   runParallelTask?(params: RunParallelTaskInput): Promise<{ taskId: string }>
+  /**
+   * Read-only audit-journal query (change C). The board's archival gate uses it
+   * to confirm a merge left a record — see `createBoardGateProbe`.
+   */
+  getAudit?(query?: { taskId?: string }): Promise<AuditEntryLike[]>
+}
+
+/**
+ * Minimal audit-entry face the archival gate reads. Structural on purpose: the
+ * real union lives in `@helmsman/orchestrator`, and ui-board carries no
+ * workspace dependency (same convention as `slot-types` in ui-workbench).
+ */
+export interface AuditEntryLike {
+  type?: string
+  operation?: string
+  outcome?: string
+  taskId?: string
+}
+
+/**
+ * Structural mirror of `@helmsman/board`'s `GateProbe`. Both members are
+ * optional by contract: omitting one makes the board report that half as
+ * "unconfigured" and refuse the advance rather than silently passing.
+ */
+export interface GateProbeLike {
+  hasMergedRun?(item: { runs?: Array<{ taskId?: string }> }): boolean | Promise<boolean>
+  hasAuditOnRecord?(item: { runs?: Array<{ taskId?: string }> }): boolean | Promise<boolean>
 }
 
 export interface ArtifactMetaLike {

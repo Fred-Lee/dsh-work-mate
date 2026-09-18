@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ArtifactLike, BoardServiceLike, OrchestratorLike, TopologyLike } from './api.ts'
 import { createBoardApiRouter } from './api.ts'
+import { createBoardGateProbe } from './gate-probe.ts'
 import { createStaticHandler } from './http.ts'
 
 export const name = '@helmsman/ui-board'
@@ -53,6 +54,16 @@ export function apply(ctx: Context, config: Config = {}) {
     console.warn('[helmsman/ui-board] helmsman.board missing — kanban page not mounted')
     return
   }
+
+  // Wire the `dev → done` archival gate (board design D4/D5). Board stays
+  // self-contained and only accepts a probe; the two adjudicated facts (merged
+  // run + merge audit record) live in orchestrator, which this host resolves
+  // lazily — same convention as the run panel below. Without this the gate has
+  // no probe and refuses every archival advance with "未配置 gate probe".
+  // Optional call: an older `helmsman.board` without the seam still mounts.
+  board.setGateProbe?.(
+    createBoardGateProbe(() => ctx.get('helmsman.orchestrator') as OrchestratorLike | undefined),
+  )
 
   const mountPath = (config.mountPath ?? '/helmsman-board').replace(/\/+$/, '')
   const assetsDir = join(dirname(fileURLToPath(import.meta.url)), 'client')
