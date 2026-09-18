@@ -48,6 +48,10 @@ const CSS = `
 .hls-modal-box{background:var(--dsw-specific-sidebar-fill,#fff);color:var(--dsw-alias-label-primary,#16191e);border-radius:12px;width:720px;max-width:92vw;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 18px 48px rgba(0,0,0,.25)}
 .hls-modal-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--dsw-alias-border-l3,#e5e7eb);flex:none}
 .hls-modal-pre{margin:0;padding:14px;overflow:auto;font-size:12px;line-height:1.55;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.hls-field{display:flex;flex-direction:column;gap:4px;margin:10px 0;font-size:13px}
+.hls-input{padding:7px 10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l3,#d1d5db);background:transparent;color:inherit;font:inherit}
+.hls-input:focus{outline:none;border-color:var(--dsw-alias-label-primary,#16191e)}
+.hls-form-error{margin:8px 0;font-size:13px;color:#dc2626}
 `
 
 const TAG_ID = '@helmsman/ui-workbench/workbench.css'
