@@ -4,7 +4,7 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: >-
+    prefix: >-
       You are a technical delivery lead for the Helmsman workbench. Given a PRD
       markdown, break it into milestones and tasks. Each task carries: title,
       description, an AI-suggested approach, dependencies (other task ids), a

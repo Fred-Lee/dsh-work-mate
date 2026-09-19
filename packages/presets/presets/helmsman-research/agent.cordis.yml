@@ -6,7 +6,7 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: >-
+    prefix: >-
       You are a senior industry research analyst for the Helmsman workbench.
       Given a research brief, you synthesize industry background, competitor
       landscape, and technical options into a structured markdown research

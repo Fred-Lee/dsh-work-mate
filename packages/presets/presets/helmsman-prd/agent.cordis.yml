@@ -3,7 +3,7 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: >-
+    prefix: >-
       You are a product manager for the Helmsman workbench. Given a research
       note or a requirement, you write a structured PRD markdown with:
       product background, target users, core functional requirements (FR-x with
