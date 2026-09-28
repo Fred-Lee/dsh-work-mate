@@ -80,6 +80,7 @@ describe('ProposalPanel (kanban)', () => {
 
   it('creates through the ＋ 新提案 modal and refreshes the board', async () => {
     fetchMock.mockResolvedValueOnce(ok({ proposals: [] }))
+    fetchMock.mockResolvedValueOnce(ok({ projects: [] }))
     fetchMock.mockResolvedValueOnce(ok({ proposal: proposal() }))
     fetchMock.mockResolvedValueOnce(ok({ proposals: [proposal()] }))
 
@@ -93,7 +94,7 @@ describe('ProposalPanel (kanban)', () => {
     fireEvent.click(screen.getByText('创建提案'))
 
     await waitFor(() => expect(screen.getByText('批量批改 v2.1')).toBeTruthy())
-    const createCall = fetchMock.mock.calls[1] as unknown as [string, RequestInit]
+    const createCall = fetchMock.mock.calls[2] as unknown as [string, RequestInit]
     expect(createCall[0]).toBe('/workmate/api/proposals')
     expect(JSON.parse(String(createCall[1].body))).toMatchObject({ title: '新提案标题' })
   })
@@ -105,23 +106,32 @@ describe('ProposalPanel (kanban)', () => {
     await screen.findByText('存储不可读')
   })
 
-  it('expands a card to load detail facts (openspec state, commits)', async () => {
-    fetchMock.mockResolvedValue(ok({ proposals: [proposal({ status: 'executing' })] }))
+  it('expands a card to load per-project detail facts', async () => {
+    fetchMock.mockResolvedValue(ok({ proposals: [proposal({ status: 'executing', projects: ['grading-core'] })] }))
     render(<ProposalPanel />)
     await screen.findByText('批量批改 v2.1')
 
     fireEvent.click(screen.getByText('批量批改 v2.1'))
     fetchMock.mockResolvedValueOnce(
       ok({
-        proposal: proposal({ status: 'executing' }),
-        openspec: { state: 'active', tasks: { done: 2, total: 3 } },
-        commits: [{ hash: 'a'.repeat(40), short: 'abc1234', subject: 'feat: 接口' }],
+        proposal: proposal({ status: 'executing', projects: ['grading-core'] }),
+        projects: [
+          {
+            project: 'grading-core',
+            root: '/srv/grading-core',
+            git: { branch: 'feat/proposal', headShort: 'abc1234', dirtyCount: 2, isWorktree: true },
+            openspec: { state: 'active', tasks: { done: 2, total: 3 } },
+            commits: [{ hash: 'a'.repeat(40), short: 'abc1234', subject: 'feat: 接口' }],
+          },
+        ],
       }),
     )
     fireEvent.click(screen.getByText('加载详情'))
 
     await waitFor(() => expect(screen.getByText(/tasks 2\/3/)).toBeTruthy())
+    expect(screen.getByText(/⎇ feat\/proposal/)).toBeTruthy()
+    expect(screen.getByText('worktree')).toBeTruthy()
+    expect(screen.getByText('2 个未提交变更')).toBeTruthy()
     expect(screen.getByText('feat: 接口')).toBeTruthy()
-    expect(screen.getByText(/abc1234/)).toBeTruthy()
   })
 })

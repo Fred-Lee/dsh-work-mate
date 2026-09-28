@@ -7,17 +7,22 @@
  * proposal untouched and returns the step log for the caller to inspect.
  * Every step is idempotent, so archive can simply be retried.
  */
-import { readFile } from 'node:fs/promises'
+import { readFile, readdir, rename } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
-import { validateProjectRoot } from '../proposal/openspec.ts'
+import { readChangeState, validateProjectRoot } from '../proposal/openspec.ts'
 import { gitnexusAnalyze } from '../knowledge-bridge/gitnexus.ts'
 import type { Proposal } from '../proposal/store.ts'
 
 export interface OrchestrationStep {
-  step: 'tasks' | 'swarm' | 'openspec-archive' | 'gitnexus-analyze' | 'status'
+  step: 'tasks' | 'swarm' | 'openspec-archive' | 'gitnexus-analyze' | 'reopen-dir' | 'status'
   status: 'ok' | 'skipped' | 'failed'
   summary: string
+}
+
+export interface OrchestrationTarget {
+  project: string
+  root: string
 }
 
 export interface OrchestrationResult {
@@ -51,6 +56,52 @@ function execCli(cmd: string, args: string[], cwd: string, timeoutMs: number): P
   })
 }
 
+/**
+ * Move `changes/archive/<date>-<id>/` back to `changes/<id>/` (the reverse of
+ * `openspec archive`, which has no un-archive command). Returns a summary of
+ * what happened; never throws.
+ */
+export async function revertArchiveDir(
+  projectRoot: string,
+  openspecRoot: string,
+  changeId: string,
+): Promise<{ moved: boolean; summary: string }> {
+  let root: string
+  try {
+    root = validateProjectRoot(projectRoot)
+  } catch (error) {
+    return { moved: false, summary: error instanceof Error ? error.message : String(error) }
+  }
+  const changesDir = join(root, openspecRoot, 'changes')
+  const target = join(changesDir, changeId)
+  try {
+    if ((await readdir(target)).length >= 0) {
+      return { moved: false, summary: 'changes/<id> already exists — nothing to move back' }
+    }
+  } catch {
+    // target absent — proceed
+  }
+  let entries: string[]
+  try {
+    entries = await readdir(join(changesDir, 'archive'))
+  } catch {
+    return { moved: false, summary: 'no archive/ directory' }
+  }
+  const match = entries.find((entry) => entry.endsWith(`-${changeId}`))
+  if (match === undefined) {
+    return { moved: false, summary: `no archive entry ending with -${changeId}` }
+  }
+  try {
+    await rename(join(changesDir, 'archive', match), target)
+    return { moved: true, summary: `restored ${match} → changes/${changeId}` }
+  } catch (error) {
+    return {
+      moved: false,
+      summary: `failed to move back: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
+}
+
 export interface OrchestrateDeps {
   /** `openspec` CLI binary; overridable in tests. */
   openspecBin?: string
@@ -60,19 +111,25 @@ export interface OrchestrateDeps {
 
 export async function orchestrateArchive(
   proposal: Proposal,
-  projectRoot: string,
+  targets: OrchestrationTarget[],
   options: { openspecRoot: string; gitnexusAnalyzeEnabled?: boolean },
   deps: OrchestrateDeps = {},
 ): Promise<OrchestrationResult> {
-  const root = validateProjectRoot(projectRoot)
   const steps: OrchestrationStep[] = []
   const openspecBin = deps.openspecBin ?? 'openspec'
-  const changeDir = join(root, options.openspecRoot, 'changes', proposal.openspecChangeId)
+  if (targets.length === 0) {
+    steps.push({ step: 'status', status: 'failed', summary: 'no resolvable project roots — nothing to archive against' })
+    return { ok: false, steps }
+  }
+  const firstRoot = validateProjectRoot(targets[0]!.root)
 
-  // 1. tasks snapshot
+  // 1. tasks snapshot (first resolvable target)
   let tasks: TaskSnapshot | undefined
   try {
-    const content = await readFile(join(changeDir, 'tasks.md'), 'utf8')
+    const content = await readFile(
+      join(firstRoot, options.openspecRoot, 'changes', proposal.openspecChangeId, 'tasks.md'),
+      'utf8',
+    )
     tasks = parseTasksMd(content)
     steps.push({
       step: 'tasks',
@@ -86,7 +143,7 @@ export async function orchestrateArchive(
   // 2. swarm parallel execution (recorded skip until the swarm plugin ships)
   if (tasks !== undefined && deps.runSwarmTasks) {
     try {
-      const summary = await deps.runSwarmTasks(tasks, root)
+      const summary = await deps.runSwarmTasks(tasks, firstRoot)
       steps.push({ step: 'swarm', status: 'ok', summary })
     } catch (error) {
       steps.push({ step: 'swarm', status: 'failed', summary: error instanceof Error ? error.message : String(error) })
@@ -100,32 +157,79 @@ export async function orchestrateArchive(
     })
   }
 
-  // 3. openspec archive
-  try {
-    const output = await execCli(openspecBin, ['archive', proposal.openspecChangeId, '--yes'], root, 60_000)
-    steps.push({ step: 'openspec-archive', status: 'ok', summary: output.trim().split('\n').slice(-3).join(' / ') })
-  } catch (error) {
-    steps.push({
-      step: 'openspec-archive',
-      status: 'failed',
-      summary: error instanceof Error ? error.message : String(error),
-    })
-    return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }
+  // 3+4. per-project openspec archive + gitnexus re-index
+  let allArchived = true
+  for (const target of targets) {
+    const label = targets.length > 1 ? `[${target.project}] ` : ''
+    try {
+      const output = await execCli(openspecBin, ['archive', proposal.openspecChangeId, '--yes'], target.root, 60_000)
+      steps.push({
+        step: 'openspec-archive',
+        status: 'ok',
+        summary: `${label}${output.trim().split('\n').slice(-2).join(' / ')}`,
+      })
+    } catch (error) {
+      // Retry semantics: a previous partial run may have already archived this
+      // project — the CLI then fails with "not found". Archived state means
+      // the step's goal is already met: record a skip, not a failure.
+      const state = await readChangeState(target.root, options.openspecRoot, proposal.openspecChangeId)
+      if (state.state === 'archived') {
+        steps.push({
+          step: 'openspec-archive',
+          status: 'skipped',
+          summary: `${label}already archived in a previous run`,
+        })
+      } else {
+        allArchived = false
+        steps.push({
+          step: 'openspec-archive',
+          status: 'failed',
+          summary: `${label}${error instanceof Error ? error.message : String(error)}`,
+        })
+        continue
+      }
+    }
+    if (options.gitnexusAnalyzeEnabled !== false) {
+      const result = await gitnexusAnalyze(target.root, { force: true })
+      steps.push(
+        result.note === undefined
+          ? { step: 'gitnexus-analyze', status: 'ok', summary: `${label}${result.output.split('\n').slice(-2).join(' / ')}` }
+          : { step: 'gitnexus-analyze', status: 'skipped', summary: `${label}${result.note}` },
+      )
+    } else {
+      steps.push({ step: 'gitnexus-analyze', status: 'skipped', summary: 'disabled by config' })
+    }
   }
-
-  // 4. gitnexus analyze
-  if (options.gitnexusAnalyzeEnabled !== false) {
-    const result = await gitnexusAnalyze(root, { force: true })
-    steps.push(
-      result.note === undefined
-        ? { step: 'gitnexus-analyze', status: 'ok', summary: result.output.split('\n').slice(-3).join(' / ') }
-        : { step: 'gitnexus-analyze', status: 'skipped', summary: result.note },
-    )
-  } else {
-    steps.push({ step: 'gitnexus-analyze', status: 'skipped', summary: 'disabled by config' })
-  }
+  if (!allArchived) return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }
 
   // 5. status
   steps.push({ step: 'status', status: 'ok', summary: `proposal ${proposal.id} → archived` })
   return { ok: true, steps, ...(tasks !== undefined ? { tasks } : {}) }
+}
+
+/**
+ * Reverse orchestration for reopen: move each project's archived change dir
+ * back under changes/. Failures are recorded per project and never block the
+ * state rollback (the proposal's `archived` stamp is the least valuable
+ * thing to lose).
+ */
+export async function orchestrateReopen(
+  proposal: Proposal,
+  targets: OrchestrationTarget[],
+  options: { openspecRoot: string },
+): Promise<OrchestrationResult> {
+  const steps: OrchestrationStep[] = []
+  if (targets.length === 0) {
+    steps.push({ step: 'reopen-dir', status: 'skipped', summary: 'no resolvable project roots — state rollback only' })
+  }
+  for (const target of targets) {
+    const result = await revertArchiveDir(target.root, options.openspecRoot, proposal.openspecChangeId)
+    steps.push({
+      step: 'reopen-dir',
+      status: result.moved ? 'ok' : 'skipped',
+      summary: `[${target.project}] ${result.summary}`,
+    })
+  }
+  steps.push({ step: 'status', status: 'ok', summary: `proposal ${proposal.id} → executing` })
+  return { ok: true, steps }
 }

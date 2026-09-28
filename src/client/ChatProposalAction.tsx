@@ -6,10 +6,13 @@
  * brainstorm, one click opens a small form, the proposal is created through
  * the same REST the panel uses, and "打开面板" lands the user on the kanban.
  *
- * No session content is read — the form only asks for a title (id is
- * auto-generated host-side), so the action stays honest about what it does.
+ * Styling: the trigger lives inside the host shell, so PANEL_STYLE is injected
+ * on mount (the button is outside any .wm-root otherwise), and the modal root
+ * carries the .wm-root class to restore the CSS-variable scope — without it
+ * every var() inside the modal is undefined and the surface renders broken
+ * (the "UI 有问题" feedback of the first iteration).
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { AssistantActionInjected } from './slot-types'
 import { createProposal } from './api'
@@ -31,6 +34,18 @@ export function ChatProposalAction(props: ChatProposalActionProps): JSX.Element 
   const [createdId, setCreatedId] = useState<string | null>(null)
   const create = props.create ?? createProposal
   const panelUrl = props.panelUrl ?? '/workmate/'
+
+  // The trigger button renders inside the HOST shell, outside any .wm-root —
+  // without this the .wm-chat-trigger rule never applies.
+  useEffect(() => {
+    const style = document.createElement('style')
+    style.dataset.wmPanelStyle = 'chat-trigger'
+    style.textContent = PANEL_STYLE
+    document.head.appendChild(style)
+    return () => {
+      style.remove()
+    }
+  }, [])
 
   async function submit(event: FormEvent): Promise<void> {
     event.preventDefault()
@@ -72,50 +87,52 @@ export function ChatProposalAction(props: ChatProposalActionProps): JSX.Element 
       </button>
 
       {open && (
-        <div className="wm-modal" onClick={reset}>
-          <form
-            className="wm-modal-box"
-            onClick={(event) => event.stopPropagation()}
-            onSubmit={(event) => void submit(event)}
-          >
-            <style dangerouslySetInnerHTML={{ __html: PANEL_STYLE }} />
-            <h3>🚀 转为提案</h3>
-            <div className="wm-field">
-              <label>标题（必填）</label>
-              <input
-                autoFocus
-                value={title}
-                placeholder="比如：批量批改 v2.1"
-                onChange={(event) => setTitle(event.target.value)}
-              />
-            </div>
-            <div className="wm-field">
-              <label>项目根（可选）</label>
-              <input
-                value={projectRoot}
-                placeholder="/abs/path/to/project"
-                onChange={(event) => setProjectRoot(event.target.value)}
-              />
-            </div>
-            {error !== '' && <div className="wm-error" style={{ margin: '0 0 8px' }}>{error}</div>}
-            {createdId !== null ? (
-              <div className="wm-ok-note">
-                ✓ 已创建 <code>{createdId}</code> —{' '}
-                <a href={panelUrl} target="_blank" rel="noreferrer" onClick={reset}>
-                  打开面板
-                </a>
+        <div className="wm-root">
+          <style dangerouslySetInnerHTML={{ __html: PANEL_STYLE }} />
+          <div className="wm-modal" onClick={reset}>
+            <form
+              className="wm-modal-box"
+              onClick={(event) => event.stopPropagation()}
+              onSubmit={(event) => void submit(event)}
+            >
+              <h3>🚀 转为提案</h3>
+              <div className="wm-field">
+                <label>标题（必填）</label>
+                <input
+                  autoFocus
+                  value={title}
+                  placeholder="比如：批量批改 v2.1"
+                  onChange={(event) => setTitle(event.target.value)}
+                />
               </div>
-            ) : (
-              <div className="wm-modal-foot">
-                <button className="wm-btn" type="button" onClick={reset}>
-                  取消
-                </button>
-                <button className="wm-btn primary" type="submit" disabled={busy}>
-                  创建提案
-                </button>
+              <div className="wm-field">
+                <label>项目根（可选）</label>
+                <input
+                  value={projectRoot}
+                  placeholder="/abs/path/to/project"
+                  onChange={(event) => setProjectRoot(event.target.value)}
+                />
               </div>
-            )}
-          </form>
+              {error !== '' && <div className="wm-error" style={{ margin: '0 0 8px' }}>{error}</div>}
+              {createdId !== null ? (
+                <div className="wm-ok-note">
+                  ✓ 已创建 <code>{createdId}</code> —{' '}
+                  <a href={panelUrl} target="_blank" rel="noreferrer" onClick={reset}>
+                    打开面板
+                  </a>
+                </div>
+              ) : (
+                <div className="wm-modal-foot">
+                  <button className="wm-btn" type="button" onClick={reset}>
+                    取消
+                  </button>
+                  <button className="wm-btn primary" type="submit" disabled={busy}>
+                    创建提案
+                  </button>
+                </div>
+              )}
+            </form>
+          </div>
         </div>
       )}
     </>

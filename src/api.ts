@@ -12,6 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Router, readJsonBody } from './http.ts'
 import type { ProposalService } from './features/proposal/service.ts'
 import type { ArchiveServiceImpl } from './features/archive/service.ts'
+import type { ProjectRegistry } from './features/project/registry.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
 import { generateChangeDir, readChangeState, validateProjectRoot } from './features/proposal/openspec.ts'
 import { listProposalCommits } from './features/proposal/git.ts'
@@ -24,9 +25,15 @@ function resolveRoot(deps: ApiDeps, explicit?: string): string {
 export interface ApiDeps {
   proposals: ProposalService
   archive: ArchiveServiceImpl
+  registry: ProjectRegistry
   openspecRoot: string
   /** Config-level default project root; may be empty. */
   projectRoot: string
+}
+
+export interface CreateProjectBody {
+  name?: string
+  root?: string
 }
 
 export interface CreateProposalBody {
@@ -82,6 +89,7 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     return buildProposalStatus(deps.proposals, r.params['id'] ?? '', {
       projectRoot: root || undefined,
       openspecRoot: deps.openspecRoot,
+      resolveRoot: async (name) => (await deps.registry.get(name))?.root,
     })
   })
 
@@ -92,16 +100,43 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
 
   router.post('/api/proposals/:id/archive', async (r) => {
     const body = await readJsonBody<{ force?: boolean; projectRoot?: string }>(r.req).catch(() => ({}) as { force?: boolean; projectRoot?: string })
-    const proposal = await deps.archive.archive(r.params['id'] ?? '', {
+    const archived = await deps.archive.archive(r.params['id'] ?? '', {
       openspecRoot: deps.openspecRoot,
       projectRoot: resolveRoot(deps, body.projectRoot) || undefined,
       force: body.force,
     })
-    return { proposal }
+    return {
+      proposal: archived,
+      ...(typeof archived === 'object' && 'orchestration' in archived
+        ? { orchestration: (archived as { orchestration: unknown }).orchestration }
+        : {}),
+    }
   })
 
   router.get('/api/graph', async (r) => {
     return buildGraphData(deps, resolveRoot(deps, r.query.get('projectRoot') ?? undefined) || undefined)
+  })
+
+  router.get('/api/projects', async () => {
+    return { projects: await deps.registry.list() }
+  })
+
+  router.post('/api/projects', async (r) => {
+    const body = await readJsonBody<CreateProjectBody>(r.req)
+    const name = (body.name ?? '').trim()
+    const root = (body.root ?? '').trim()
+    const registered = await deps.registry.upsert(name, root)
+    return { project: registered }
+  })
+
+  router.delete('/api/projects/:name', async (r) => {
+    const removed = await deps.registry.remove(r.params['name'] ?? '')
+    return { removed }
+  })
+
+  router.post('/api/proposals/:id/reopen', async (r) => {
+    const reopened = await deps.archive.reopen(r.params['id'] ?? '', { openspecRoot: deps.openspecRoot })
+    return { proposal: reopened, orchestration: reopened.orchestration }
   })
 }
 

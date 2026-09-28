@@ -17,8 +17,26 @@ export interface AssociatedCommit {
   subject: string
 }
 
+export interface ProjectGitInfo {
+  branch: string
+  headShort: string
+  dirtyCount: number
+  isWorktree: boolean
+  note?: string
+}
+
+export interface ProjectDetail {
+  project: string
+  root?: string
+  git?: ProjectGitInfo
+  commits?: AssociatedCommit[]
+  openspec?: { state: 'active' | 'archived' | 'missing'; tasks?: { done: number; total: number } }
+  note?: string
+}
+
 export interface ProposalStatusPayload {
   proposal: Proposal
+  projects?: ProjectDetail[]
   openspec?: { state: 'active' | 'archived' | 'missing'; tasks?: { done: number; total: number } }
   commits?: AssociatedCommit[]
   gitNote?: string

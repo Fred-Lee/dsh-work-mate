@@ -19,7 +19,8 @@ import { resolveConfig, type Config } from './config.ts'
 import { ProposalStore } from './features/proposal/store.ts'
 import { ProposalServiceImpl, type ProposalService } from './features/proposal/service.ts'
 import { ArchiveServiceImpl } from './features/archive/service.ts'
-import { orchestrateArchive } from './features/archive/orchestrate.ts'
+import { orchestrateArchive, orchestrateReopen } from './features/archive/orchestrate.ts'
+import { ProjectRegistry } from './features/project/registry.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
 import { gitnexusRun } from './features/knowledge-bridge/gitnexus.ts'
 import { createWeknoraClient } from './features/knowledge-bridge/weknora.ts'
@@ -31,6 +32,8 @@ export const inject = ['tools', 'webServer'] as const
 export type { Config, ResolvedConfig } from './config.ts'
 export { CONFIG_DEFAULTS, resolveConfig } from './config.ts'
 export type { Proposal, ProposalStoreOptions } from './features/proposal/store.ts'
+export { ProjectRegistry } from './features/project/registry.ts'
+export type { RegisteredProject } from './features/project/registry.ts'
 export { ProposalStore, resolveDshHome, StoreCorruptError } from './features/proposal/store.ts'
 export type { ProposalService, UpsertProposalInput } from './features/proposal/service.ts'
 export { ProposalServiceImpl } from './features/proposal/service.ts'
@@ -40,6 +43,7 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     'workmate.proposal': ProposalService
     'workmate.archive': ArchiveServiceImpl
+    'workmate.projects': ProjectRegistry
   }
 }
 
@@ -51,18 +55,30 @@ export function apply(ctx: Context, config: Config = {}): void {
   const resolved = resolveConfig(config)
   const store = new ProposalStore({ subdir: resolved.workmateHome })
   const proposals = new ProposalServiceImpl(store)
+  const registry = new ProjectRegistry({ subdir: resolved.workmateHome })
   const archive = new ArchiveServiceImpl({
     proposals,
+    async resolveProjectRoots(proposal) {
+      const targets: Array<{ project: string; root: string }> = []
+      for (const name of proposal.projects) {
+        const registered = await registry.get(name)
+        if (registered !== undefined) targets.push({ project: name, root: registered.root })
+      }
+      return targets
+    },
     async changeDirExists(projectRoot, openspecRoot, changeId) {
       const state = await import('./features/proposal/openspec.ts')
       const result = await state.readChangeState(projectRoot, openspecRoot, changeId)
       return result.state !== 'missing'
     },
-    async orchestrate(proposal, projectRoot, opts) {
-      return orchestrateArchive(proposal, projectRoot, {
+    async orchestrate(proposal, targets, opts) {
+      return orchestrateArchive(proposal, targets, {
         openspecRoot: opts.openspecRoot,
         gitnexusAnalyzeEnabled: resolved.gitnexusEnabled,
       })
+    },
+    async orchestrateReopen(proposal, targets, opts) {
+      return orchestrateReopen(proposal, targets, { openspecRoot: opts.openspecRoot })
     },
   })
 
@@ -80,22 +96,30 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.provide('workmate.proposal', proposals)
   ctx.provide('workmate.archive', archive)
+  ctx.provide('workmate.projects', registry)
 
-  registerTools(ctx, { proposals, archive, resolved })
+  registerTools(ctx, { proposals, archive, registry, resolved })
   mountWorkmateApi(
     ctx.get('webServer') as Parameters<typeof mountWorkmateApi>[0],
-    { proposals, archive, openspecRoot: resolved.openspecRoot, projectRoot: resolved.projectRoot },
+    {
+      proposals,
+      archive,
+      registry,
+      openspecRoot: resolved.openspecRoot,
+      projectRoot: resolved.projectRoot,
+    },
   )
 }
 
 interface ToolDeps {
   proposals: ProposalService
   archive: ArchiveServiceImpl
+  registry: ProjectRegistry
   resolved: ReturnType<typeof resolveConfig>
 }
 
 function registerTools(ctx: Context, deps: ToolDeps): void {
-  const { proposals, archive, resolved } = deps
+  const { proposals, archive, registry, resolved } = deps
 
   ctx.tools.register(
     defineTool({
@@ -112,7 +136,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
       async execute(args) {
         const projects = args.projects?.split(',').map((p) => p.trim()).filter(Boolean)
         const result = await createProposal(
-          { proposals, archive, openspecRoot: resolved.openspecRoot, projectRoot: resolved.projectRoot },
+          { proposals, archive, registry, openspecRoot: resolved.openspecRoot, projectRoot: resolved.projectRoot },
           {
             id: args.id,
             title: args.title,

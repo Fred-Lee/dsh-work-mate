@@ -70,7 +70,12 @@ describe('orchestrateArchive (fake CLIs)', () => {
       await proposals.upsert({ id: 'p1', title: 't' })
       const executing = await proposals.setStatus('p1', 'executing')
 
-      const result = await orchestrateArchive(executing, project, { openspecRoot: 'openspec' }, { openspecBin: join(binDir, 'openspec') })
+      const result = await orchestrateArchive(
+        executing,
+        [{ project: 'demo', root: project }],
+        { openspecRoot: 'openspec' },
+        { openspecBin: join(binDir, 'openspec') },
+      )
 
       expect(result.ok).toBe(true)
       expect(result.tasks).toEqual({ done: 1, total: 2, lines: ['- [x] 1. a', '- [ ] 2. b'] })
@@ -101,7 +106,12 @@ describe('orchestrateArchive (fake CLIs)', () => {
     await proposals.upsert({ id: 'p1', title: 't' })
     const executing = await proposals.setStatus('p1', 'executing')
 
-    const result = await orchestrateArchive(executing, project, { openspecRoot: 'openspec' }, { openspecBin: path })
+    const result = await orchestrateArchive(
+      executing,
+      [{ project: 'demo', root: project }],
+      { openspecRoot: 'openspec' },
+      { openspecBin: path },
+    )
 
     expect(result.ok).toBe(false)
     expect(result.steps.find((s) => s.step === 'openspec-archive')?.status).toBe('failed')

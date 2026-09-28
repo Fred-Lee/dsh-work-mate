@@ -1,11 +1,22 @@
 /**
  * ProposalPanel — the single UI implementation behind every exit (standalone
- * page, better-sidebar tab). Kanban-first (design: rework-panel-ux): three
- * columns mirror the proposal lifecycle, cards carry a status bar and OpenSpec
- * progress rail, details expand in place, creation lives in a modal.
+ * page, better-sidebar tab). Kanban-first: three columns mirror the proposal
+ * lifecycle, cards carry a status bar and OpenSpec progress rail, details
+ * expand in place grouped per associated project (multi-service support),
+ * creation lives in a modal with a project picker.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { archiveProposal, createProposal, getProposal, listProposals, startProposal } from './api'
+import {
+  archiveProposal,
+  createProposal,
+  getProposal,
+  listProjects,
+  listProposals,
+  registerProject,
+  reopenProposal,
+  startProposal,
+  type RegisteredProject,
+} from './api'
 import type { Proposal, ProposalStatusPayload } from './types'
 import { GraphView } from './GraphView'
 import { PANEL_STYLE } from './styles'
@@ -74,10 +85,11 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   )
 
   const act = useCallback(
-    async (id: string, action: 'start' | 'archive') => {
+    async (id: string, action: 'start' | 'archive' | 'reopen') => {
       setBusy(true)
       try {
         if (action === 'start') await startProposal(id)
+        else if (action === 'reopen') await reopenProposal(id)
         else await archiveProposal(id)
         setError('')
         await Promise.all([refresh(), loadDetail(id)])
@@ -166,7 +178,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                       )}
                       <div className="wm-meta">
                         <span>{relativeTime(proposal.updatedAt)}</span>
-                        {detail?.openspec !== undefined && <span>openspec {detail.openspec.state}</span>}
+                        {proposal.projects.length > 0 && <span>{proposal.projects.length} 个关联项目</span>}
                       </div>
 
                       {expanded === proposal.id && (
@@ -179,22 +191,53 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                             </div>
                           ) : (
                             <>
-                              <div className="wm-section">
-                                <b>Git 关联</b>
-                                {detail.commits === undefined ? (
-                                  <span>未扫描</span>
-                                ) : detail.commits.length === 0 ? (
-                                  <span>{detail.gitNote ?? '暂无含 [proposal:<id>] 的提交'}</span>
-                                ) : (
-                                  <ul>
-                                    {detail.commits.map((commit) => (
-                                      <li key={commit.hash}>
-                                        <code>{commit.short}</code> {commit.subject}
-                                      </li>
-                                    ))}
-                                  </ul>
-                                )}
-                              </div>
+                              {(detail.projects ?? []).map((project) => (
+                                <div className="wm-section" key={project.project}>
+                                  <b>
+                                    📦 {project.project}
+                                    {project.git !== undefined && project.git.branch !== '' && (
+                                      <code style={{ marginLeft: 6 }}>⎇ {project.git.branch}</code>
+                                    )}
+                                    {project.git?.isWorktree === true && (
+                                      <code style={{ marginLeft: 4 }}>worktree</code>
+                                    )}
+                                  </b>
+                                  {project.root === undefined ? (
+                                    <span>{project.note ?? '未注册项目根'}</span>
+                                  ) : (
+                                    <div>
+                                      {project.git !== undefined && (
+                                        <div className="wm-meta" style={{ marginTop: 2 }}>
+                                          <code>{project.git.headShort}</code>
+                                          {project.git.dirtyCount > 0 && (
+                                            <span>{project.git.dirtyCount} 个未提交变更</span>
+                                          )}
+                                        </div>
+                                      )}
+                                      {project.openspec !== undefined && (
+                                        <div>
+                                          openspec <code>{project.openspec.state}</code>
+                                          {project.openspec.tasks !== undefined && (
+                                            <span className="wm-progress-label">
+                                              {' '}
+                                              · tasks {project.openspec.tasks.done}/{project.openspec.tasks.total}
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                      {project.commits !== undefined && project.commits.length > 0 && (
+                                        <ul>
+                                          {project.commits.map((commit) => (
+                                            <li key={commit.hash}>
+                                              <code>{commit.short}</code> {commit.subject}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
                               <div className="wm-actions">
                                 <button
                                   className="wm-btn mini"
@@ -211,6 +254,14 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                   onClick={() => void act(proposal.id, 'archive')}
                                 >
                                   归档
+                                </button>
+                                <button
+                                  className="wm-btn mini"
+                                  type="button"
+                                  disabled={busy || proposal.status !== 'archived'}
+                                  onClick={() => void act(proposal.id, 'reopen')}
+                                >
+                                  重新打开
                                 </button>
                               </div>
                             </>
@@ -248,27 +299,50 @@ function CreateModal(props: {
 }): JSX.Element {
   const [title, setTitle] = useState('')
   const [id, setId] = useState('')
+  const [projects, setProjects] = useState<RegisteredProject[]>([])
+  const [checked, setChecked] = useState<string[]>([])
+  const [newName, setNewName] = useState('')
+  const [newRoot, setNewRoot] = useState('')
   const [busy, setBusy] = useState(false)
   const [created, setCreated] = useState<{ id: string } | null>(null)
 
+  useEffect(() => {
+    void listProjects()
+      .then(({ projects: list }) => setProjects(list))
+      .catch(() => setProjects([]))
+  }, [])
+
+  async function addProject(): Promise<void> {
+    if (!newName.trim() || !newRoot.trim()) return
+    try {
+      const { project } = await registerProject(newName.trim(), newRoot.trim())
+      setProjects((prev) => [...prev.filter((p) => p.name !== project.name), project])
+      setChecked((prev) => [...prev, project.name])
+      setNewName('')
+      setNewRoot('')
+    } catch (cause) {
+      props.onError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault()
-    if (!title.trim()) return
+    if (!title.trim() || busy) return
     setBusy(true)
     try {
       const result = await createProposal({
         title: title.trim(),
         ...(id.trim() ? { id: id.trim() } : {}),
+        ...(checked.length > 0 ? { projects: checked } : {}),
         ...(props.projectRoot.trim() ? { projectRoot: props.projectRoot.trim() } : {}),
       })
       setCreated({ id: result.proposal.id })
       await props.onCreated()
     } catch (cause) {
       props.onError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
       setBusy(false)
-      return
     }
-    setBusy(false)
   }
 
   return (
@@ -293,7 +367,33 @@ function CreateModal(props: {
           <input value={id} placeholder="batch-grading-v2" onChange={(event) => setId(event.target.value)} />
         </div>
         <div className="wm-field">
-          <label>项目根（可选，填了才生成 openspec 目录并扫描 Git）</label>
+          <label>关联项目（多选，微服务变更可同时勾选多个）</label>
+          {projects.length === 0 && <span className="wm-progress-label">还没有注册项目 — 在下方添加。</span>}
+          {projects.map((project) => (
+            <label key={project.name} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
+              <input
+                type="checkbox"
+                checked={checked.includes(project.name)}
+                onChange={(event) =>
+                  setChecked((prev) =>
+                    event.target.checked ? [...prev, project.name] : prev.filter((name) => name !== project.name),
+                  )
+                }
+              />
+              <code>{project.name}</code>
+              <span style={{ color: 'var(--wm-muted)', fontSize: 11 }}>{project.root}</span>
+            </label>
+          ))}
+          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+            <input style={{ flex: 1 }} value={newName} placeholder="项目名" onChange={(event) => setNewName(event.target.value)} />
+            <input style={{ flex: 2 }} value={newRoot} placeholder="/abs/path/to/project" onChange={(event) => setNewRoot(event.target.value)} />
+            <button className="wm-btn mini" type="button" onClick={() => void addProject()}>
+              注册
+            </button>
+          </div>
+        </div>
+        <div className="wm-field">
+          <label>单项目根（可选，兼容旧流程；多项目请用上方关联）</label>
           <input
             value={props.projectRoot}
             placeholder="/abs/path/to/project"

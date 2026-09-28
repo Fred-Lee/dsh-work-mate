@@ -56,6 +56,10 @@ export class Router {
     return this.add('POST', pattern, handler)
   }
 
+  delete(pattern: string, handler: RouteHandler): this {
+    return this.add('DELETE', pattern, handler)
+  }
+
   async handle(rawPathname: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(rawPathname, 'http://local')
     const segments = url.pathname.split('/').filter(Boolean)

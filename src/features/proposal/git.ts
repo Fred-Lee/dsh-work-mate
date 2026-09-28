@@ -70,3 +70,55 @@ export async function verifyCommitExists(projectRoot: string, hash: string): Pro
     return false
   }
 }
+
+export interface GitInfo {
+  branch: string
+  headShort: string
+  /** Count of uncommitted changes (`git status --porcelain` lines). */
+  dirtyCount: number
+  /** True when the checkout is a linked worktree, not the primary checkout. */
+  isWorktree: boolean
+  note?: string
+}
+
+/**
+ * Observable checkout facts for a project root (change
+ * `add-multi-project-reopen-git-visibility`): branch, HEAD, dirtiness and the
+ * worktree marker. Worktree detection compares --git-dir with
+ * --git-common-dir: a linked worktree's git dir lives under
+ * `<main>/.git/worktrees/<name>`, so the two disagree.
+ */
+export async function getGitInfo(projectRoot: string): Promise<GitInfo> {
+  const root = validateProjectRoot(projectRoot)
+  const noteFor = (error: unknown): GitInfo => ({
+    branch: '',
+    headShort: '',
+    dirtyCount: 0,
+    isWorktree: false,
+    note: `git unavailable: ${error instanceof Error ? error.message : String(error)}`,
+  })
+
+  let branch: string
+  let head: string
+  let gitDir: string
+  let commonDir: string
+  let status: string
+  try {
+    ;[branch, head, gitDir, commonDir, status] = await Promise.all([
+      execGit(['rev-parse', '--abbrev-ref', 'HEAD'], root, 5_000),
+      execGit(['rev-parse', '--short', 'HEAD'], root, 5_000),
+      execGit(['rev-parse', '--absolute-git-dir'], root, 5_000),
+      execGit(['rev-parse', '--path-format=absolute', '--git-common-dir'], root, 5_000),
+      execGit(['status', '--porcelain'], root, 10_000),
+    ])
+  } catch (error) {
+    return noteFor(error)
+  }
+
+  return {
+    branch: branch.trim(),
+    headShort: head.trim(),
+    dirtyCount: status.split('\n').filter((line) => line.trim() !== '').length,
+    isWorktree: gitDir.trim() !== commonDir.trim(),
+  }
+}

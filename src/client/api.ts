@@ -43,3 +43,26 @@ export function archiveProposal(id: string, force = false): Promise<{ proposal: 
     body: JSON.stringify({ force }),
   })
 }
+
+export function reopenProposal(id: string): Promise<{ proposal: Proposal }> {
+  return request(`/workmate/api/proposals/${encodeURIComponent(id)}/reopen`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
+export interface RegisteredProject {
+  name: string
+  root: string
+}
+
+export function listProjects(): Promise<{ projects: RegisteredProject[] }> {
+  return request('/workmate/api/projects')
+}
+
+export function registerProject(name: string, root: string): Promise<{ project: RegisteredProject }> {
+  return request('/workmate/api/projects', {
+    method: 'POST',
+    body: JSON.stringify({ name, root }),
+  })
+}
