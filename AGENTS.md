@@ -64,11 +64,14 @@ pnpm dsh web                                            # http://127.0.0.1:3080
 
 | 里程碑 | 内容 | 状态 |
 | --- | --- | --- |
-| M1 | 插件骨架与依赖装配 | ✅ `openspec/changes/bootstrap-workmate-plugin` |
-| M2 | 变更提案中间层（工具注册、openspec 目录生成、Git 关联、提案面板 UI） | 待做 |
-| M3 | 知识桥接（GitNexus / WeKnora / @快捷指令） | 待做 |
-| M4 | 并行编排接入与归档闭环（swarm + openspec archive + gitnexus analyze） | 待做 |
-| M5 | 知识图谱可视化（可选） | 待做 |
+| M1 | 插件骨架与依赖装配 | ✅ 已归档 `2026-09-28-bootstrap-workmate-plugin` |
+| M2 | 变更提案中间层（工具注册、openspec 目录生成、Git 关联、提案面板） | ✅ 已归档 `2026-09-28-add-proposal-middleware` |
+| M3 | 知识桥接（GitNexus CLI / WeKnora） | ✅ 已归档 `2026-09-28-add-knowledge-bridge` |
+| M4 | 归档编排闭环（openspec archive + gitnexus analyze） | ✅ 已归档 `2026-09-28-add-archive-orchestration` |
+| M5 | 知识图谱可视化（SVG 分层视图） | ✅ 已归档 `2026-09-28-add-knowledge-graph-view` |
+
+待办（依赖外部条件）：swarm 并行执行（编排内已留记录性跳过位）、@快捷指令
+（`@hucj/dsh-file-mention` 未装）、WeKnora 真机契约核验。
 
 已知环境事实（M3/M4 决策依据）：本机 harness `0.1.7-rc.2`；profile 实装
 `dsh-tools 0.1.2-alpha.5`（引入时钉此线）；`@deepseek-ai/dsh-mcp-client` 不存在，
