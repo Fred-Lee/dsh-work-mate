@@ -1,15 +1,23 @@
 /**
- * DSH client-module entry (ModuleLoader CJS bundle). Registers the
- * better-sidebar tab 「🛠 WorkMate」 rendering the same ProposalPanel the
- * standalone page uses (design D5).
+ * DSH client-module entry (ModuleLoader CJS bundle). Three registrations:
  *
- * `betterSidebar` is the module-level inject (hard dep, workbench-proven);
- * the component defers data errors to its own inline states, so a REST hiccup
- * renders as a message, never a blank tab.
+ *  1. better-sidebar tab 「🛠 WorkMate」 — the full kanban panel (workbench-proven)
+ *  2. assistant-message action row 「🚀 转为提案」 — the scene switch at the end
+ *     of a brainstorm reply (ui-workbench「保存为任务」-proven)
+ *  3. input tool area 「🚀 转为提案」 — the same switch beside the attach button
+ *     (`conversation.input.left`, Codingns4DSH quick-phrase position)
+ *
+ * The tab registry is the module-level inject (hard dep). `slots` is OPTIONAL
+ * by design: declared nowhere in module-level inject, activated through
+ * `ctx.inject(['slots'], …)` so a missing slot registry can never park the
+ * client half — and take the tab down with it.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import './slot-types'
 import './better-sidebar-types'
 import { ProposalPanel } from './App'
+import { ChatProposalAction } from './ChatProposalAction'
+import { ASSISTANT_ACTIONS, INPUT_LEFT } from './slot-types'
 
 /** Required service: the better-sidebar tab registry. */
 export const inject = ['betterSidebar'] as const
@@ -24,5 +32,34 @@ export function apply(ctx: ClientContext): void {
       component: () => <ProposalPanel />,
     }),
   )
-  console.log('[workmate/client] better-sidebar tab registered')
+
+  ctx.inject(['slots'], (scope: ClientContext) => {
+    scope.effect(() =>
+      scope.slots.inject(ASSISTANT_ACTIONS, () =>
+        scope.slots.register(
+          {
+            name: ASSISTANT_ACTIONS,
+            id: 'workmate:save-as-proposal',
+            order: 25,
+            inject: (sessionId: string) => ({ sessionId }),
+          },
+          ChatProposalAction,
+        ),
+      ),
+    )
+    scope.effect(() =>
+      scope.slots.inject(INPUT_LEFT, () =>
+        scope.slots.register(
+          {
+            name: INPUT_LEFT,
+            id: 'workmate:input-trigger',
+            order: 10,
+          },
+          ChatProposalAction,
+        ),
+      ),
+    )
+  })
+
+  console.log('[workmate/client] tab + chat entries registered')
 }

@@ -109,9 +109,10 @@ export async function createProposal(
   deps: ApiDeps,
   body: CreateProposalBody,
 ): Promise<{ proposal: Awaited<ReturnType<ProposalService['upsert']>>; openspec?: ReturnType<typeof generateChangeDir> extends Promise<infer R> ? R : never; note?: string }> {
-  const id = (body.id ?? '').trim()
+  // id is optional now: the chat-entry modal only collects a title, so a
+  // missing id gets a collision-safe timestamp slug.
+  const id = (body.id ?? '').trim() || `proposal-${Date.now().toString(36)}`
   const title = (body.title ?? '').trim()
-  if (!id) throw new Error('id is required')
   if (!title) throw new Error('title is required')
 
   const proposal = await deps.proposals.upsert({

@@ -96,11 +96,18 @@ describe('proposal REST API', () => {
   })
 
   it('rejects invalid creates with a readable error', async () => {
-    const missing = await call('POST', '/api/proposals', { title: '无 id' })
+    const missing = await call('POST', '/api/proposals', { id: 'p1' })
     expect(missing.status).toBe(400)
+    expect((missing.body as { error: string }).error).toBe('title is required')
 
     await expect(call('GET', '/api/proposals/ghost')).resolves.toMatchObject({ status: 400 })
     await expect(call('GET', '/api/ghost')).resolves.toMatchObject({ status: 404 })
+  })
+
+  it('auto-generates an id when the create body omits it (chat entry)', async () => {
+    const created = await call('POST', '/api/proposals', { title: '只有标题' })
+    expect(created.status).toBe(200)
+    expect((created.body as { proposal: { id: string } }).proposal.id).toMatch(/^proposal-/)
   })
 
   it('walks the lifecycle endpoints (start then archive)', async () => {

@@ -26,7 +26,8 @@ export interface ProposalStatusPayload {
 }
 
 export interface CreateProposalBody {
-  id: string
+  /** Optional: auto-generated host-side when omitted (chat entry only asks for a title). */
+  id?: string
   title: string
   projects?: string[]
   projectRoot?: string
