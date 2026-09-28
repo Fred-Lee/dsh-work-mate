@@ -29,8 +29,12 @@
 
 ## 4. 真机冒烟（里程碑一验收）
 
-- [ ] 4.1 web profile 移除 15 个 `@helmsman/*` link 依赖与 bundle 条目，`pnpm install`
-- [ ] 4.2 profile 以 link 方式装载 `workmate4dsh`，`pnpm install` 建链
-- [ ] 4.3 `pnpm dsh --profile web --dump-config` 出现 workmate 层；
+- [x] 4.1 web profile 移除 15 个 `@helmsman/*` link 依赖与 bundle 条目，`pnpm install`
+- [x] 4.2 profile 以 link 方式装载 `workmate4dsh`，`pnpm install` 建链
+- [x] 4.3 `pnpm dsh --profile web --dump-config` 出现 workmate 层；
       `dsh web` 加载日志无 error、`workmate.proposal` 服务 ACTIVE
-- [ ] 4.4 契约检查脚本入 CI 位（`pnpm verify:contract`）
+      - 实测（0.1.7-rc.2）：dump-config 出现 `# == workmate4dsh / - id: workmate`；
+        启动日志 `[workmate] service ready (root: ~/.dsh/workmate)`，宿主正常起在
+        127.0.0.1:3080。另有 6 条未激活均为 mnemon / vision-router / mcp-adapter
+        等既有社区插件与新宿主的兼容性问题（装载 workmate 之前已存在），与本项目无关。
+- [x] 4.4 契约检查脚本入 CI 位（`pnpm verify:contract`）
