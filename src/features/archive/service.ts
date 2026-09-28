@@ -6,6 +6,7 @@
  */
 import type { Proposal } from '../proposal/store.ts'
 import type { ProposalService } from '../proposal/service.ts'
+import type { OrchestrationResult } from './orchestrate.ts'
 
 export class InvalidTransitionError extends Error {
   readonly code = 'INVALID_TRANSITION'
@@ -24,6 +25,15 @@ export interface ArchiveServiceDeps {
   proposals: ProposalService
   /** Returns true when `openspec/changes/<id>` (or its archive) exists. */
   changeDirExists?(projectRoot: string, openspecRoot: string, changeId: string): Promise<boolean>
+  /**
+   * M4 orchestration: when present AND a projectRoot is resolvable, archive
+   * runs the full pipeline and only stamps `archived` on success.
+   */
+  orchestrate?(
+    proposal: Proposal,
+    projectRoot: string,
+    options: { openspecRoot: string },
+  ): Promise<OrchestrationResult>
   now?: () => Date
 }
 
@@ -44,14 +54,15 @@ export class ArchiveServiceImpl {
   }
 
   /**
-   * `executing → archived`. Without a resolvable projectRoot the OpenSpec
-   * check is skipped (the proposal may have been created headlessly); with a
-   * root, a missing change directory refuses archival unless forced.
+   * `executing → archived`. With an orchestrator wired and a resolvable
+   * projectRoot this runs the full M4 pipeline (tasks snapshot → swarm →
+   * openspec archive → gitnexus analyze) and stamps `archived` only on
+   * success; the M2 state-machine path remains for headless proposals.
    */
   async archive(
     id: string,
     options: ArchiveCheckOptions & { force?: boolean } = { openspecRoot: 'openspec' },
-  ): Promise<Proposal> {
+  ): Promise<Proposal | (Proposal & { orchestration: OrchestrationResult })> {
     const proposal = await this.mustGet(id)
     if (proposal.status === 'draft') {
       throw new InvalidTransitionError(
@@ -61,6 +72,15 @@ export class ArchiveServiceImpl {
     if (proposal.status === 'archived') return proposal
 
     const { projectRoot, openspecRoot, force } = options
+    if (projectRoot && this.deps.orchestrate && force !== true) {
+      const orchestration = await this.deps.orchestrate(proposal, projectRoot, { openspecRoot })
+      if (!orchestration.ok) {
+        // pipeline failed: state untouched, caller inspects the step log
+        return Object.assign(proposal, { orchestration })
+      }
+      return { ...(await this.writeStatus(proposal, 'archived')), orchestration }
+    }
+
     if (projectRoot && this.deps.changeDirExists) {
       const exists = await this.deps.changeDirExists(projectRoot, openspecRoot, proposal.openspecChangeId)
       if (!exists && !force) {

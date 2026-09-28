@@ -19,6 +19,7 @@ import { resolveConfig, type Config } from './config.ts'
 import { ProposalStore } from './features/proposal/store.ts'
 import { ProposalServiceImpl, type ProposalService } from './features/proposal/service.ts'
 import { ArchiveServiceImpl } from './features/archive/service.ts'
+import { orchestrateArchive } from './features/archive/orchestrate.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
 import { gitnexusRun } from './features/knowledge-bridge/gitnexus.ts'
 import { createWeknoraClient } from './features/knowledge-bridge/weknora.ts'
@@ -56,6 +57,12 @@ export function apply(ctx: Context, config: Config = {}): void {
       const state = await import('./features/proposal/openspec.ts')
       const result = await state.readChangeState(projectRoot, openspecRoot, changeId)
       return result.state !== 'missing'
+    },
+    async orchestrate(proposal, projectRoot, opts) {
+      return orchestrateArchive(proposal, projectRoot, {
+        openspecRoot: opts.openspecRoot,
+        gitnexusAnalyzeEnabled: resolved.gitnexusEnabled,
+      })
     },
   })
 
