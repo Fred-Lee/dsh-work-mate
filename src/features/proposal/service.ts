@@ -22,6 +22,8 @@ export interface ProposalService {
   list(): Promise<Proposal[]>
   get(id: string): Promise<Proposal | undefined>
   upsert(input: UpsertProposalInput): Promise<Proposal>
+  /** Transition `status` (draft/executing/archived) with a single read-modify-write. */
+  setStatus(id: string, status: Proposal['status']): Promise<Proposal>
 }
 
 export class ProposalServiceImpl implements ProposalService {
@@ -72,5 +74,15 @@ export class ProposalServiceImpl implements ProposalService {
     proposals.push(created)
     await this.store.save(proposals)
     return created
+  }
+
+  async setStatus(id: string, status: Proposal['status']): Promise<Proposal> {
+    const proposals = await this.store.load()
+    const existing = proposals.find((proposal) => proposal.id === id)
+    if (!existing) throw new Error(`proposal not found: ${id}`)
+    existing.status = status
+    existing.updatedAt = this.now().toISOString()
+    await this.store.save(proposals)
+    return existing
   }
 }

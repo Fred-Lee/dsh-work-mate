@@ -19,6 +19,12 @@ export interface Config {
   weknoraBaseUrl?: string
   /** OpenSpec root relative to the target project. @default 'openspec' */
   openspecRoot?: string
+  /**
+   * Default project root for openspec-directory generation and Git scanning.
+   * Empty disables project-side actions unless the caller passes projectRoot
+   * explicitly. @default ''
+   */
+  projectRoot?: string
 }
 
 export type ResolvedConfig = Required<Config>
@@ -29,6 +35,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   gitnexusEnabled: true,
   weknoraBaseUrl: '',
   openspecRoot: 'openspec',
+  projectRoot: '',
 }
 
 /**

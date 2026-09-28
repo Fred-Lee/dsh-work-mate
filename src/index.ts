@@ -1,22 +1,29 @@
 /**
- * workmate4dsh — DSH plugin entry (milestone M1: skeleton & profile assembly).
+ * workmate4dsh — DSH plugin entry.
  *
- * Change-proposal-centric bundle: proposal management (M1/M2), knowledge
- * bridging via GitNexus MCP + WeKnora HTTP (M3), archive orchestration over
- * swarm + OpenSpec + GitNexus re-index (M4).
+ * Change-proposal-centric bundle (design: docs/DESIGN.md): proposal management
+ * + OpenSpec directory generation + Git association + REST/SPA panel (M2),
+ * knowledge bridging (M3), archive orchestration over swarm/openspec/gitnexus
+ * (M4), knowledge-graph view (M5).
  *
- * M1 is a self-sufficient pure-service plugin: `inject` stays empty because a
- * declared-but-absent service would hold the fiber in PENDING forever
- * (Helmsman contract note). Tool registration introduces `tools` at M2 —
- * lazily probed first, only then declared.
+ * Integration surfaces, all in the host-verified shapes (design D1 of
+ * `add-proposal-middleware`):
+ *   - `tools`   → ctx.tools.register(defineTool(...))   — orchestrator-proven
+ *   - `webServer` → prefix route /workmate/ (REST + static SPA) — ui-*-proven
+ *   - client half (dist/client/client.js) → better-sidebar tab — workbench-proven
  */
 import type { Context } from '@deepseek-ai/cordis'
+import { defineTool, type InferValue, type JsonValueSchemaSpec } from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-tools'
 import { resolveConfig, type Config } from './config.ts'
 import { ProposalStore } from './features/proposal/store.ts'
 import { ProposalServiceImpl, type ProposalService } from './features/proposal/service.ts'
-
+import { ArchiveServiceImpl } from './features/archive/service.ts'
+import { buildProposalStatus } from './features/proposal/status.ts'
+import { mountWorkmateApi, createProposal } from './api.ts'
 export const name = 'workmate'
-export const inject = [] as const
+/** `tools`: agent tool registration. `webServer`: REST + panel mount. */
+export const inject = ['tools', 'webServer'] as const
 
 export type { Config, ResolvedConfig } from './config.ts'
 export { CONFIG_DEFAULTS, resolveConfig } from './config.ts'
@@ -24,21 +31,35 @@ export type { Proposal, ProposalStoreOptions } from './features/proposal/store.t
 export { ProposalStore, resolveDshHome, StoreCorruptError } from './features/proposal/store.ts'
 export type { ProposalService, UpsertProposalInput } from './features/proposal/service.ts'
 export { ProposalServiceImpl } from './features/proposal/service.ts'
+export { ArchiveServiceImpl, InvalidTransitionError } from './features/archive/service.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
     'workmate.proposal': ProposalService
+    'workmate.archive': ArchiveServiceImpl
   }
 }
+
+/** Tool bodies must return canonical JSON; optional fields collapse to absent. */
+type ToolJson = InferValue<JsonValueSchemaSpec>
+const asJson = (value: unknown): ToolJson => JSON.parse(JSON.stringify(value)) as ToolJson
 
 export function apply(ctx: Context, config: Config = {}): void {
   const resolved = resolveConfig(config)
   const store = new ProposalStore({ subdir: resolved.workmateHome })
-  const service = new ProposalServiceImpl(store)
+  const proposals = new ProposalServiceImpl(store)
+  const archive = new ArchiveServiceImpl({
+    proposals,
+    async changeDirExists(projectRoot, openspecRoot, changeId) {
+      const state = await import('./features/proposal/openspec.ts')
+      const result = await state.readChangeState(projectRoot, openspecRoot, changeId)
+      return result.state !== 'missing'
+    },
+  })
 
   // Eager best-effort read: a corrupt proposals.json must surface at boot,
   // but it must not take the whole profile down (board warmUp lesson).
-  void service
+  void proposals
     .list()
     .then(
       () => console.log(`[workmate] service ready (root: ${store.rootDir})`),
@@ -48,5 +69,98 @@ export function apply(ctx: Context, config: Config = {}): void {
         ),
     )
 
-  ctx.provide('workmate.proposal', service)
+  ctx.provide('workmate.proposal', proposals)
+  ctx.provide('workmate.archive', archive)
+
+  registerTools(ctx, { proposals, archive, resolved })
+  mountWorkmateApi(
+    ctx.get('webServer') as Parameters<typeof mountWorkmateApi>[0],
+    { proposals, archive, openspecRoot: resolved.openspecRoot, projectRoot: resolved.projectRoot },
+  )
+}
+
+interface ToolDeps {
+  proposals: ProposalService
+  archive: ArchiveServiceImpl
+  resolved: ReturnType<typeof resolveConfig>
+}
+
+function registerTools(ctx: Context, deps: ToolDeps): void {
+  const { proposals, archive, resolved } = deps
+
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_proposal_create',
+      description:
+        'Create a WorkMate change proposal. Persists it under the DSH home and, when a project root is resolvable, seeds the standard OpenSpec change directory (proposal.md / design.md / tasks.md) without overwriting an existing one.',
+      parameters: {
+        id: { type: 'string', required: true, description: 'Slug id, e.g. "batch-grading-v2".' },
+        title: { type: 'string', required: true, description: 'Human-readable title.' },
+        projects: { type: 'string', description: 'Comma-separated project identifiers to associate.' },
+        projectRoot: { type: 'string', description: 'Absolute project root; falls back to Config.projectRoot.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      async execute(args) {
+        const projects = args.projects?.split(',').map((p) => p.trim()).filter(Boolean)
+        const result = await createProposal(
+          { proposals, archive, openspecRoot: resolved.openspecRoot, projectRoot: resolved.projectRoot },
+          {
+            id: args.id,
+            title: args.title,
+            ...(projects !== undefined && projects.length > 0 ? { projects } : {}),
+            ...(args.projectRoot !== undefined ? { projectRoot: args.projectRoot } : {}),
+          },
+        )
+        return asJson(result)
+      },
+    }),
+  )
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_proposal_status',
+      description:
+        'Fetch a WorkMate proposal: record, associated git commits (commits mentioning [proposal:<id>]) and OpenSpec change state (active/archived/missing + tasks.md progress).',
+      parameters: {
+        id: { type: 'string', required: true, description: 'Proposal id.' },
+        projectRoot: { type: 'string', description: 'Absolute project root; falls back to Config.projectRoot.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      async execute(args) {
+        return asJson(
+          await buildProposalStatus(proposals, args.id, {
+            projectRoot: args.projectRoot ?? (resolved.projectRoot || undefined),
+            openspecRoot: resolved.openspecRoot,
+          }),
+        )
+      },
+    }),
+  )
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_proposal_archive',
+      description:
+        'Advance a proposal along draft → executing → archived. Use workmate_proposal_status first; draft proposals cannot be archived directly, and a missing OpenSpec change directory requires force: true.',
+      parameters: {
+        id: { type: 'string', required: true, description: 'Proposal id.' },
+        start: { type: 'boolean', description: 'Transition draft → executing instead of archiving.' },
+        force: { type: 'boolean', description: 'Archive even when the OpenSpec change directory is missing.' },
+        projectRoot: { type: 'string', description: 'Absolute project root; falls back to Config.projectRoot.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      async execute(args) {
+        if (args.start) {
+          const proposal = await archive.start(args.id)
+          return asJson({ proposal, note: 'proposal moved to executing' })
+        }
+        const proposal = await archive.archive(args.id, {
+          openspecRoot: resolved.openspecRoot,
+          projectRoot: args.projectRoot ?? (resolved.projectRoot || undefined),
+          force: args.force,
+        })
+        return asJson({ proposal })
+      },
+    }),
+  )
+
+  console.log('[workmate] tools registered (proposal_create/status/archive)')
 }

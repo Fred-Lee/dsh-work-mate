@@ -9,6 +9,7 @@ describe('resolveConfig', () => {
       gitnexusEnabled: true,
       weknoraBaseUrl: '',
       openspecRoot: 'openspec',
+      projectRoot: '',
     })
   })
 
