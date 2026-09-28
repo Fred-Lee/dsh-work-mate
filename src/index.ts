@@ -20,6 +20,8 @@ import { ProposalStore } from './features/proposal/store.ts'
 import { ProposalServiceImpl, type ProposalService } from './features/proposal/service.ts'
 import { ArchiveServiceImpl } from './features/archive/service.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
+import { gitnexusRun } from './features/knowledge-bridge/gitnexus.ts'
+import { createWeknoraClient } from './features/knowledge-bridge/weknora.ts'
 import { mountWorkmateApi, createProposal } from './api.ts'
 export const name = 'workmate'
 /** `tools`: agent tool registration. `webServer`: REST + panel mount. */
@@ -161,6 +163,57 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
       },
     }),
   )
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_knowledge_query',
+      description:
+        'Query the GitNexus code knowledge graph of a project (must be gitnexus-analyzed): action "query" finds execution flows for a concept, "context" gives a 360-degree view of a symbol, "impact" reports the blast radius of changing a symbol.',
+      parameters: {
+        action: { type: 'string', required: true, description: 'One of: query | context | impact.' },
+        target: { type: 'string', required: true, description: 'Search concept or symbol name.' },
+        projectRoot: { type: 'string', required: true, description: 'Absolute project root (the indexed repository).' },
+        context: { type: 'string', description: 'Extra ranking context for action=query.' },
+        direction: { type: 'string', description: 'upstream | downstream, for action=impact (default upstream).' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      async execute(args) {
+        if (!resolved.gitnexusEnabled) {
+          return asJson({ output: '', note: 'gitnexus bridge disabled by config (gitnexusEnabled: false)' })
+        }
+        const direction = args.direction === 'downstream' ? 'downstream' : 'upstream'
+        const result = await gitnexusRun(
+          args.action === 'context' ? 'context' : args.action === 'impact' ? 'impact' : 'query',
+          args.projectRoot,
+          {
+            target: args.target,
+            ...(args.context !== undefined ? { context: args.context } : {}),
+            ...(args.action === 'impact' ? { direction } : {}),
+          },
+        )
+        return asJson(result)
+      },
+    }),
+  )
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_knowledge_search',
+      description:
+        'Search the WeKnora document knowledge base for passages relevant to a query (Top-3). Requires Config.weknoraBaseUrl; returns a disabling note when unconfigured.',
+      parameters: {
+        query: { type: 'string', required: true, description: 'Natural-language query.' },
+        projectRoot: { type: 'string', required: true, description: 'Absolute project root.' },
+        topK: { type: 'integer', description: 'Max fragments (default 3).' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      async execute(args) {
+        if (resolved.weknoraBaseUrl === '') {
+          return asJson({ fragments: [], note: 'weknora bridge disabled — Config.weknoraBaseUrl is empty' })
+        }
+        const client = createWeknoraClient(resolved.weknoraBaseUrl)
+        return asJson(await client.search(args.projectRoot, args.query, args.topK ?? 3))
+      },
+    }),
+  )
 
-  console.log('[workmate] tools registered (proposal_create/status/archive)')
+  console.log('[workmate] tools registered (proposal_create/status/archive + knowledge_query/knowledge_search)')
 }
