@@ -1,4 +1,0 @@
-# @helmsman/adapter-claude bundle layer
-- insert:
-    - id: helmsman-adapter-claude
-      name: '@helmsman/adapter-claude'

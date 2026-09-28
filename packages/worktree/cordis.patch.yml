@@ -1,8 +1,0 @@
-# @helmsman/worktree bundle layer — applied when a profile lists this bundle
-# (package.json declares `dsh.bundle.patch` pointing at this file).
-#
-# PITFALL: `name` is a PACKAGE NAME (resolved through the profile's node_modules),
-# NOT a relative path.
-- insert:
-    - id: helmsman-worktree
-      name: '@helmsman/worktree'

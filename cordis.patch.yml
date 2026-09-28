@@ -1,0 +1,7 @@
+# workmate4dsh bundle layer.
+# Loading order: workmate (M1) → swarm / mcp-gitnexus entries are appended
+# by M3/M4 once the corresponding community plugins are actually installed —
+# referencing an absent plugin here breaks profile loading outright.
+- insert:
+    - id: workmate
+      name: 'workmate4dsh'

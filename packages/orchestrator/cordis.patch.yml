@@ -1,4 +1,0 @@
-# @helmsman/orchestrator bundle layer
-- insert:
-    - id: helmsman-orchestrator
-      name: '@helmsman/orchestrator'

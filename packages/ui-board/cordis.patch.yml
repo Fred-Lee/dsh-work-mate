@@ -1,4 +1,0 @@
-# @helmsman/ui-board bundle layer
-- insert:
-    - id: helmsman-ui-board
-      name: '@helmsman/ui-board'

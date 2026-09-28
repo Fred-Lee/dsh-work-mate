@@ -1,4 +1,0 @@
-# @helmsman/ui-diff bundle layer
-- insert:
-    - id: helmsman-ui-diff
-      name: '@helmsman/ui-diff'

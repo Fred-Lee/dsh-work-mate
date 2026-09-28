@@ -1,4 +1,0 @@
-# @helmsman/adapter-codex bundle layer
-- insert:
-    - id: helmsman-adapter-codex
-      name: '@helmsman/adapter-codex'

@@ -1,4 +1,0 @@
-# @helmsman/ui-workbench bundle layer
-- insert:
-    - id: helmsman-ui-workbench
-      name: '@helmsman/ui-workbench'

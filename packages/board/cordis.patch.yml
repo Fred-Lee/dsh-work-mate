@@ -1,4 +1,0 @@
-# @helmsman/board bundle layer
-- insert:
-    - id: helmsman-board
-      name: '@helmsman/board'

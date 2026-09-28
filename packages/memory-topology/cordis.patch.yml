@@ -1,4 +1,0 @@
-# @helmsman/memory-topology bundle layer
-- insert:
-    - id: helmsman-memory-topology
-      name: '@helmsman/memory-topology'
