@@ -51,12 +51,12 @@ export function mountWorkmateApi(webServer: WebServerLike, deps: ApiDeps): void 
 
   webServer.register({
     kind: 'prefix',
-    path: '/workmate/',
+    path: '/workmate',
     handler: async (req, res) => {
       const url = new URL(req.url ?? '/', 'http://local')
       const pathname = url.pathname
       if (pathname.startsWith('/workmate/api/')) {
-        await router.handle(pathname, req, res)
+        await router.handle(pathname.replace(/^\/workmate/, ''), req, res)
         return
       }
       const relative = pathname.replace(/^\/workmate\/?/, '') || 'index.html'
