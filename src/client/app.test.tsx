@@ -47,7 +47,7 @@ describe('ProposalPanel', () => {
     render(<ProposalPanel />)
     expect(await screen.findByText('批量批改 v2.1')).toBeTruthy()
     expect(screen.getByText('另一提案')).toBeTruthy()
-    expect(screen.getByText('2 条')).toBeTruthy()
+    expect(screen.getByText('2 条提案')).toBeTruthy()
     const badges = screen.getAllByText(/提案中|已归档/)
     expect(badges).toHaveLength(2)
   })

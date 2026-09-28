@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { archiveProposal, createProposal, getProposal, listProposals, startProposal } from './api'
 import type { Proposal, ProposalStatusPayload } from './types'
+import { GraphView } from './GraphView'
 import { PANEL_STYLE } from './styles'
 
 const POLL_MS = 5_000
@@ -18,6 +19,7 @@ const STATUS_LABEL: Record<Proposal['status'], string> = {
 
 export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const { projectRoot } = props
+  const [view, setView] = useState<'proposals' | 'graph'>('proposals')
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [details, setDetails] = useState<Record<string, ProposalStatusPayload>>({})
   const [error, setError] = useState('')
@@ -99,10 +101,22 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
     <div className="wm-root">
       <style dangerouslySetInnerHTML={{ __html: PANEL_STYLE }} />
       <div className="wm-header">
-        <h2>🛠 WorkMate 提案</h2>
-        <span className="wm-count">{proposals.length} 条</span>
+        <h2>🛠 WorkMate</h2>
+        <span className="wm-count">{proposals.length} 条提案</span>
+        <span className="wm-tabs">
+          <button className={`wm-btn${view === 'proposals' ? ' active' : ''}`} type="button" onClick={() => setView('proposals')}>
+            提案
+          </button>
+          <button className={`wm-btn${view === 'graph' ? ' active' : ''}`} type="button" onClick={() => setView('graph')}>
+            知识图谱
+          </button>
+        </span>
       </div>
 
+      {view === 'graph' ? (
+        <GraphView projectRoot={form.projectRoot.trim() || undefined} />
+      ) : (
+        <>
       <form className="wm-form" onSubmit={(event) => void submit(event)}>
         <label>
           ID
@@ -214,6 +228,8 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           </div>
         )
       })}
+        </>
+      )}
     </div>
   )
 }

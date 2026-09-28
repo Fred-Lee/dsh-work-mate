@@ -26,4 +26,9 @@ export const PANEL_STYLE = `
 .wm-error { color: #cf222e; font-size: 12px; margin: 6px 0; }
 .wm-empty { color: var(--wm-muted, #8b949e); padding: 16px 0; text-align: center; }
 .wm-progress { font-size: 12px; color: #0969da; }
+.wm-tabs { margin-left: auto; display: flex; gap: 4px; }
+.wm-tabs .wm-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+.wm-graph { position: relative; }
+.wm-graph svg { display: block; }
+.wm-graph-col-label { position: absolute; top: -4px; font-size: 11px; color: var(--wm-muted, #8b949e); }
 `
