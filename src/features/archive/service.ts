@@ -116,6 +116,18 @@ export class ArchiveServiceImpl {
   }
 
   /**
+   * `executing → draft` (change make-lifecycle-fully-reversible): the reverse
+   * of `start`. No project-side action — the change directory never moved.
+   */
+  async stop(id: string): Promise<Proposal> {
+    const proposal = await this.mustGet(id)
+    if (proposal.status !== 'executing') {
+      throw new InvalidTransitionError(`only executing proposals can stop, ${id} is ${proposal.status}`)
+    }
+    return this.writeStatus(proposal, 'draft')
+  }
+
+  /**
    * `archived → executing` (change add-multi-project-reopen-git-visibility):
    * reverse the per-project directory moves where possible — a failed move
    * never blocks the state rollback.

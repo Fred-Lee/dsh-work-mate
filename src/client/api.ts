@@ -44,6 +44,13 @@ export function archiveProposal(id: string, force = false): Promise<{ proposal: 
   })
 }
 
+export function stopProposal(id: string): Promise<{ proposal: Proposal }> {
+  return request(`/workmate/api/proposals/${encodeURIComponent(id)}/stop`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
 export function reopenProposal(id: string): Promise<{ proposal: Proposal }> {
   return request(`/workmate/api/proposals/${encodeURIComponent(id)}/reopen`, {
     method: 'POST',

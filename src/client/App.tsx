@@ -15,6 +15,7 @@ import {
   registerProject,
   reopenProposal,
   startProposal,
+  stopProposal,
   type RegisteredProject,
 } from './api'
 import type { Proposal, ProposalStatusPayload } from './types'
@@ -85,11 +86,12 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   )
 
   const act = useCallback(
-    async (id: string, action: 'start' | 'archive' | 'reopen') => {
+    async (id: string, action: 'start' | 'archive' | 'reopen' | 'stop') => {
       setBusy(true)
       try {
         if (action === 'start') await startProposal(id)
         else if (action === 'reopen') await reopenProposal(id)
+        else if (action === 'stop') await stopProposal(id)
         else await archiveProposal(id)
         setError('')
         await Promise.all([refresh(), loadDetail(id)])
@@ -254,6 +256,14 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                   onClick={() => void act(proposal.id, 'archive')}
                                 >
                                   归档
+                                </button>
+                                <button
+                                  className="wm-btn mini"
+                                  type="button"
+                                  disabled={busy || proposal.status !== 'executing'}
+                                  onClick={() => void act(proposal.id, 'stop')}
+                                >
+                                  退回提案
                                 </button>
                                 <button
                                   className="wm-btn mini"

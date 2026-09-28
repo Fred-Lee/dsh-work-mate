@@ -175,15 +175,25 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         'Advance a proposal along draft → executing → archived. Use workmate_proposal_status first; draft proposals cannot be archived directly, and a missing OpenSpec change directory requires force: true.',
       parameters: {
         id: { type: 'string', required: true, description: 'Proposal id.' },
-        start: { type: 'boolean', description: 'Transition draft → executing instead of archiving.' },
+        mode: { type: 'string', description: 'Lifecycle direction: archive (default) | start | reopen | stop — the full reversible set.' },
+        start: { type: 'boolean', description: 'Legacy shorthand for mode=start (draft → executing).' },
         force: { type: 'boolean', description: 'Archive even when the OpenSpec change directory is missing.' },
         projectRoot: { type: 'string', description: 'Absolute project root; falls back to Config.projectRoot.' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
       async execute(args) {
-        if (args.start) {
+        const mode = args.mode ?? (args.start === true ? 'start' : 'archive')
+        if (mode === 'start') {
           const proposal = await archive.start(args.id)
           return asJson({ proposal, note: 'proposal moved to executing' })
+        }
+        if (mode === 'stop') {
+          const proposal = await archive.stop(args.id)
+          return asJson({ proposal, note: 'proposal moved back to draft' })
+        }
+        if (mode === 'reopen') {
+          const reopened = await archive.reopen(args.id, { openspecRoot: resolved.openspecRoot })
+          return asJson({ proposal: reopened, orchestration: reopened.orchestration })
         }
         const proposal = await archive.archive(args.id, {
           openspecRoot: resolved.openspecRoot,

@@ -134,6 +134,11 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     return { removed }
   })
 
+  router.post('/api/proposals/:id/stop', async (r) => {
+    const proposal = await deps.archive.stop(r.params['id'] ?? '')
+    return { proposal }
+  })
+
   router.post('/api/proposals/:id/reopen', async (r) => {
     const reopened = await deps.archive.reopen(r.params['id'] ?? '', { openspecRoot: deps.openspecRoot })
     return { proposal: reopened, orchestration: reopened.orchestration }
