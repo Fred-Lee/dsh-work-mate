@@ -395,6 +395,16 @@ interface SwarmTaskConfig {
 runSwarmTasks(tasks: SwarmTaskConfig[], root: string): Promise<string>
 ```
 
+**并行执行载体的 Git 决策**（2026-09-29 补充）：一个项目内多任务并行采用
+**每任务一个 worktree + 独立分支**，不是纯分支。理由：git 单工作目录只能检出
+一个分支，多任务并行必须多目录；worktree 共享对象库（秒级检出、磁盘只付工作区
+差异）且 git 原生阻止同一分支被两个 worktree 同时检出（防呆）。物理隔离不解决
+逻辑冲突——沿用 Helmsman 三层纪律：`writes` 声明防踩踏、冲突域（仓库:模块）排队、
+patch 式 `git apply` 合并 + 按 agent/file 裁决重试。编排生命周期：提案进入执行中
+→ 按任务建 `<项目根>/.worktrees/<proposal-id>-<task>/` 与独立分支 → swarm 并行
+→ 合并回项目主分支 → 归档编排对主分支执行 → 清理 worktree。项目注册表的
+root 指向 worktree 已真机兼容（`svc-billing-wt` 场景）。
+
 **对现有设计文档的修改建议**：§3.1.4 归档编排的「Swarm 集成」段补一句——每个 task
 除 `writes` 外可声明能力组装（agent/skills）与验收谓词，来源仍是 tasks.md 的
 结构化解析。

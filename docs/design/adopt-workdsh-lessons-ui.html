@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WorkMate 设计稿 — 归档交付物摘要（adopt-workdsh-lessons）</title>
+<style>
+  /* ===== WorkMate 面板设计系统（与 src/client/styles.ts 同源）===== */
+  .wm-root {
+    --wm-fg: var(--dsw-alias-label-primary, #1f2328);
+    --wm-muted: var(--dsw-alias-label-secondary, #656d76);
+    --wm-bg: var(--dsw-alias-bg-primary, #f6f8fa);
+    --wm-card: var(--dsw-alias-bg-secondary, #ffffff);
+    --wm-border: var(--dsw-alias-border-l2, #d8dee4);
+    --wm-border-soft: var(--dsw-alias-border-l1, #e7ebef);
+    --wm-accent: var(--dsw-alias-button-info-fill, #4f46e5);
+    --wm-code: var(--dsw-alias-bg-secondary, #f0f2f5);
+    --wm-shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+    --wm-shadow-lift: 0 8px 24px rgba(16,24,40,.12);
+    font-family: -apple-system, "PingFang SC", "Segoe UI", sans-serif;
+    font-size: 13px; color: var(--wm-fg); background: var(--wm-bg);
+  }
+  @media (prefers-color-scheme: dark) {
+    .wm-root {
+      --wm-fg: #e6edf3; --wm-muted: #8b949e; --wm-bg: #0d1117; --wm-card: #161b22;
+      --wm-border: #30363d; --wm-border-soft: #21262d; --wm-accent: #818cf8; --wm-code: #21262d;
+      --wm-shadow: 0 1px 2px rgba(0,0,0,.4); --wm-shadow-lift: 0 8px 24px rgba(0,0,0,.5);
+    }
+  }
+  body { margin: 0; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 28px 18px 60px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .note { color: #656d76; font-size: 12px; margin-bottom: 22px; line-height: 1.6; }
+  .note b { color: inherit; }
+  .demo-title { font-size: 12px; font-weight: 700; color: #656d76; letter-spacing: .5px; margin: 26px 0 8px; text-transform: uppercase; }
+
+  .wm-card {
+    position: relative; overflow: hidden; background: var(--wm-card);
+    border: 1px solid var(--wm-border); border-radius: 10px;
+    padding: 12px 14px 12px 18px; box-shadow: var(--wm-shadow); margin-bottom: 14px;
+  }
+  .wm-card-bar { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #22c55e; }
+  .wm-card-title { margin: 0; font-size: 13px; font-weight: 600; }
+  .wm-card-id { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--wm-muted); margin-top: 2px; }
+  .wm-meta { color: var(--wm-muted); font-size: 11px; margin-top: 6px; display: flex; gap: 8px; }
+  .wm-detail { border-top: 1px dashed var(--wm-border); margin-top: 10px; padding-top: 10px; font-size: 12px; }
+  .wm-section { margin-bottom: 10px; }
+  .wm-section > b { display: block; font-size: 11px; color: var(--wm-muted); font-weight: 600; margin-bottom: 4px; }
+  code { font-family: ui-monospace, Menlo, monospace; background: var(--wm-code); padding: 1px 5px; border-radius: 5px; font-size: 11px; }
+  .wm-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .wm-btn { font-size: 12px; padding: 3px 10px; border-radius: 6px; border: 1px solid var(--wm-border); background: var(--wm-card); color: var(--wm-fg); }
+
+  /* ===== 新增：交付物摘要（本设计稿的主角）===== */
+  .wm-deliv { background: var(--wm-code); border-radius: 10px; padding: 10px 12px; }
+  .wm-deliv-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .wm-deliv-head b { font-size: 12px; }
+  .wm-deliv-head .wm-deliv-at { color: var(--wm-muted); font-size: 11px; }
+  .wm-pill-green, .wm-pill-gray {
+    font-size: 10px; border-radius: 999px; padding: 1px 8px; margin-left: auto;
+  }
+  .wm-pill-green { background: rgba(34,197,94,.14); color: #16a34a; }
+  .wm-pill-gray { background: var(--wm-card); color: var(--wm-muted); }
+  .wm-proj { background: var(--wm-card); border: 1px solid var(--wm-border-soft); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
+  .wm-proj:last-child { margin-bottom: 0; }
+  .wm-proj-row1 { display: flex; align-items: center; gap: 8px; }
+  .wm-proj-name { font-weight: 600; font-size: 12px; }
+  .wm-stat { font-size: 10px; border-radius: 999px; padding: 1px 7px; }
+  .wm-stat.commits { background: rgba(79,70,229,.12); color: var(--wm-accent); }
+  .wm-stat.yes { background: rgba(34,197,94,.14); color: #16a34a; }
+  .wm-stat.no { background: var(--wm-code); color: var(--wm-muted); }
+  .wm-diffstat {
+    font-family: ui-monospace, Menlo, monospace; font-size: 10.5px; color: var(--wm-muted);
+    margin-top: 5px; white-space: pre; overflow: hidden; text-overflow: ellipsis;
+  }
+  .wm-diffstat .add { color: #16a34a; }
+  .wm-diffstat .del { color: #dc2626; }
+  .wm-diffstat .file { color: var(--wm-muted); }
+
+  /* ===== 新增：编排记录（可折叠）===== */
+  .wm-orch { margin-top: 8px; }
+  .wm-orch > summary {
+    cursor: pointer; font-size: 11px; color: var(--wm-muted); font-weight: 600; list-style: none;
+  }
+  .wm-orch > summary::before { content: "▸ "; }
+  .wm-orch[open] > summary::before { content: "▾ "; }
+  .wm-orch-log {
+    margin-top: 6px; font-family: ui-monospace, Menlo, monospace; font-size: 10.5px;
+    line-height: 1.7; background: var(--wm-code); border-radius: 8px; padding: 8px 10px;
+    overflow-x: auto; white-space: pre;
+  }
+  .ok { color: #16a34a; } .skip { color: #b45309; } .fail { color: #dc2626; } .dim { color: var(--wm-muted); }
+  .wm-empty-note { color: var(--wm-muted); font-size: 12px; padding: 10px 12px; background: var(--wm-code); border-radius: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap wm-root">
+  <h1>归档交付物摘要 — UI 设计稿</h1>
+  <div class="note">
+    变更 <b>adopt-workdsh-lessons</b> 任务 4 的看板 UI。改动范围只有一块：<b>已归档卡片展开详情区</b>新增
+    「📦 交付物」小节（数据源 ArchiveManifest）+ 可折叠的「编排记录」。下面三张卡 = 三种状态：
+    多项目归档（完整 manifest）/ 历史归档（无 manifest 占位）/ 单项目归档（含编排失败记录）。
+    深浅色跟随系统与宿主 dsw 令牌。
+  </div>
+
+  <div class="demo-title">状态 1 — 多项目归档 · 完整交付物摘要</div>
+  <article class="wm-card">
+    <span class="wm-card-bar"></span>
+    <h3 class="wm-card-title">多服务同步变更</h3>
+    <div class="wm-card-id">demo-multi</div>
+    <div class="wm-meta"><span>14 小时前</span><span>2 个关联项目</span></div>
+    <div class="wm-detail">
+      <div class="wm-section wm-deliv">
+        <div class="wm-deliv-head">
+          <b>📦 交付物</b>
+          <span class="wm-deliv-at">归档于 09-28 22:07</span>
+          <span class="wm-pill-green">2 个项目已归档</span>
+        </div>
+
+        <div class="wm-proj">
+          <div class="wm-proj-row1">
+            <span class="wm-proj-name">svc-grading</span>
+            <code>⎇ main</code>
+            <span class="wm-stat commits">3 提交</span>
+            <span class="wm-stat yes">specs 已更新</span>
+            <span class="wm-stat yes">图谱已重建</span>
+          </div>
+          <div class="wm-diffstat"><span class="file"> src/grading/service.ts </span><span class="add">+++++</span><span class="del">--</span><span>  src/grading/api.ts </span><span class="add">++</span></div>
+        </div>
+
+        <div class="wm-proj">
+          <div class="wm-proj-row1">
+            <span class="wm-proj-name">svc-billing</span>
+            <code>⎇ feat/billing-hotfix</code>
+            <span class="wm-stat commits">2 提交</span>
+            <span class="wm-stat yes">specs 已更新</span>
+            <span class="wm-stat yes">图谱已重建</span>
+          </div>
+          <div class="wm-diffstat"><span class="file"> src/billing/invoice.ts </span><span class="add">++++</span><span>  src/billing/types.ts </span><span class="del">--</span></div>
+        </div>
+
+        <details class="wm-orch">
+          <summary>编排记录（5 步 · 全部通过）</summary>
+          <div class="wm-orch-log"><span class="dim">tasks</span>             <span class="ok">ok</span>       2/2 tasks done at snapshot
+<span class="dim">swarm</span>             <span class="skip">skipped</span>   swarm orchestrator not wired
+<span class="dim">openspec-archive</span>  <span class="ok">ok</span>       [svc-grading] Change archived as '2026-09-28-demo-multi'
+<span class="dim">openspec-archive</span>  <span class="ok">ok</span>       [svc-billing] Change archived as '2026-09-28-demo-multi'
+<span class="dim">status</span>            <span class="ok">ok</span>       proposal demo-multi → archived</div>
+        </details>
+      </div>
+
+      <div class="wm-actions">
+        <button class="wm-btn" type="button" disabled>推进执行</button>
+        <button class="wm-btn" type="button" disabled>归档</button>
+        <button class="wm-btn" type="button">重新打开</button>
+      </div>
+    </div>
+  </article>
+
+  <div class="demo-title">状态 2 — 历史归档 · 无 manifest 占位</div>
+  <article class="wm-card">
+    <span class="wm-card-bar"></span>
+    <h3 class="wm-card-title">值班告警优化</h3>
+    <div class="wm-card-id">demo-oncall</div>
+    <div class="wm-meta"><span>昨天</span></div>
+    <div class="wm-detail">
+      <div class="wm-empty-note">📦 无归档摘要 — 该提案在交付物记录功能上线前归档</div>
+      <div class="wm-actions" style="margin-top: 8px;">
+        <button class="wm-btn" type="button">重新打开</button>
+      </div>
+    </div>
+  </article>
+
+  <div class="demo-title">状态 3 — 单项目归档 · 编排含跳过与失败记录</div>
+  <article class="wm-card">
+    <span class="wm-card-bar"></span>
+    <h3 class="wm-card-title">批量批改 v2.1</h3>
+    <div class="wm-card-id">batch-grading-v2</div>
+    <div class="wm-meta"><span>3 天前</span><span>1 个关联项目</span></div>
+    <div class="wm-detail">
+      <div class="wm-section wm-deliv">
+        <div class="wm-deliv-head">
+          <b>📦 交付物</b>
+          <span class="wm-deliv-at">归档于 09-25 18:40</span>
+          <span class="wm-pill-gray">1 个项目归档 · 部分跳过</span>
+        </div>
+        <div class="wm-proj">
+          <div class="wm-proj-row1">
+            <span class="wm-proj-name">grading-core</span>
+            <code>⎇ main</code>
+            <span class="wm-stat commits">5 提交</span>
+            <span class="wm-stat yes">specs 已更新</span>
+            <span class="wm-stat no">图谱未重建</span>
+          </div>
+          <div class="wm-diffstat"><span class="file"> lib/grading.js </span><span class="add">+++++++++</span><span class="del">-----</span><span>  README.md </span><span class="add">+</span></div>
+        </div>
+        <details class="wm-orch">
+          <summary>编排记录（6 步 · 1 项失败后重试通过）</summary>
+          <div class="wm-orch-log"><span class="dim">tasks</span>             <span class="ok">ok</span>       4/4 tasks done at snapshot
+<span class="dim">swarm</span>             <span class="skip">skipped</span>   swarm orchestrator not wired
+<span class="dim">openspec-archive</span>  <span class="ok">ok</span>       Change 'batch-grading-v2' archived as '2026-09-25-batch-grading-v2'
+<span class="dim">gitnexus-analyze</span>  <span class="skip">skipped</span>   gitnexus CLI not found — reindex skipped
+<span class="dim">status</span>            <span class="ok">ok</span>       proposal batch-grading-v2 → archived</div>
+        </details>
+      </div>
+      <div class="wm-actions">
+        <button class="wm-btn" type="button">重新打开</button>
+      </div>
+    </div>
+  </article>
+
+  <div class="note" style="margin-top: 24px;">
+    设计要点：① 交付物小节只在 <b>archived</b> 卡片出现，位置在关联项目区块之后、操作按钮之前；
+    ② 每项目一行双段式——徽章行（分支/提交数/specs/图谱）+ 等宽 diffStat 行（增删行数着色，超长省略）；
+    ③ 顶部右缘胶囊做整卡状态速读（绿=全部归档、灰=部分跳过）；④ 编排记录默认折叠，展开为等宽日志，
+    ok/skipped/failed 三色；⑤ 空 manifest 占位明说「功能上线前归档」，不装错。
+  </div>
+</div>
+</body>
+</html>

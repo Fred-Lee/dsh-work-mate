@@ -1,7 +1,9 @@
 # Tasks — Adopt WorkDSH Lessons
 
 - [ ] 1. `toolchain.json` + `scripts/check-toolchain.mjs`（structural 移植），
-      并入 `pnpm verify:toolchain` 与门禁链
+      并入 `pnpm verify:toolchain` 与门禁链；**修复残留 CI**
+      `.github/workflows/toolchain.yml`（现引用已删除的脚本与 Helmsman 文档路径，
+      paths 过滤改为 toolchain.json / package.json / workflow 自身）
 - [ ] 2. `skills/archive-checklist/SKILL.md`、`skills/knowledge-usage/SKILL.md` +
       `src/skills.ts` 幂等同步 + `Config.skillSyncEnabled`
 - [ ] 3. 编排验收谓词：tasks 全勾前置检查（force 可跳过）+ 失败 step 逐项目进度

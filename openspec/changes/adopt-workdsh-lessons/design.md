@@ -13,15 +13,20 @@ Helmsman main 分支的 `toolchain.json` + `scripts/check-toolchain.mjs --struct
 }
 ```
 
-校验逻辑：读 `package.json` 的 peer/devDeps 与 `toolchain.json` 的 require 对账
-（semver 范围一致即通过），`profile.dsh` 仅记录当前宿主基线不做安装期断言（宿主
-版本由 profile 管理）。挂 `pnpm verify:toolchain`，并追加进 `verify:contract` 的
-CI 语义位。
+校验逻辑：对账对象是 `package.json` 的 **devDependencies 精确版本**（peer 里的
+`dsh-tools: "*"` 是宿主契约不参与对账），与 `toolchain.json` 的 require 逐项一致即
+通过；`profile.dsh` 仅记录当前宿主基线不做安装期断言（宿主版本由 profile 管理）。
+挂 `pnpm verify:toolchain` 并追加进 contract 门禁链。CI 现状修正（2026-09-29 审核）：仓库实际残留 Helmsman 时期的
+`.github/workflows/toolchain.yml`，其引用的脚本与文档路径已被本分支删除——移植
+门禁时一并修复该 workflow（paths 过滤收敛为 toolchain.json / package.json /
+workflow 自身），故本项是「修复复用」而非新增。
 
 ## D2 Skill 同步纪律
 
-技能根：`$DSH_HOME/skills/<name>/SKILL.md`（宿主用户级技能目录；项目级根
-`<项目根>/.dsh/skills/` 属于被编排的目标项目，WorkMate 不写）。同步纪律照抄
+技能根：`$DSH_HOME/skills/<name>/SKILL.md`——**已实证**（2026-09-29 读
+dsh-skill-manager@0.1.3 源码：`skillRoots()` 返回 `[$DSH_HOME/skills,
+~/.agents/skills]`，前者即设计目标根；此前为假设，现升级为 C 级源码证据）。
+项目级根 `<项目根>/.dsh/skills/` 属于被编排的目标项目，WorkMate 不写。同步纪律照抄
 Helmsman presets：目标目录已存在且含 SKILL.md → 跳过（`synced 0` 是正确幂等）；
 缺失 → 写入包内嵌副本。`Config.skillSyncEnabled`（默认 true）关闭时完全不碰用户
 目录。包内嵌资产经 esbuild `--loader:.md=text` 打进 host bundle，运行时从
