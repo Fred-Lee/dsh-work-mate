@@ -34,7 +34,7 @@ describe('gitnexus bridge (fake CLI)', () => {
 
     expect(result.output).toBe('flows: 2')
     const argv = await (await import('node:fs/promises')).readFile(join(home, 'argv.txt'), 'utf8')
-    expect(argv.trim()).toBe(`query 评分流程 -l 5`)
+    expect(argv.trim()).toBe(`query 评分流程 -l 5 -r ${home.split('/').pop()}`)
   })
 
   it('impact forwards the direction flag', async () => {
@@ -45,7 +45,18 @@ describe('gitnexus bridge (fake CLI)', () => {
     const argv = await (await import('node:fs/promises')).readFile(join(home, 'argv.txt'), 'utf8')
 
     expect(result.output).toBe('impact-ok')
-    expect(argv.trim()).toBe('impact Foo.bar --direction downstream')
+    expect(argv.trim()).toBe(`impact Foo.bar --direction downstream -r ${home.split('/').pop()}`)
+  })
+
+  it('passes -r <repo> so multi-repo global indexes resolve', async () => {
+    await installFakeGitnexus('echo multi-ok')
+    process.env['PATH'] = `${binDir}:${process.env['PATH'] ?? ''}`
+
+    const result = await gitnexusRun('query', home, { target: 'x' })
+    const argv = await (await import('node:fs/promises')).readFile(join(home, 'argv.txt'), 'utf8')
+
+    expect(result.output).toBe('multi-ok')
+    expect(argv.trim()).toBe(`query x -l 5 -r ${join(home).split('/').pop()}`)
   })
 
   it('degrades a missing CLI to a note', async () => {

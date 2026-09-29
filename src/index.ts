@@ -235,6 +235,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         projectRoot: { type: 'string', required: true, description: 'Absolute project root (the indexed repository).' },
         context: { type: 'string', description: 'Extra ranking context for action=query.' },
         direction: { type: 'string', description: 'upstream | downstream, for action=impact (default upstream).' },
+        repo: { type: 'string', description: 'GitNexus repo name when it differs from the project folder name.' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
       async execute(args) {
@@ -249,6 +250,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
             target: args.target,
             ...(args.context !== undefined ? { context: args.context } : {}),
             ...(args.action === 'impact' ? { direction } : {}),
+            ...(args.repo !== undefined ? { repo: args.repo } : {}),
           },
         )
         return asJson(result)

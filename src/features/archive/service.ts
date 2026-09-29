@@ -91,6 +91,11 @@ export class ArchiveServiceImpl {
         `proposal ${id} is draft — move it to executing before archiving`,
       )
     }
+    if (proposal.status === 'reviewing') {
+      throw new InvalidTransitionError(
+        `proposal ${id} is still reviewing — approve the review before archiving`,
+      )
+    }
     if (proposal.status === 'archived') return proposal
 
     const { projectRoot, openspecRoot, force } = options

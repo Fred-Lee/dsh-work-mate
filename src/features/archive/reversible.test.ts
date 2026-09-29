@@ -52,6 +52,14 @@ describe('fully reversible lifecycle', () => {
     expect(archivedAgain.status).toBe('archived')
   })
 
+  it('rejects archiving a reviewing proposal', async () => {
+    await proposals.upsert({ id: 'p4', title: 't' })
+    await archive.startReview('p4')
+    await expect(archive.archive('p4', { openspecRoot: 'openspec' })).rejects.toThrow(
+      'still reviewing — approve the review before archiving',
+    )
+  })
+
   it('rejects stop on draft and reopen on executing with readable errors', async () => {
     await proposals.upsert({ id: 'p3', title: 't' })
     await expect(archive.reopen('p3', { openspecRoot: 'openspec' })).rejects.toThrow(

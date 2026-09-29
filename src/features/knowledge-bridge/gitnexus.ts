@@ -4,6 +4,7 @@
  * while the local `gitnexus` binary natively exposes everything we need.
  * execFile + argv array, cwd = the target project, hard timeout.
  */
+import { basename } from 'node:path'
 import { execFile } from 'node:child_process'
 import { validateProjectRoot } from '../proposal/openspec.ts'
 
@@ -31,7 +32,7 @@ function execGitnexus(args: string[], cwd: string, timeoutMs: number): Promise<s
 export async function gitnexusRun(
   action: GitnexusAction,
   projectRoot: string,
-  args: { target: string; context?: string; direction?: 'upstream' | 'downstream' },
+  args: { target: string; context?: string; direction?: 'upstream' | 'downstream'; repo?: string },
 ): Promise<GitnexusResult> {
   const root = validateProjectRoot(projectRoot)
   const cliArgs: string[] = [action]
@@ -44,6 +45,11 @@ export async function gitnexusRun(
   } else {
     cliArgs.push(args.target, '--direction', args.direction ?? 'upstream')
   }
+  // The global GitNexus index usually spans many repos; without -r the CLI
+  // refuses with "Multiple repositories indexed". Default to the directory
+  // name (GitNexus names an indexed repo after its folder), overridable.
+  const repo = args.repo ?? basename(root)
+  cliArgs.push('-r', repo)
 
   try {
     const output = await execGitnexus(cliArgs, root, 30_000)
