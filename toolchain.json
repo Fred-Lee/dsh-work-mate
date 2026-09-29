@@ -1,0 +1,22 @@
+{
+  "manifestVersion": 1,
+  "profile": {
+    "dsh": "0.1.7-rc.2",
+    "note": "Local workbench runs the 0.1.7-rc.2 harness source tree (~/Documents/workspace/deepseek-harness). The profile's installed @deepseek-ai/dsh-tools is 0.1.2-alpha.5 — the same alpha line Helmsman verified; do not move to the rc line without re-verifying CallId/ToolCallId imports (knownIssues[0])."
+  },
+  "require": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": "0.1.2-alpha.5"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "knownIssues": [
+    {
+      "id": "dsh-tools-rc-callid-toolcallid",
+      "summary": "@deepseek-ai/dsh-tools rc line breaks CallId/ToolCallId imports",
+      "detail": "The 0.1.2-rc line of @deepseek-ai/dsh-tools imports the legacy CallId export that the alpha line renamed to ToolCallId; plugins importing the shared call-id type fail at module load.",
+      "resolution": "Keep @deepseek-ai/dsh-tools pinned to 0.1.2-alpha.5 (devDependencies, exact). Re-verify imports before any rc bump."
+    }
+  ]
+}

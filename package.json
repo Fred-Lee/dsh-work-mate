@@ -30,7 +30,9 @@
     "build": "node scripts/build.mjs && tsc -p tsconfig.decls.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "test": "vitest run",
+    "test:toolchain": "node --test scripts/check-toolchain.test.mjs",
     "verify:contract": "node scripts/check-contract.mjs",
+    "verify:toolchain": "node scripts/check-toolchain.mjs --structural",
     "prepack": "pnpm run build"
   },
   "peerDependencies": {

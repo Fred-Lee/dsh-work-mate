@@ -1,25 +1,22 @@
 name: toolchain
 
-# Helmsman DSH toolchain version governance (OpenSpec: pin-dsh-dependency-versions).
-# Runs whenever the authoritative manifest or a doc that mirrors it changes, and
-# fails the change when the committed state has drifted. This is the repo's
-# first CI and deliberately gates ONLY the toolchain surface — unrelated PRs
-# are not affected (D3).
+# WorkMate DSH toolchain version governance (openspec change adopt-workdsh-lessons,
+# design.md D1 — pattern ported from the Helmsman line). Runs whenever the
+# authoritative manifest, the package manifest, or this workflow changes, and
+# fails the change when the committed state has drifted. Deliberately gates ONLY
+# the toolchain surface — unrelated PRs are not affected.
 
 on:
   push:
     paths:
       - 'toolchain.json'
-      - 'docs/COMPATIBILITY.md'
-      - 'docs/WORKBENCH-SETUP.md'
-      - 'docs/DISTRIBUTION.md'
+      - 'package.json'
       - '.github/workflows/toolchain.yml'
   pull_request:
     paths:
       - 'toolchain.json'
-      - 'docs/COMPATIBILITY.md'
-      - 'docs/WORKBENCH-SETUP.md'
-      - 'docs/DISTRIBUTION.md'
+      - 'package.json'
+      - '.github/workflows/toolchain.yml'
 
 permissions:
   contents: read
@@ -33,21 +30,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Validate toolchain.json against docs and COMPATIBILITY.md
+      - name: Validate toolchain.json against package.json
         run: node scripts/check-toolchain.mjs --structural
-
-  live:
-    # A real `dsh plugin list`/engine comparison needs an installed harness
-    # profile; GitHub runners do not have one. Enable by setting the
-    # RUN_TOOLCHAIN_LIVE repository variable on a self-hosted runner that does
-    # (OpenSpec design D3: run live checks where the harness can be installed).
-    name: Live profile check
-    runs-on: ubuntu-latest
-    if: ${{ vars.RUN_TOOLCHAIN_LIVE == 'true' }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Compare the installed profile to toolchain.json
-        run: node scripts/check-toolchain.mjs --live --profile web
