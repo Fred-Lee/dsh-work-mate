@@ -25,12 +25,25 @@ export interface ProjectGitInfo {
   note?: string
 }
 
+export interface CriticalIssue {
+  text: string
+  resolved: boolean
+}
+
+export interface ReviewReport {
+  confirms: string[]
+  questions: string[]
+  suggestions: string[]
+  criticals: CriticalIssue[]
+}
+
 export interface ProjectDetail {
   project: string
   root?: string
   git?: ProjectGitInfo
   commits?: AssociatedCommit[]
   openspec?: { state: 'active' | 'archived' | 'missing'; tasks?: { done: number; total: number } }
+  reviewReport?: ReviewReport
   note?: string
 }
 

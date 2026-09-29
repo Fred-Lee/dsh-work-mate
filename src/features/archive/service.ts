@@ -116,6 +116,37 @@ export class ArchiveServiceImpl {
   }
 
   /**
+   * `draft → reviewing` (change add-proposal-quality-gates): the proposal
+   * enters cross-consistency review (report produced by the proposal-auditor
+   * subagent in the session layer; the host only validates the artifact).
+   */
+  async startReview(id: string): Promise<Proposal> {
+    const proposal = await this.mustGet(id)
+    if (proposal.status !== 'draft') {
+      throw new InvalidTransitionError(`only draft proposals can enter review, ${id} is ${proposal.status}`)
+    }
+    return this.writeStatus(proposal, 'reviewing')
+  }
+
+  /** `reviewing → executing` — review passed. */
+  async approveReview(id: string): Promise<Proposal> {
+    const proposal = await this.mustGet(id)
+    if (proposal.status !== 'reviewing') {
+      throw new InvalidTransitionError(`only reviewing proposals can be approved, ${id} is ${proposal.status}`)
+    }
+    return this.writeStatus(proposal, 'executing')
+  }
+
+  /** `reviewing → draft` — back to preparation. */
+  async unreview(id: string): Promise<Proposal> {
+    const proposal = await this.mustGet(id)
+    if (proposal.status !== 'reviewing') {
+      throw new InvalidTransitionError(`only reviewing proposals can return to draft, ${id} is ${proposal.status}`)
+    }
+    return this.writeStatus(proposal, 'draft')
+  }
+
+  /**
    * `executing → draft` (change make-lifecycle-fully-reversible): the reverse
    * of `start`. No project-side action — the change directory never moved.
    */

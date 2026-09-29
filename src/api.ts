@@ -13,6 +13,7 @@ import { Router, readJsonBody } from './http.ts'
 import type { ProposalService } from './features/proposal/service.ts'
 import type { ArchiveServiceImpl } from './features/archive/service.ts'
 import type { ProjectRegistry } from './features/project/registry.ts'
+import { syncProjectAssets } from './features/quality/sync.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
 import { generateChangeDir, readChangeState, validateProjectRoot } from './features/proposal/openspec.ts'
 import { listProposalCommits } from './features/proposal/git.ts'
@@ -29,6 +30,8 @@ export interface ApiDeps {
   openspecRoot: string
   /** Config-level default project root; may be empty. */
   projectRoot: string
+  /** Sync quality assets into the target project on creation. @default true */
+  qualitySyncEnabled: boolean
 }
 
 export interface CreateProjectBody {
@@ -90,6 +93,7 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
       projectRoot: root || undefined,
       openspecRoot: deps.openspecRoot,
       resolveRoot: async (name) => (await deps.registry.get(name))?.root,
+      withReviewReport: true,
     })
   })
 
@@ -134,6 +138,21 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     return { removed }
   })
 
+  router.post('/api/proposals/:id/review', async (r) => {
+    const proposal = await deps.archive.startReview(r.params['id'] ?? '')
+    return { proposal }
+  })
+
+  router.post('/api/proposals/:id/approve', async (r) => {
+    const proposal = await deps.archive.approveReview(r.params['id'] ?? '')
+    return { proposal }
+  })
+
+  router.post('/api/proposals/:id/unreview', async (r) => {
+    const proposal = await deps.archive.unreview(r.params['id'] ?? '')
+    return { proposal }
+  })
+
   router.post('/api/proposals/:id/stop', async (r) => {
     const proposal = await deps.archive.stop(r.params['id'] ?? '')
     return { proposal }
@@ -167,7 +186,18 @@ export async function createProposal(
   }
   validateProjectRoot(projectRoot)
   const openspec = await generateChangeDir(projectRoot, deps.openspecRoot, id, title)
-  return { proposal, openspec }
+
+  let qualitySync: Awaited<ReturnType<typeof syncProjectAssets>> | undefined
+  if (deps.qualitySyncEnabled) {
+    qualitySync = await syncProjectAssets(projectRoot)
+  }
+  return {
+    proposal,
+    openspec,
+    ...(qualitySync !== undefined
+      ? { qualitySync: { written: qualitySync.written, skipped: qualitySync.skipped, note: qualitySync.note } }
+      : {}),
+  }
 }
 
 /** Aggregate the knowledge-graph face (M5) alongside per-proposal data. */

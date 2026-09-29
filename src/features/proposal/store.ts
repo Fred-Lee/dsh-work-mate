@@ -15,7 +15,7 @@ export interface Proposal {
   /** Slug-style identifier, e.g. "batch-grading-v2". */
   id: string
   title: string
-  status: 'draft' | 'executing' | 'archived'
+  status: 'draft' | 'reviewing' | 'executing' | 'archived'
   /** Associated project identifiers. */
   projects: string[]
   /** Associated Git commit hashes (tag-proposal association, M2). */

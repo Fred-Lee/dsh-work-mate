@@ -1,0 +1,30 @@
+# OpenSpec 项目级硬约束 — 由 WorkMate 在创建提案时写入（已存在则永不覆盖）。
+# schema 指向 workmate-review（proposal → specs → design → review → tasks），
+# review 工件是 tasks 生成前的审查门。
+schema: workmate-review
+
+# 项目上下文：展示给 AI 的技术栈与领域约定（按目标项目改写）。
+context: |
+  本项目使用 WorkMate 提案工作流（workmate-review schema）。
+  所有提案在生成 tasks 之前必须通过 review 工件的交叉一致性审查。
+  Git 操作的提交信息必须携带 [proposal:<id>] 标记（PreToolUse hook 强制）。
+
+# 按工件类型的硬约束。约束违反会在 review 工件审查中判 CRITICAL。
+rules:
+  proposal:
+    - 必须列出消费方枚举：提案涉及的所有项目模块（清单需经 GitNexus impact/context 查询确认，不允许凭记忆列举）。
+    - 必须声明历史提案关联：是否延续/替代某个既有方案，给出 openspec change id；无关联需显式写「无」。
+    - 必须标注 GitNexus 同步点：新增或重命名的符号/流程在归档后需要重建索引（gitnexus analyze），在 Impact 一节说明。
+  specs:
+    - 每个 requirement 必须携带至少一个 Given/When/Then 场景（#### Scenario: 块，WHEN/THEN 格式），否则 validate 失败。
+    - 使用 SHALL/MUST 表述规范性行为；避免 should/may。
+  design:
+    - 必须说明模块复用：引用 GitNexus 查询到的既有实现（符号名 + 位置），解释为何不复用而新抽象；禁止无依据的重复抽象。
+    - 必须包含回滚方案：每个有状态或破坏性变更给出可执行的回退步骤；无法回退的需显式声明并说明原因。
+  tasks:
+    - 每个任务必须声明 writes 范围（本任务会写的文件/目录），多任务并行的 writes 不得交叠。
+    - 涉及 MCP 工具或 Git 操作的任务必须声明并发安全策略（哪些操作可并行、哪些必须串行及串行原因）。
+    - 必须包含归档前验证任务（运行 openspec validate --strict 与项目测试）。
+  review:
+    - 交叉一致性审查必须覆盖：task↔requirement 映射完整性、design 是否使 requirement 不可实现、未声明的消费方、回滚方案完整性。
+    - CRITICAL 条目必须用 checkbox 表达解决状态（- [ ] 未解决 / - [x] 已解决）。

@@ -240,6 +240,42 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                   )}
                                 </div>
                               ))}
+                              {(detail.projects ?? []).some((p) => p.reviewReport !== undefined) && (
+                                <div className="wm-section">
+                                  <b>
+                                    🔍 审查报告
+                                    <button
+                                      className="wm-btn mini"
+                                      type="button"
+                                      style={{ marginLeft: 6 }}
+                                      onClick={() => void loadDetail(proposal.id)}
+                                    >
+                                      重新审查
+                                    </button>
+                                  </b>
+                                  {(detail.projects ?? []).map((project) =>
+                                    project.reviewReport === undefined ? null : (
+                                      <div key={project.project} style={{ marginBottom: 6 }}>
+                                        <code>{project.project}</code>
+                                        {project.reviewReport.criticals.map((issue, index) => (
+                                          <div
+                                            key={index}
+                                            style={{ color: issue.resolved ? 'var(--wm-muted)' : '#ef4444', fontWeight: issue.resolved ? 400 : 600 }}
+                                          >
+                                            {issue.resolved ? '✓' : '✖'} CRITICAL: {issue.text}
+                                          </div>
+                                        ))}
+                                        {project.reviewReport.questions.map((question, index) => (
+                                          <div key={index} style={{ color: '#b45309' }}>？疑问：{question}</div>
+                                        ))}
+                                        {project.reviewReport.confirms.map((confirm, index) => (
+                                          <div key={index} style={{ color: 'var(--wm-muted)' }}>✓ {confirm}</div>
+                                        ))}
+                                      </div>
+                                    ),
+                                  )}
+                                </div>
+                              )}
                               <div className="wm-actions">
                                 <button
                                   className="wm-btn mini"

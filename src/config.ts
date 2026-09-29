@@ -25,6 +25,11 @@ export interface Config {
    * explicitly. @default ''
    */
   projectRoot?: string
+  /**
+   * Sync quality assets (openspec constraints/schema, claude rules/agents/
+   * hooks) into the target project on proposal creation. @default true
+   */
+  qualitySyncEnabled?: boolean
 }
 
 export type ResolvedConfig = Required<Config>
@@ -36,6 +41,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   weknoraBaseUrl: '',
   openspecRoot: 'openspec',
   projectRoot: '',
+  qualitySyncEnabled: true,
 }
 
 /**

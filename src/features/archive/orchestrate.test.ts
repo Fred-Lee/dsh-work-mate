@@ -44,6 +44,11 @@ describe('orchestrateArchive (fake CLIs)', () => {
     await import('node:fs/promises').then(async (fs) => {
       await fs.mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
       await fs.writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. a\n- [ ] 2. b\n', 'utf8')
+      await fs.writeFile(
+        join(project, 'openspec', 'changes', 'p1', 'review.md'),
+        '## CRITICAL 问题\n\n- [x] CRIT-1 已解决\n',
+        'utf8',
+      )
     })
     return project
   }
@@ -82,6 +87,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
       expect(result.steps.map((s) => [s.step, s.status])).toEqual([
         ['tasks', 'ok'],
         ['swarm', 'skipped'],
+        ['review-gate', 'ok'],
         ['openspec-archive', 'ok'],
         ['gitnexus-analyze', 'ok'],
         ['status', 'ok'],
@@ -109,7 +115,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
     const result = await orchestrateArchive(
       executing,
       [{ project: 'demo', root: project }],
-      { openspecRoot: 'openspec' },
+      { openspecRoot: 'openspec', reviewGate: false },
       { openspecBin: path },
     )
 

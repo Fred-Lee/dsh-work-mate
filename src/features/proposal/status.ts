@@ -9,8 +9,11 @@
 import type { Proposal } from './store.ts'
 import type { AssociatedCommit, GitInfo, GitScanResult } from './git.ts'
 import type { OpenspecChangeState } from './openspec.ts'
+import { readFile, readdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import { getGitInfo, listProposalCommits } from './git.ts'
 import { readChangeState, validateProjectRoot } from './openspec.ts'
+import { parseReviewMd, type ReviewReport } from '../quality/review-parser.ts'
 import type { ProposalService } from './service.ts'
 
 export interface ProjectDetail {
@@ -19,6 +22,8 @@ export interface ProjectDetail {
   git?: GitInfo
   commits?: AssociatedCommit[]
   openspec?: OpenspecChangeState
+  /** Parsed `changes/<id>/review.md` (proposal-auditor artifact). */
+  reviewReport?: ReviewReport
   note?: string
 }
 
@@ -39,6 +44,8 @@ export interface StatusOptions {
   openspecRoot: string
   /** Registry resolver: project name → root (undefined = unregistered). */
   resolveRoot?: (name: string) => Promise<string | undefined>
+  /** Also parse `changes/<id>/review.md` per project (panel review report). */
+  withReviewReport?: boolean
 }
 
 export async function buildProposalStatus(
@@ -56,7 +63,7 @@ export async function buildProposalStatus(
   // association so existing callers keep their shape.
   if (associated.length === 0 && options.projectRoot) {
     validateProjectRoot(options.projectRoot)
-    const single = await collectProject('(explicit)', options.projectRoot, options.openspecRoot, proposal.openspecChangeId)
+    const single = await collectProject('(explicit)', options.projectRoot, options.openspecRoot, proposal.openspecChangeId, options.withReviewReport)
     status.projects.push(single)
     Object.assign(status, projectProjection(single))
     return status
@@ -82,7 +89,7 @@ export async function buildProposalStatus(
       continue
     }
     validateProjectRoot(root)
-    status.projects.push(await collectProject(name, root, options.openspecRoot, proposal.openspecChangeId))
+    status.projects.push(await collectProject(name, root, options.openspecRoot, proposal.openspecChangeId, options.withReviewReport))
   }
 
   const first = status.projects.find((detail) => detail.root !== undefined)
@@ -99,21 +106,47 @@ function projectProjection(detail: ProjectDetail): Partial<ProposalStatus> {
   }
 }
 
+/**
+ * Read the review report from the active change dir; after archiving the
+ * whole directory moves under `changes/archive/<date>-<id>/`, so fall back to
+ * the archived location (the panel still shows the report on archived cards).
+ */
+async function readReviewReport(root: string, openspecRoot: string, changeId: string): Promise<string | undefined> {
+  try {
+    return await readFile(join(root, openspecRoot, 'changes', changeId, 'review.md'), 'utf8')
+  } catch {
+    // fall through to the archive location
+  }
+  try {
+    const archiveDir = join(root, openspecRoot, 'changes', 'archive')
+    const match = (await readdir(archiveDir)).find((entry) => entry.endsWith(`-${changeId}`))
+    if (match !== undefined) {
+      return await readFile(join(archiveDir, match, 'review.md'), 'utf8')
+    }
+  } catch {
+    // no archive dir either
+  }
+  return undefined
+}
+
 async function collectProject(
   name: string,
   root: string,
   openspecRoot: string,
   changeId: string,
+  withReviewReport?: boolean,
 ): Promise<ProjectDetail> {
   const detail: ProjectDetail = { project: name, root }
-  const [git, gitScan, openspecState] = await Promise.all([
+  const [git, gitScan, openspecState, reviewContent] = await Promise.all([
     getGitInfo(root).catch(() => undefined),
     listProposalCommits(root, changeId),
     readChangeState(root, openspecRoot, changeId),
+    withReviewReport === true ? readReviewReport(root, openspecRoot, changeId) : Promise.resolve(undefined),
   ])
   if (git !== undefined) detail.git = git
   detail.commits = gitScan.commits
   if (gitScan.note !== undefined) detail.note = gitScan.note
   detail.openspec = openspecState
+  if (reviewContent !== undefined) detail.reviewReport = parseReviewMd(reviewContent)
   return detail
 }

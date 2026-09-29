@@ -10,6 +10,7 @@ describe('resolveConfig', () => {
       weknoraBaseUrl: '',
       openspecRoot: 'openspec',
       projectRoot: '',
+      qualitySyncEnabled: true,
     })
   })
 

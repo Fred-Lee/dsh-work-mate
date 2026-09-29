@@ -12,10 +12,11 @@ import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import { readChangeState, validateProjectRoot } from '../proposal/openspec.ts'
 import { gitnexusAnalyze } from '../knowledge-bridge/gitnexus.ts'
+import { parseReviewMd, unresolvedCriticals } from '../quality/review-parser.ts'
 import type { Proposal } from '../proposal/store.ts'
 
 export interface OrchestrationStep {
-  step: 'tasks' | 'swarm' | 'openspec-archive' | 'gitnexus-analyze' | 'reopen-dir' | 'status'
+  step: 'review-gate' | 'tasks' | 'swarm' | 'openspec-archive' | 'gitnexus-analyze' | 'reopen-dir' | 'status'
   status: 'ok' | 'skipped' | 'failed'
   summary: string
 }
@@ -112,7 +113,7 @@ export interface OrchestrateDeps {
 export async function orchestrateArchive(
   proposal: Proposal,
   targets: OrchestrationTarget[],
-  options: { openspecRoot: string; gitnexusAnalyzeEnabled?: boolean },
+  options: { openspecRoot: string; gitnexusAnalyzeEnabled?: boolean; reviewGate?: boolean },
   deps: OrchestrateDeps = {},
 ): Promise<OrchestrationResult> {
   const steps: OrchestrationStep[] = []
@@ -157,7 +158,48 @@ export async function orchestrateArchive(
     })
   }
 
-  // 3+4. per-project openspec archive + gitnexus re-index
+  // 3. review gate: every resolvable target must have a review report with
+  // no unresolved CRITICAL issue (change add-proposal-quality-gates, design D2).
+  // The review INTELLIGENCE lives in the session layer (proposal-auditor);
+  // the host only validates the structured artifact. force skips the gate.
+  if (options.reviewGate !== false) {
+    let gateFailed = false
+    for (const target of targets) {
+      const label = targets.length > 1 ? `[${target.project}] ` : ''
+      let content: string
+      try {
+        content = await readFile(
+          join(target.root, options.openspecRoot, 'changes', proposal.openspecChangeId, 'review.md'),
+          'utf8',
+        )
+      } catch {
+        gateFailed = true
+        steps.push({
+          step: 'review-gate',
+          status: 'failed',
+          summary: `${label}审查报告缺失 — 在会话中运行 proposal-auditor 生成 review.md（或 force 跳过）`,
+        })
+        continue
+      }
+      const report = parseReviewMd(content)
+      const unresolved = unresolvedCriticals(report)
+      if (unresolved.length > 0) {
+        gateFailed = true
+        steps.push({
+          step: 'review-gate',
+          status: 'failed',
+          summary: `${label}${unresolved.length} 个未解决 CRITICAL — ${unresolved.map((issue) => issue.text.slice(0, 40)).join(' / ')}`,
+        })
+      } else {
+        steps.push({ step: 'review-gate', status: 'ok', summary: `${label}审查通过（${report.criticals.length} 项 CRITICAL 已解决）` })
+      }
+    }
+    if (gateFailed) return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }
+  } else {
+    steps.push({ step: 'review-gate', status: 'skipped', summary: 'disabled by force' })
+  }
+
+  // 4+5. per-project openspec archive + gitnexus re-index
   let allArchived = true
   for (const target of targets) {
     const label = targets.length > 1 ? `[${target.project}] ` : ''

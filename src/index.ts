@@ -107,6 +107,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       registry,
       openspecRoot: resolved.openspecRoot,
       projectRoot: resolved.projectRoot,
+      qualitySyncEnabled: resolved.qualitySyncEnabled,
     },
   )
 }
@@ -136,7 +137,14 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
       async execute(args) {
         const projects = args.projects?.split(',').map((p) => p.trim()).filter(Boolean)
         const result = await createProposal(
-          { proposals, archive, registry, openspecRoot: resolved.openspecRoot, projectRoot: resolved.projectRoot },
+          {
+            proposals,
+            archive,
+            registry,
+            openspecRoot: resolved.openspecRoot,
+            projectRoot: resolved.projectRoot,
+            qualitySyncEnabled: resolved.qualitySyncEnabled,
+          },
           {
             id: args.id,
             title: args.title,
@@ -175,7 +183,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         'Advance a proposal along draft → executing → archived. Use workmate_proposal_status first; draft proposals cannot be archived directly, and a missing OpenSpec change directory requires force: true.',
       parameters: {
         id: { type: 'string', required: true, description: 'Proposal id.' },
-        mode: { type: 'string', description: 'Lifecycle direction: archive (default) | start | reopen | stop — the full reversible set.' },
+        mode: { type: 'string', description: 'Lifecycle direction: archive (default) | start | review | approve | unreview | reopen | stop.' },
         start: { type: 'boolean', description: 'Legacy shorthand for mode=start (draft → executing).' },
         force: { type: 'boolean', description: 'Archive even when the OpenSpec change directory is missing.' },
         projectRoot: { type: 'string', description: 'Absolute project root; falls back to Config.projectRoot.' },
@@ -190,6 +198,18 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         if (mode === 'stop') {
           const proposal = await archive.stop(args.id)
           return asJson({ proposal, note: 'proposal moved back to draft' })
+        }
+        if (mode === 'review') {
+          const proposal = await archive.startReview(args.id)
+          return asJson({ proposal, note: 'proposal entered review — run the proposal-auditor subagent to produce review.md' })
+        }
+        if (mode === 'approve') {
+          const proposal = await archive.approveReview(args.id)
+          return asJson({ proposal, note: 'review approved — proposal moved to executing' })
+        }
+        if (mode === 'unreview') {
+          const proposal = await archive.unreview(args.id)
+          return asJson({ proposal, note: 'proposal returned to draft' })
         }
         if (mode === 'reopen') {
           const reopened = await archive.reopen(args.id, { openspecRoot: resolved.openspecRoot })

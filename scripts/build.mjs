@@ -3,10 +3,13 @@
 //   dist/client/client.js — DSH ModuleLoader CJS module (react/cordis external)
 // plus dist/client/index.html for the standalone route.
 import { build } from 'esbuild'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { cp, mkdir, writeFile } from 'node:fs/promises'
 
 await mkdir('dist', { recursive: true })
 await mkdir('dist/client', { recursive: true })
+// Quality-gate assets (openspec templates + claude rules/agents/hooks) ride
+// along the host bundle; the syncer reads them from dist/assets at runtime.
+await cp('assets', 'dist/assets', { recursive: true })
 
 await build({
   entryPoints: ['src/index.ts'],
