@@ -87,7 +87,7 @@ export function ChatProposalAction(props: ChatProposalActionProps): JSX.Element 
       </button>
 
       {open && (
-        <div className="wm-root">
+        <div className="wm-root wm-modal-fixed">
           <style dangerouslySetInnerHTML={{ __html: PANEL_STYLE }} />
           <div className="wm-modal" onClick={reset}>
             <form

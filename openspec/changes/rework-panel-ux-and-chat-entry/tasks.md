@@ -8,3 +8,11 @@
       `ctx.inject` 局部作用域
 - [x] 4. 测试更新：看板列布局 / 模态创建 / 卡片展开 / 对话入口全链路（57 用例）
 - [x] 5. build / typecheck / contract 全绿，真机重启面板与 client.js 验收
+
+## 5. 真机遮挡修复（用户反馈）
+
+- [x] 5.1 右上角「右侧边栏/下边栏」按钮被遮挡：`.wm-header` 去除
+      `position:sticky; top:0; z-index:5`（在宿主 overflow:hidden 右栏容器内
+      sticky 会贴到栏顶盖住外壳按钮）；`.wm-root` 去除 `min-height:100%`
+      （不再撑高宿主容器）；对话弹层改为 `.wm-root.wm-modal-fixed`
+      （fixed 全屏作用域根，z-index 9999，关闭即整体卸载）

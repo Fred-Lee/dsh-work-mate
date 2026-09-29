@@ -35,8 +35,16 @@ export const PANEL_STYLE = `
   font-size: 13px;
   color: var(--wm-fg);
   background: var(--wm-bg);
-  min-height: 100%;
   padding: 0 0 24px;
+}
+
+/* Modal exit as a fixed scope root: when the panel opens a modal from inside
+   a host slot, this element is the CSS-variable scope AND the full-viewport
+   overlay, above every shell chrome (buttons at z-index stay clickable after
+   close because the whole layer unmounts). */
+.wm-root.wm-modal-fixed {
+  position: fixed; inset: 0; z-index: 9999;
+  background: transparent; padding: 0;
 }
 @media (prefers-color-scheme: dark) {
   .wm-root {
@@ -58,7 +66,8 @@ export const PANEL_STYLE = `
   padding: 14px 18px 12px;
   background: linear-gradient(135deg, var(--wm-accent-soft), transparent 70%);
   border-bottom: 1px solid var(--wm-border-soft);
-  position: sticky; top: 0; z-index: 5;
+  /* No position:sticky here: inside the host's overflow:hidden right-rail it
+     pins to the rail top and covers the shell's layout buttons. */
 }
 .wm-brand { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; letter-spacing: .2px; }
 .wm-logo {
