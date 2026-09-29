@@ -358,4 +358,193 @@ dsh plugin --profile web add ./workmate4dsh-0.1.0.tgz
 - Swarm 集成：`dsh-swarm-orchestrator` 的 `swarm_dispatch` 工具用法
 - OpenSpec 归档：Accesserty/UI-Kit 的 `openspec-archive.md` workflow
 
+## 9. WorkDSH 基础设施复用与参考
+
+> 证据等级（沿用 `docs/DSH-INTEGRATION-NOTES.md` 惯例）：
+> **[W-已核]** = 2026-09-29 对 github.com/techflag/workdsh 公开文档逐篇核对
+> （README、docs/architecture.en.md、docs/user-guide.en.md、docs/plugin-ecosystem.en.md、
+> docs/README.en.md）；**[W-待确认]** = 仅见于需求侧描述、公开文档中不存在。
+> WorkDSH 定位为 WorkBuddy 式通用桌面工作台，与 WorkMate（研发编排层）产品定位不重叠。
+
+### 9.1 项目 / 专家 / 技能的组织模型
+
+**WorkDSH 的设计**：[W-已核] README 确认「Experts save role and capability settings」
+「skills carry callable instructions and resources」「Projects bring instructions, plans,
+tasks, material, and capability settings together」。**专家→Preset→Session 三层模型
+[W-待确认]**：全部五篇公开文档中均无 Preset/Session 概念（逐篇核对为空）。相邻旁证：
+WorkBuddy 原作的会话绑定序列（prepare-session → workspace.create → session.create）在
+`DSH-INTEGRATION-NOTES.md` §B 有记录，且 Helmsman 时期实测其标识符在自己代码里 0 命中。
+
+**复用决策**：借鉴思想，不移植模型。Proposal ≠ 专家——专家是静态能力描述，Proposal
+是带状态机的动态工作单，硬套三层会把 WorkBuddy 序列踩过的坑重踩一遍。Proposal 的
+真实对位是「Session 级执行实例」；有价值的启发是给编排任务补**能力组装维度**
+（Preset 的职责：模型 / 工具 / 技能 / 连接器的组合描述）。
+
+**落地方式**：不新增实体层。在 `src/features/archive/orchestrate.ts` 已预留的
+`runSwarmTasks(tasks, root)` 接口上扩展 per-task 执行配置：
+
+```ts
+// 未来 swarm 接入时的接口演进（现为记录性跳过）：
+interface SwarmTaskConfig {
+  title: string
+  writes: string[]                 // 文件范围（已有）
+  agent?: 'claude' | 'codex' | …   // 能力组装：执行引擎
+  skills?: string[]                // 能力组装：携带的技能
+  done?: string[]                  // 幂等验收谓词：文件存在 / 命令通过（见 9.2）
+}
+runSwarmTasks(tasks: SwarmTaskConfig[], root: string): Promise<string>
+```
+
+**对现有设计文档的修改建议**：§3.1.4 归档编排的「Swarm 集成」段补一句——每个 task
+除 `writes` 外可声明能力组装（agent/skills）与验收谓词，来源仍是 tasks.md 的
+结构化解析。
+
+### 9.2 多 Agent 执行与协同的边界处理
+
+**WorkDSH 的设计**：「writeScopes 不是锁」「能力授权与数据写入两维度」的论述
+**[W-待确认]**——在 WorkDSH 公开文档中不存在（README / architecture / user-guide /
+plugin-ecosystem 四篇逐条核对为空），该观点不能作为「WorkDSH 已验证基础设施」引用。
+但观点本身与本仓两条既有实践同构：swarm task 的 `writes` 字段声明、Helmsman 看板的
+冲突域 WIP（`仓库:模块` 粒度）+ 原子合并（patch 式 `git apply`，冲突整批失败）。
+
+**复用决策**：借鉴观点、不新增机制。「writes 不是锁」的正确推论是：文件范围声明防
+意外踩踏，防并发逻辑冲突靠**幂等 + 验收谓词**——而 WorkMate 编排已经天然幂等
+（已归档 → skipped 的重试语义经真机验证），缺的只是每个任务的「完成判据」。
+
+**落地方式**：在 9.1 的 `SwarmTaskConfig.done` 谓词上落地：swarm 任务完成后编排逐条
+核验（文件存在 / 命令退出码 0），不满足则该任务标记未收敛、整批可重试；与 tasks.md
+生成逻辑的结合点是 OpenSpec 任务行 → `done` 谓词的映射（`[x]` 勾选即验收声明）。
+不引入锁、不引入领域修订框架。
+
+**对现有设计文档的修改建议**：§6 风险表「Swarm 并发过高」行下补一行——「并发写入
+冲突：writes 声明仅防意外踩踏，一致性由任务幂等 + done 验收谓词 + 整批重试保证」。
+
+### 9.3 Skill 与 Plugin 的边界划分
+
+**WorkDSH 的设计**：[W-已核] README 明确「A skill usually consists of instructions
+and resources containing SKILL.md; it can be installed directly into the local DSH
+Skills directory and is not necessarily a plugin」且「WorkDSH's skill manager is a
+DSH plugin」——管理技能的软件是 Plugin，Skill 本身是内容。DSH 原生的项目级技能根
+`<项目根>/.dsh/skills/<name>/SKILL.md` 已在 Helmsman 笔记（C 级）核对。
+
+**复用决策**：借鉴边界定义，落两类资产：
+- **保持 Plugin**：提案状态机、归档编排、知识桥接、REST/UI——一切需要宿主服务、
+  状态与子进程纪律的面。归档**编排**绝不能做成 Skill：目录搬回、幂等语义、多项目
+  循环都需要宿主上下文，交给 Agent 自由发挥会丢失正确性。
+- **新增 Skill 资产**：纯指令性内容。「归档前验收清单」（何时可勾 tasks、提交信息
+  如何带 `[proposal:<id>]`）、「知识工具使用指南」（query/context/impact 的选择）
+  适合 SKILL.md。
+
+**落地方式**：包内嵌技能目录 + 幂等同步（沿用 Helmsman presets 的纪律：只补缺、
+永不覆盖用户目录）：
+
+```
+skills/
+├── archive-checklist/SKILL.md     # 归档前验收清单（Agent 会话内自查）
+└── knowledge-usage/SKILL.md       # 知识工具选择指南
+src/skills.ts                      # 同步到 $DSH_HOME/skills/（幂等，Config 开关）
+```
+
+**对现有设计文档的修改建议**：§3.1 新增 3.1.5「Skill 资产」小节，写明上述边界与
+同步纪律；§1.3 设计原则补一句「流程编排是 Plugin，操作规范是 Skill」。
+
+### 9.4 与 DSH 生态的集成方式
+
+**WorkDSH 的设计**：[W-已核] 连接两个独立目录——SkillHub（Tencent SkillHub API，
+捆绑 `@cocofhu/skillhub` 插件）与 dsh-market（第三方插件，位于既有插件页内）；
+生态宣言三原则（组合优先 / 清晰声明 / 兼容优先），但明确「There is no online market
+page or installer today」。桌面侧用 unmodified 上游 submodule + `upstream.json` 钉
+上游版本；功能包由 `workdsh-bundle` 组合。
+
+**复用决策**：
+- **不接入 SkillHub / dsh-market**：目录 UI 是工作台职责，与「寄生而非替代」冲突；
+  WorkMate 的 bundle 清单（`cordis.patch.yml`）本身就是装配目录。
+- **借鉴 `upstream.json` 的钉版治理**：WorkMate 的依赖版本线目前散落在 design 决策
+  文档里，应工具化——Helmsman 已验证过同一模式（`toolchain.json` +
+  `check-toolchain.mjs --structural`）。
+- **不维护自己的插件/Skill 目录**：Skill 资产随包分发（9.3），无独立目录需求。
+
+**落地方式**：
+
+```jsonc
+// toolchain.json — 版本治理唯一权威源（移植自 Helmsman 已验证实现）
+{
+  "require": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": "0.1.2-alpha.5"
+  },
+  "profile": { "dsh": "0.1.7-rc.2" }
+}
+```
+
+`pnpm verify:toolchain` 并入 contract 门禁（`pnpm verify:contract` 同级），CI 只在
+该文件变更时触发。
+
+**对现有设计文档的修改建议**：§6 风险表「DSH 版本兼容性」行的规避措施改为
+「`toolchain.json` + 结构化校验脚本门禁」；§5.1 依赖表补版本列指向该文件。
+
+### 9.5 交付物工作区（Deliverable Workspace）
+
+**WorkDSH 的设计**：[W-已核] README：「The deliverable workspace previews or edits
+supported working copies of documents, spreadsheets, presentations, HTML, and
+PDF」，工作流为「File in library ──reference──> Project task ──choose──> Expert /
+Skill / Connector」；Alpha 阶段明确警告「Preview, editing, and export fidelity
+differ by format」。
+
+**复用决策**：借鉴概念、自建轻量实现、**不复用其组件**。理由：1) 该工作区是桌面
+载体（`workdsh-web/`）的功能面，不是可嵌入的 client 模块；2) Alpha 保真度声明；
+3) WorkMate 的交付物是**代码变更**，需要的不是文档编辑器而是变更摘要视图。
+
+**落地方式**：归档编排产出 manifest 而非引入工作区组件：
+
+```ts
+// orchestrate.ts 归档成功后随 step 产出，落 proposals.json 的归档条目：
+interface ArchiveManifest {
+  archivedAt: string
+  projects: Array<{
+    project: string
+    commits: string[]          // 归档区间内关联提交（git log 扫描已有）
+    diffStat?: string          // git diff --stat <base>..<head> 摘要
+    specsUpdated: boolean      // openspec archive 是否更新了主 specs
+    reindexed: boolean         // gitnexus analyze 是否成功
+  }>
+}
+```
+
+看板「已归档」列卡片展开后渲染该 manifest（复用现有详情区，无新页面）。
+
+**对现有设计文档的修改建议**：§3.2.2 提案面板补「归档交付物摘要」子视图说明
+（数据源 ArchiveManifest，M5+ 排期）。
+
+### 9.6 桌面载体（Desktop Carrier）
+
+**WorkDSH 的设计**：[W-已核，architecture.en.md 证据最足] 「WorkDSH Desktop is an
+Electron carrier for one pinned DeepSeek Harness Profile」；内置 Node/Python 运行时；
+`deepseek-harness/` 是 unmodified upstream submodule，`upstream.json` 记录唯一上游
+版本；`app.asar` 只含 Electron 入口、无第二份 `node_modules`；明确「None is a second
+Desktop or a second DSH installation inside Electron」。桌面安装包 2.0.6-alpha.1
+为计划发布（README）。
+
+**复用决策**：**不做桌面载体，保持纯插件**；以「可被 WorkDSH Desktop 组合」为兼容
+目标。理由：1) 载体是 Profile 级职责，插件做载体直接违反「寄生而非替代」；2) WorkDSH
+的组合方式（功能包由运行时 Profile 组合）意味着 DSH 插件天然可进其 Profile，零适配；
+3) 自建 Electron 即第二个运行时，违反 WorkDSH 与 Helmsman 共同验证的「不维护修改版
+上游」纪律。
+
+**落地方式**：无代码改动。唯一动作是把兼容性验证列入选题：待 WorkDSH 桌面包实际
+发布后，在其 pinned Profile 的 DSH 版本内实测 WorkMate 装载（当前 Alpha 未发布，
+[W-待确认] 其 Profile 的实际 DSH 版本线）。
+
+**对现有设计文档的修改建议**：§5.3 外部工具依赖表加一行「桌面载体（可选）：
+WorkDSH Desktop——纯组合关系，无代码依赖」；§7 里程碑表后补「兼容性目标」一段。
+
+### 9.7 诚实声明（证据边界）
+
+需求描述中的三项设计——「专家→Preset→Session 三层模型」「writeScopes 不是锁 /
+Subagent / Agent Team 协作边界」「架构文档讨论授权边界」——经 2026-09-29 对 WorkDSH
+公开文档逐篇核对，**均不存在**；本文按「观点价值」而非「WorkDSH 已验证设施」处理，
+全部标注 [W-待确认]。Subagent 是 DSH 上游原生能力（`dsh-subagent-fork-in-process` /
+`dsh-subagent-spawn-in-process`），与 WorkDSH 无关。若 WorkDSH 后续文档补齐上述设计，
+应重新评估 9.1 / 9.2 的结论。
+
 **文档结束**
