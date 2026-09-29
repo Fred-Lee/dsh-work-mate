@@ -65,3 +65,37 @@ describe('ProposalServiceImpl.get', () => {
     expect(await service.get('missing')).toBeUndefined()
   })
 })
+
+describe('decisions and blockers', () => {
+  let store2: ProposalStore
+  let service2: ProposalServiceImpl
+
+  beforeEach(async () => {
+    store2 = new ProposalStore({ homeRoot: home, subdir: 'workmate-dl' })
+    service2 = new ProposalServiceImpl(store2)
+    await service2.upsert({ id: 'dl', title: '决策日志' })
+  })
+
+  it('appends decisions and validates the supersedes chain', async () => {
+    const d1 = await service2.addDecision('dl', { decision: '用分支', rationale: '串行够用' })
+    const d2 = await service2.addDecision('dl', { decision: '用 worktree', rationale: '需要并行', supersedes: d1.id })
+
+    expect(d2.supersedes).toBe(d1.id)
+    await expect(
+      service2.addDecision('dl', { decision: 'x', rationale: 'y', supersedes: 'ghost' }),
+    ).rejects.toThrow("does not reference an existing decision")
+    expect((await service2.get('dl'))?.decisions).toHaveLength(2)
+  })
+
+  it('walks the blocker round-trip open → resolved with the answer stored', async () => {
+    const blocker = await service2.block('dl', { question: '字段语义？', tried: '查了两轮 GitNexus' })
+    expect(blocker.status).toBe('open')
+
+    await expect(service2.unblock('dl', blocker.id, '  ')).rejects.toThrow('non-empty')
+    const resolved = await service2.unblock('dl', blocker.id, '语义已与用户确认')
+    expect(resolved.status).toBe('resolved')
+    expect(resolved.answer).toBe('语义已与用户确认')
+    await expect(service2.unblock('dl', blocker.id, 'again')).rejects.toThrow('already resolved')
+    expect((await service2.get('dl'))?.blockers).toHaveLength(1)
+  })
+})

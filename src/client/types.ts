@@ -1,5 +1,23 @@
 /** Shared REST payload types for the client half (design D5 of the change). */
 
+export interface DecisionEntry {
+  id: string
+  decision: string
+  rationale: string
+  supersedes?: string
+  at: string
+}
+
+export interface BlockerEntry {
+  id: string
+  question: string
+  tried?: string
+  answer?: string
+  status: 'open' | 'resolved'
+  at: string
+  answeredAt?: string
+}
+
 export interface Proposal {
   id: string
   title: string
@@ -7,6 +25,8 @@ export interface Proposal {
   projects: string[]
   commits: string[]
   openspecChangeId: string
+  decisions?: DecisionEntry[]
+  blockers?: BlockerEntry[]
   createdAt: string
   updatedAt: string
 }

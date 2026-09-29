@@ -226,6 +226,64 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
   )
   ctx.tools.register(
     defineTool({
+      name: 'workmate_proposal_decide',
+      description:
+        'Record one directional decision on a proposal (mandatory after every directional choice). If this overturns an earlier decision, pass supersedes with that entry id — silent reversals are forbidden and the auditor checks the chain.',
+      parameters: {
+        id: { type: 'string', required: true, description: 'Proposal id.' },
+        decision: { type: 'string', required: true, description: 'The decision in one sentence.' },
+        rationale: { type: 'string', required: true, description: 'Why — evidence, alternatives rejected.' },
+        supersedes: { type: 'string', description: 'Earlier decision id this one overturns.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      async execute(args) {
+        const entry = await proposals.addDecision(args.id, {
+          decision: args.decision,
+          rationale: args.rationale,
+          ...(args.supersedes !== undefined ? { supersedes: args.supersedes } : {}),
+        })
+        return asJson({ decision: entry })
+      },
+    }),
+  )
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_proposal_block',
+      description:
+        'Escalate a blocker on a proposal instead of thinking forever: after two stuck rounds on the same direction you MUST call this with the question and what you already tried. The open blocker appears on the panel; call workmate_proposal_unblock with the answer once resolved.',
+      parameters: {
+        id: { type: 'string', required: true, description: 'Proposal id.' },
+        question: { type: 'string', required: true, description: 'The blocking question, precisely.' },
+        tried: { type: 'string', description: 'What you already tried (prevents the answer repeating it).' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      async execute(args) {
+        const blocker = await proposals.block(args.id, {
+          question: args.question,
+          ...(args.tried !== undefined ? { tried: args.tried } : {}),
+        })
+        return asJson({ blocker, note: 'blocker open — answer arrives via workmate_proposal_unblock or the panel' })
+      },
+    }),
+  )
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_proposal_unblock',
+      description: 'Answer and resolve one open blocker (blockerId from workmate_proposal_block or the panel).',
+      parameters: {
+        id: { type: 'string', required: true, description: 'Proposal id.' },
+        blockerId: { type: 'string', required: true, description: 'Blocker id, e.g. blocker-1.' },
+        answer: { type: 'string', required: true, description: 'The resolution answer.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      async execute(args) {
+        const blocker = await proposals.unblock(args.id, args.blockerId, args.answer)
+        return asJson({ blocker })
+      },
+    }),
+  )
+  ctx.tools.register(
+    defineTool({
       name: 'workmate_knowledge_query',
       description:
         'Query the GitNexus code knowledge graph of a project (must be gitnexus-analyzed): action "query" finds execution flows for a concept, "context" gives a 360-degree view of a symbol, "impact" reports the blast radius of changing a symbol.',
@@ -278,5 +336,5 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     }),
   )
 
-  console.log('[workmate] tools registered (proposal_create/status/archive + knowledge_query/knowledge_search)')
+  console.log('[workmate] tools registered (proposal_create/status/archive + decide/block/unblock + knowledge_query/knowledge_search)')
 }

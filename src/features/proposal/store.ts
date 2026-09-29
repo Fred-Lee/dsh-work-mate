@@ -11,6 +11,26 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
+export interface DecisionEntry {
+  id: string
+  decision: string
+  rationale: string
+  /** Explicitly overturned earlier entry — silent reversals are forbidden. */
+  supersedes?: string
+  at: string
+}
+
+export interface BlockerEntry {
+  id: string
+  question: string
+  /** What the agent already tried before escalating. */
+  tried?: string
+  answer?: string
+  status: 'open' | 'resolved'
+  at: string
+  answeredAt?: string
+}
+
 export interface Proposal {
   /** Slug-style identifier, e.g. "batch-grading-v2". */
   id: string
@@ -22,6 +42,10 @@ export interface Proposal {
   commits: string[]
   /** OpenSpec change directory name this proposal drives. */
   openspecChangeId: string
+  /** Materialized directional choices (supersedes chain, auditor-checked). */
+  decisions?: DecisionEntry[]
+  /** Escalated blockers awaiting an answer (open) with resolutions. */
+  blockers?: BlockerEntry[]
   createdAt: string
   updatedAt: string
 }
@@ -81,7 +105,12 @@ export class ProposalStore {
       if (!Array.isArray(parsed)) {
         throw new StoreCorruptError('proposals.json must contain a JSON array', parsed)
       }
-      return parsed as Proposal[]
+      // Normalize records written before decisions/blockers existed.
+      return (parsed as Proposal[]).map((proposal) => ({
+        ...proposal,
+        decisions: proposal.decisions ?? [],
+        blockers: proposal.blockers ?? [],
+      }))
     } catch (error) {
       if (error instanceof StoreCorruptError) throw error
       throw new StoreCorruptError('proposals.json is not valid JSON', error)

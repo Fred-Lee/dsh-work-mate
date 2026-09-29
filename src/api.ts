@@ -138,6 +138,35 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     return { removed }
   })
 
+  router.post('/api/proposals/:id/decisions', async (r) => {
+    const body = await readJsonBody<{ decision?: string; rationale?: string; supersedes?: string }>(r.req)
+    const entry = await deps.proposals.addDecision(r.params['id'] ?? '', {
+      decision: body.decision ?? '',
+      rationale: body.rationale ?? '',
+      ...(body.supersedes !== undefined ? { supersedes: body.supersedes } : {}),
+    })
+    return { decision: entry }
+  })
+
+  router.post('/api/proposals/:id/block', async (r) => {
+    const body = await readJsonBody<{ question?: string; tried?: string }>(r.req)
+    const blocker = await deps.proposals.block(r.params['id'] ?? '', {
+      question: body.question ?? '',
+      ...(body.tried !== undefined ? { tried: body.tried } : {}),
+    })
+    return { blocker }
+  })
+
+  router.post('/api/proposals/:id/unblock', async (r) => {
+    const body = await readJsonBody<{ blockerId?: string; answer?: string }>(r.req)
+    const blocker = await deps.proposals.unblock(
+      r.params['id'] ?? '',
+      body.blockerId ?? '',
+      body.answer ?? '',
+    )
+    return { blocker }
+  })
+
   router.post('/api/proposals/:id/review', async (r) => {
     const proposal = await deps.archive.startReview(r.params['id'] ?? '')
     return { proposal }

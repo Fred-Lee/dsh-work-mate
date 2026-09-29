@@ -30,6 +30,10 @@ tools: Read, Grep, Glob, mcp__gitnexus__query, mcp__gitnexus__impact, mcp__gitne
 4. **回滚完整性**：design 的回滚方案是否覆盖全部有状态/破坏性变更。
 5. **模块复用**：design 引入的新抽象若与 GitNexus 查询到的既有实现职责重叠，
    记入建议补充项（附符号名）。
+6. **决策日志一致性**：逐条比对 `proposal.decisions`——supersedes 链是否闭合
+   （被推翻条目不得再被引用为现行决策）；现行决策与 GitNexus 查询到的代码事实
+   矛盾时记 CRITICAL（例如决策声称复用某模块，但索引显示该模块已不存在或
+   签名不符）。
 
 ## 输出
 

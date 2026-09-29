@@ -240,6 +240,39 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                   )}
                                 </div>
                               ))}
+                              {(proposal.blockers?.length ?? 0) > 0 && (
+                                <div className="wm-section">
+                                  <b>🚧 卡点</b>
+                                  {proposal.blockers?.map((blocker) => (
+                                    <div
+                                      key={blocker.id}
+                                      style={{
+                                        marginBottom: 4,
+                                        color: blocker.status === 'open' ? '#ef4444' : 'var(--wm-muted)',
+                                        fontWeight: blocker.status === 'open' ? 600 : 400,
+                                      }}
+                                    >
+                                      {blocker.status === 'open' ? '✖ 待答复' : '✓ 已解除'} <code>{blocker.id}</code>{' '}
+                                      {blocker.question}
+                                      {blocker.answer !== undefined && <div>↳ {blocker.answer}</div>}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {(proposal.decisions?.length ?? 0) > 0 && (
+                                <div className="wm-section">
+                                  <b>🧭 决策日志</b>
+                                  {proposal.decisions?.map((entry) => (
+                                    <div key={entry.id} style={{ marginBottom: 4 }}>
+                                      <code>{entry.id}</code> {entry.decision}
+                                      {entry.supersedes !== undefined && (
+                                        <span style={{ color: '#b45309' }}>（推翻 {entry.supersedes}）</span>
+                                      )}
+                                      <div style={{ color: 'var(--wm-muted)', fontSize: 11 }}>↳ {entry.rationale}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                               {(detail.projects ?? []).some((p) => p.reviewReport !== undefined) && (
                                 <div className="wm-section">
                                   <b>
