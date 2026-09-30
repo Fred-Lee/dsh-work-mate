@@ -7,6 +7,7 @@ import {
   checkTransition,
   migrateStatus,
   nextState,
+  prevState,
   STATE_HINTS,
 } from './state-machine.ts'
 import { ProposalStore } from './store.ts'
@@ -75,6 +76,13 @@ describe('state machine structure', () => {
   it('reports undefined next at the terminal state', () => {
     expect(nextState('archived')).toBeUndefined()
     expect(nextState('draft')).toBe('proposing')
+  })
+
+  it('reports the single adjacent prev, undefined at the start', () => {
+    expect(prevState('draft')).toBeUndefined()
+    expect(prevState('proposing')).toBe('draft')
+    expect(prevState('archiving')).toBe('merging')
+    expect(prevState('archived')).toBe('archiving')
   })
 })
 

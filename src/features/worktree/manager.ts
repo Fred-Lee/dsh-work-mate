@@ -14,12 +14,23 @@ import { gitExec, isMergedInto } from './git.ts'
 import { PortAllocator } from './port-allocator.ts'
 
 /** Generic (non-git) command runner for package-manager installs. */
-function runCommand(cmd: string, args: string[], cwd: string, timeoutMs: number): Promise<string> {
+function runCommand(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<string> {
   return new Promise((resolvePromise, reject) => {
-    execFile(cmd, args, { cwd, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) reject(new Error(stderr?.trim() || error.message))
-      else resolvePromise(stdout)
-    })
+    execFile(
+      cmd,
+      args,
+      { cwd, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, ...(signal !== undefined ? { signal } : {}) },
+      (error, stdout, stderr) => {
+        if (error) reject(new Error(stderr?.trim() || error.message))
+        else resolvePromise(stdout)
+      },
+    )
   })
 }
 
@@ -46,6 +57,8 @@ export interface CreateInput {
   projectRoot: string
   proposalId: string
   mainBranch?: string
+  /** Caller cancellation: forwarded to `git worktree add` and the install. */
+  signal?: AbortSignal
 }
 
 const WORKMATES_DIR = '.workmates'
@@ -104,7 +117,12 @@ export class WorktreeManager {
 
     // 1. create (serialized by the mutex) — branch from main
     const mainBranch = input.mainBranch ?? 'main'
-    await gitExec(['worktree', 'add', '-b', featureBranch, worktreePath, mainBranch], projectRoot)
+    await gitExec(
+      ['worktree', 'add', '-b', featureBranch, worktreePath, mainBranch],
+      projectRoot,
+      15_000,
+      input.signal,
+    )
 
     // 3. copy the config whitelist from the main checkout
     const copied: string[] = []
@@ -141,7 +159,13 @@ export class WorktreeManager {
       await stat(join(worktreePath, 'package.json'))
       install = 'installed'
       try {
-        await runCommand(this.options.packageManager, ['install'], worktreePath, this.options.installTimeoutMs ?? 300_000)
+        await runCommand(
+          this.options.packageManager,
+          ['install'],
+          worktreePath,
+          this.options.installTimeoutMs ?? 300_000,
+          input.signal,
+        )
       } catch (error) {
         install = 'failed'
         installNote = error instanceof Error ? error.message : String(error)
@@ -165,7 +189,13 @@ export class WorktreeManager {
    * into main (unless forced). Releases the port segment first so a failed
    * removal never leaks a held range.
    */
-  async remove(input: { projectRoot: string; proposalId: string; mainBranch?: string; force?: boolean }): Promise<{ removed: boolean; summary: string }> {
+  async remove(input: {
+    projectRoot: string
+    proposalId: string
+    mainBranch?: string
+    force?: boolean
+    signal?: AbortSignal
+  }): Promise<{ removed: boolean; summary: string }> {
     const { projectRoot, proposalId } = input
     const mainBranch = input.mainBranch ?? 'main'
     const featureBranch = `feature/${proposalId}`
@@ -180,7 +210,7 @@ export class WorktreeManager {
 
     await this.allocator.release(proposalId)
     try {
-      await gitExec(['worktree', 'remove', '--force', worktreePath], projectRoot)
+      await gitExec(['worktree', 'remove', '--force', worktreePath], projectRoot, 15_000, input.signal)
       return { removed: true, summary: `worktree ${worktreePath} removed and ports released` }
     } catch (error) {
       // branch may hold unmerged state even under force; report honestly

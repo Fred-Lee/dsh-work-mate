@@ -16,16 +16,21 @@ export interface GitnexusResult {
   note?: string
 }
 
-function execGitnexus(args: string[], cwd: string, timeoutMs: number): Promise<string> {
+function execGitnexus(args: string[], cwd: string, timeoutMs: number, signal?: AbortSignal): Promise<string> {
   return new Promise((resolvePromise, reject) => {
-    execFile('gitnexus', args, { cwd, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) {
-        const detail = stderr?.trim() || error.message
-        reject(new Error(detail))
-      } else {
-        resolvePromise(stdout)
-      }
-    })
+    execFile(
+      'gitnexus',
+      args,
+      { cwd, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, ...(signal !== undefined ? { signal } : {}) },
+      (error, stdout, stderr) => {
+        if (error) {
+          const detail = stderr?.trim() || error.message
+          reject(new Error(detail))
+        } else {
+          resolvePromise(stdout)
+        }
+      },
+    )
   })
 }
 
@@ -33,6 +38,7 @@ export async function gitnexusRun(
   action: GitnexusAction,
   projectRoot: string,
   args: { target: string; context?: string; direction?: 'upstream' | 'downstream'; repo?: string },
+  signal?: AbortSignal,
 ): Promise<GitnexusResult> {
   const root = validateProjectRoot(projectRoot)
   const cliArgs: string[] = [action]
@@ -52,7 +58,7 @@ export async function gitnexusRun(
   cliArgs.push('-r', repo)
 
   try {
-    const output = await execGitnexus(cliArgs, root, 30_000)
+    const output = await execGitnexus(cliArgs, root, 30_000, signal)
     return { output: output.trim() || '(no output)' }
   } catch (error) {
     return { output: '', note: `gitnexus ${action} failed: ${error instanceof Error ? error.message : String(error)}` }
@@ -63,6 +69,7 @@ export async function gitnexusRun(
 export async function gitnexusAnalyze(
   projectRoot: string,
   options: { embeddings?: boolean; force?: boolean } = {},
+  signal?: AbortSignal,
 ): Promise<GitnexusResult> {
   const root = validateProjectRoot(projectRoot)
   const cliArgs = ['analyze']
@@ -71,7 +78,7 @@ export async function gitnexusAnalyze(
   if (options.embeddings === true) cliArgs.push('--embeddings')
 
   try {
-    const output = await execGitnexus(cliArgs, root, 120_000)
+    const output = await execGitnexus(cliArgs, root, 120_000, signal)
     return { output: output.trim() || '(no output)' }
   } catch (error) {
     return { output: '', note: `gitnexus analyze failed: ${error instanceof Error ? error.message : String(error)}` }

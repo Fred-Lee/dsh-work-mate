@@ -13,6 +13,7 @@ import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { getGitInfo, listProposalCommits } from './git.ts'
 import { readChangeState, validateProjectRoot } from './openspec.ts'
+import { STATE_HINTS, nextState, prevState } from './state-machine.ts'
 import { parseReviewMd, type ReviewReport } from '../quality/review-parser.ts'
 import type { ProposalService } from './service.ts'
 
@@ -31,6 +32,11 @@ export interface ProposalStatus {
   proposal: Proposal
   /** Per-associated-project aggregation (registry-resolved roots). */
   projects: ProjectDetail[]
+  /**
+   * Lifecycle position derived from the eight-state chain — the client renders
+   * its advance/rollback controls from this instead of copying the order.
+   */
+  lifecycle: { status: Proposal['status']; hint: string; prev?: Proposal['status']; next?: Proposal['status'] }
   /** Back-compat projection of the first resolved project. */
   openspec?: OpenspecChangeState
   commits?: AssociatedCommit[]
@@ -56,7 +62,7 @@ export async function buildProposalStatus(
   const proposal = await service.get(id)
   if (!proposal) throw new Error(`proposal not found: ${id}`)
 
-  const status: ProposalStatus = { proposal, projects: [] }
+  const status: ProposalStatus = { proposal, projects: [], lifecycle: lifecycleOf(proposal.status) }
   const associated = proposal.projects.length > 0 ? proposal.projects : []
 
   // Legacy single-root path: an explicit projectRoot behaves as one virtual
@@ -97,8 +103,19 @@ export async function buildProposalStatus(
   return status
 }
 
-function projectProjection(detail: ProjectDetail): Partial<ProposalStatus> {
+/** Lifecycle projection: the client never copies the eight-state order. */
+function lifecycleOf(status: Proposal['status']): ProposalStatus['lifecycle'] {
+  const next = nextState(status)
+  const prev = prevState(status)
   return {
+    status,
+    hint: STATE_HINTS[status],
+    ...(prev !== undefined ? { prev } : {}),
+    ...(next !== undefined ? { next } : {}),
+  }
+}
+
+function projectProjection(detail: ProjectDetail): Partial<ProposalStatus> {  return {
     ...(detail.openspec !== undefined ? { openspec: detail.openspec } : {}),
     ...(detail.commits !== undefined ? { commits: detail.commits } : {}),
     ...(detail.git?.note !== undefined ? { gitNote: detail.git.note } : {}),

@@ -8,9 +8,11 @@
  *
  * Integration surfaces, all in the host-verified shapes (design D1 of
  * `add-proposal-middleware`):
- *   - `tools`   → ctx.tools.register(defineTool(...))   — orchestrator-proven
- *   - `webServer` → prefix route /workmate/ (REST + static SPA) — ui-*-proven
- *   - client half (dist/client/client.js) → better-sidebar tab — workbench-proven
+ *   - `tools`   → ctx.tools.register(defineTool(...))   — hard dep (every profile)
+ *   - `webServer` → prefix route /workmate/ (REST + panel) — OPTIONAL, mounted
+ *     through reactive `ctx.inject` (only the web-app bundle provides it)
+ *   - client half (dist/client/client.js) → better-sidebar tab + two chat
+ *     entries — every registration lazily injected, zero hard dependency
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool, type InferValue, type JsonValueSchemaSpec } from '@deepseek-ai/dsh-tools'
@@ -26,15 +28,20 @@ import { linkWikiToProposal, listWikiLinks } from './features/wiki/links.ts'
 import { STATE_HINTS, type ProposalState } from './features/proposal/state-machine.ts'
 
 const nextStepHint = (status: string): string => STATE_HINTS[status as keyof typeof STATE_HINTS] ?? ''
-import { orchestrateArchive } from './features/archive/orchestrate.ts'
+import { orchestrateArchive, orchestrateReopen } from './features/archive/orchestrate.ts'
 import { ProjectRegistry } from './features/project/registry.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
 import { gitnexusRun } from './features/knowledge-bridge/gitnexus.ts'
 import { createWeknoraClient } from './features/knowledge-bridge/weknora.ts'
-import { mountWorkmateApi, createProposal } from './api.ts'
+import { mountWorkmateApi, createProposal, type WebServerLike } from './api.ts'
 export const name = 'workmate'
-/** `tools`: agent tool registration. `webServer`: REST + panel mount. */
-export const inject = ['tools', 'webServer'] as const
+/**
+ * Only services every profile provides. `webServer` belongs to the web-app
+ * bundle alone, so it is mounted through reactive `ctx.inject` below — a hard
+ * dependency here would park this fiber (and with it every agent tool) in
+ * headless / acp / sdk profiles.
+ */
+export const inject = ['tools'] as const
 
 export type { Config, ResolvedConfig } from './config.ts'
 export { CONFIG_DEFAULTS, resolveConfig } from './config.ts'
@@ -89,11 +96,19 @@ export function apply(ctx: Context, config: Config = {}): void {
     proposals,
     worktree,
     resolveProjectRoots: resolveRoots,
-    gitnexusEnabled: resolved.gitnexusEnabled,
+    openspecRoot: resolved.openspecRoot,
     orchestrate(proposal, targets, opts) {
       return orchestrateArchive(proposal, targets, {
         openspecRoot: opts.openspecRoot,
         gitnexusAnalyzeEnabled: resolved.gitnexusEnabled,
+        ...(opts.reviewGate !== undefined ? { reviewGate: opts.reviewGate } : {}),
+        ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+      })
+    },
+    reopen(proposal, targets, opts) {
+      return orchestrateReopen(proposal, targets, {
+        openspecRoot: opts.openspecRoot,
+        ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
       })
     },
   })
@@ -116,17 +131,18 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.provide('workmate.worktree', worktree)
 
   registerTools(ctx, { proposals, archive, registry, worktree, resolved })
-  mountWorkmateApi(
-    ctx.get('webServer') as Parameters<typeof mountWorkmateApi>[0],
-    {
+  // UI is optional: mounted only once a webServer exists, and torn down with
+  // it. In a profile without the web bundle the tools above stay available.
+  ctx.inject(['webServer'], (scope) => {
+    mountWorkmateApi(scope.get('webServer') as WebServerLike, {
       proposals,
       archive,
       registry,
       openspecRoot: resolved.openspecRoot,
       projectRoot: resolved.projectRoot,
       qualitySyncEnabled: resolved.qualitySyncEnabled,
-    },
-  )
+    })
+  })
 }
 
 interface ToolDeps {
@@ -178,12 +194,13 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     defineTool({
       name: 'workmate_proposal_status',
       description:
-        'Fetch a WorkMate proposal: record, associated git commits (commits mentioning [proposal:<id>]) and OpenSpec change state (active/archived/missing + tasks.md progress).',
+        'Fetch a WorkMate proposal: record, associated git commits (commits mentioning [proposal:<id>]) and OpenSpec change state (active/archived/missing + tasks.md progress). Also returns the lifecycle position (prev/next).',
       parameters: {
         id: { type: 'string', required: true, description: 'Proposal id.' },
         projectRoot: { type: 'string', description: 'Absolute project root; falls back to Config.projectRoot.' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      isConcurrencySafe: () => true,
       async execute(args) {
         return asJson(
           await buildProposalStatus(proposals, args.id, {
@@ -198,24 +215,28 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     defineTool({
       name: 'workmate_proposal_archive',
       description:
-        'Drive the eight-state proposal lifecycle: mode=advance moves one state forward (auto-creates the worktree at ready→implementing; wiki coverage is checked before merging); mode=archive runs the archive orchestration once in archiving; any state name performs an adjacent transition (backward is free, forward checks preconditions).',
+        'Drive the eight-state proposal lifecycle: mode=advance moves one state forward (auto-creates the worktree at ready→implementing; wiki coverage is checked before merging); mode=archive runs the archive orchestration once in archiving (force skips the review gate only); any state name performs an adjacent transition (backward is free — rolling back from archived also moves the change directories back under changes/).',
       parameters: {
         id: { type: 'string', required: true, description: 'Proposal id.' },
         mode: { type: 'string', description: 'advance (default) | archive | a state name (draft/proposing/reviewing/ready/implementing/merging/archiving/archived).' },
+        force: { type: 'boolean', description: 'mode=archive only: skip the review gate (missing review.md / unresolved CRITICAL). Never skips openspec archive or gitnexus.' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
-      async execute(args) {
+      // worktree create (install ≤ 300s) + openspec archive (60s) + gitnexus (120s).
+      timeoutMs: 15 * 60_000,
+      async execute(args, exec) {
+        const signal = exec.signal
         const mode = args.mode ?? 'advance'
         if (mode === 'advance') {
-          const result = await archive.advance(args.id)
-          return asJson({ proposal: result.proposal, ...(result.worktree !== undefined ? { worktree: result.worktree } : {}), note: `next: ${nextStepHint(result.proposal.status)}` })
+          const result = await archive.advance(args.id, { signal })
+          return asJson({ proposal: result.proposal, ...(result.worktree !== undefined ? { worktree: result.worktree } : {}), ...(result.orchestration !== undefined ? { orchestration: result.orchestration } : {}), note: `next: ${nextStepHint(result.proposal.status)}` })
         }
         if (mode === 'archive') {
-          const result = await archive.runArchive(args.id)
+          const result = await archive.runArchive(args.id, { force: args.force === true, signal })
           return asJson({ proposal: result.proposal, ...(result.orchestration !== undefined ? { orchestration: result.orchestration } : {}) })
         }
-        const result = await archive.transition(args.id, mode as ProposalState)
-        return asJson({ proposal: result.proposal, ...(result.worktree !== undefined ? { worktree: result.worktree } : {}) })
+        const result = await archive.transition(args.id, mode as ProposalState, { signal })
+        return asJson({ proposal: result.proposal, ...(result.worktree !== undefined ? { worktree: result.worktree } : {}), ...(result.orchestration !== undefined ? { orchestration: result.orchestration } : {}) })
       },
     }),
   )
@@ -311,6 +332,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         id: { type: 'string', required: true, description: 'Proposal id.' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      isConcurrencySafe: () => true,
       async execute(args) {
         return asJson({ links: await listWikiLinks(proposals, args.id) })
       },
@@ -330,7 +352,9 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         repo: { type: 'string', description: 'GitNexus repo name when it differs from the project folder name.' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
-      async execute(args) {
+      timeoutMs: 120_000,
+      isConcurrencySafe: () => true,
+      async execute(args, exec) {
         if (!resolved.gitnexusEnabled) {
           return asJson({ output: '', note: 'gitnexus bridge disabled by config (gitnexusEnabled: false)' })
         }
@@ -344,6 +368,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
             ...(args.action === 'impact' ? { direction } : {}),
             ...(args.repo !== undefined ? { repo: args.repo } : {}),
           },
+          exec.signal,
         )
         return asJson(result)
       },
@@ -360,12 +385,14 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         topK: { type: 'integer', description: 'Max fragments (default 3).' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
-      async execute(args) {
+      timeoutMs: 60_000,
+      isConcurrencySafe: () => true,
+      async execute(args, exec) {
         if (resolved.weknoraBaseUrl === '') {
           return asJson({ fragments: [], note: 'weknora bridge disabled — Config.weknoraBaseUrl is empty' })
         }
         const client = createWeknoraClient(resolved.weknoraBaseUrl)
-        return asJson(await client.search(args.projectRoot, args.query, args.topK ?? 3))
+        return asJson(await client.search(args.projectRoot, args.query, args.topK ?? 3, exec.signal))
       },
     }),
   )

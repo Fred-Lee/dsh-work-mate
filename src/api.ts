@@ -115,7 +115,11 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
   })
 
   router.post('/api/proposals/:id/archive', async (r) => {
-    const result = await deps.archive.runArchive(r.params['id'] ?? '')
+    // `force` skips the review gate only (missing review.md / unresolved
+    // CRITICAL); the openspec + gitnexus steps and the archiving precondition
+    // still apply. An empty body keeps the gate on.
+    const body = await readJsonBody<{ force?: boolean }>(r.req).catch(() => ({ force: false }))
+    const result = await deps.archive.runArchive(r.params['id'] ?? '', { force: body.force === true })
     return { proposal: result.proposal, ...(result.orchestration !== undefined ? { orchestration: result.orchestration } : {}) }
   })
 
@@ -178,11 +182,6 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     )
     return { blocker }
   })
-
-
-
-
-
 }
 
 export async function createProposal(

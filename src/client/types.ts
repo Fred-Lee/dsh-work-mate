@@ -91,9 +91,18 @@ export interface ProjectDetail {
   note?: string
 }
 
+/** Lifecycle position as projected by the host (single source: state-machine.ts). */
+export interface LifecycleInfo {
+  status: ProposalState
+  hint: string
+  prev?: ProposalState
+  next?: ProposalState
+}
+
 export interface ProposalStatusPayload {
   proposal: Proposal
   projects?: ProjectDetail[]
+  lifecycle?: LifecycleInfo
   openspec?: { state: 'active' | 'archived' | 'missing'; tasks?: { done: number; total: number } }
   commits?: AssociatedCommit[]
   gitNote?: string

@@ -14,9 +14,10 @@ import {
   listProjects,
   listProposals,
   registerProject,
+  transitionProposal,
   type RegisteredProject,
 } from './api'
-import type { Proposal, ProposalStatusPayload } from './types'
+import type { Proposal, ProposalState, ProposalStatusPayload } from './types'
 import { GraphView } from './GraphView'
 import { PANEL_STYLE } from './styles'
 
@@ -90,11 +91,13 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   )
 
   const act = useCallback(
-    async (id: string, action: 'advance' | 'archive') => {
+    async (id: string, action: 'advance' | 'back' | 'archive', to?: ProposalState, force = false) => {
       setBusy(true)
       try {
-        if (action === 'advance') await advanceProposal(id)
-        else await archiveProposal(id)
+        if (action === 'archive') await archiveProposal(id, force)
+        else if (action === 'advance') await advanceProposal(id)
+        else if (to !== undefined) await transitionProposal(id, to)
+        else throw new Error('rollback requires an adjacent target state')
         setError('')
         await Promise.all([refresh(), loadDetail(id)])
       } catch (cause) {
@@ -156,7 +159,6 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
               <div className="wm-col-body">
                 {column.cards.length === 0 && <div className="wm-col-empty">暂无提案</div>}
                 {column.cards.map((proposal) => {
-                  void proposal
                   const detail = details[proposal.id]
                   const tasks = detail?.openspec?.tasks
                   return (
@@ -314,14 +316,52 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                 </div>
                               )}
                               <div className="wm-actions">
-                                <button
-                                  className="wm-btn mini"
-                                  type="button"
-                                  disabled={busy || proposal.status !== 'archiving'}
-                                  onClick={() => void act(proposal.id, 'archive')}
-                                >
-                                  完成归档
-                                </button>
+                                {detail.lifecycle !== undefined && (
+                                  <span className="wm-progress-label">下一步：{detail.lifecycle.hint}</span>
+                                )}
+                                {detail.lifecycle?.prev !== undefined && (
+                                  <button
+                                    className="wm-btn mini"
+                                    type="button"
+                                    disabled={busy}
+                                    title="相邻回退（归档回退会把 change 目录搬回 changes/）"
+                                    onClick={() => void act(proposal.id, 'back', detail.lifecycle?.prev)}
+                                  >
+                                    ‹ 回退到 {STATE_META[detail.lifecycle.prev].label}
+                                  </button>
+                                )}
+                                {detail.lifecycle?.next !== undefined && detail.lifecycle.next !== 'archived' && (
+                                  <button
+                                    className="wm-btn mini primary"
+                                    type="button"
+                                    disabled={busy}
+                                    title={detail.lifecycle.hint}
+                                    onClick={() => void act(proposal.id, 'advance')}
+                                  >
+                                    推进到 {STATE_META[detail.lifecycle.next].label} ›
+                                  </button>
+                                )}
+                                {proposal.status === 'archiving' && (
+                                  <>
+                                    <button
+                                      className="wm-btn mini primary"
+                                      type="button"
+                                      disabled={busy}
+                                      onClick={() => void act(proposal.id, 'archive')}
+                                    >
+                                      完成归档
+                                    </button>
+                                    <button
+                                      className="wm-btn mini"
+                                      type="button"
+                                      disabled={busy}
+                                      title="只跳过审查门（缺 review.md 或有未解决 CRITICAL）；openspec archive 与 gitnexus 照常执行"
+                                      onClick={() => void act(proposal.id, 'archive', undefined, true)}
+                                    >
+                                      强制归档（跳过审查门）
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             </>
                           )}

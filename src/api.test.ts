@@ -107,6 +107,48 @@ describe('proposal REST API', () => {
     const detail = await call('GET', '/api/proposals/p1')
     expect((detail.body as { proposal: { title: string } }).proposal.title).toBe('标题')
     expect((detail.body as { projectNote?: string }).projectNote).toBeTruthy()
+    // lifecycle position is server-derived (the client no longer copies the chain)
+    expect((detail.body as { lifecycle: { status: string; next?: string; prev?: string } }).lifecycle).toEqual({
+      status: 'draft',
+      hint: '生成 OpenSpec 提案文件（proposal.md）',
+      next: 'proposing',
+    })
+  })
+
+  it('passes force through to the archive orchestration (empty body keeps the gate)', async () => {
+    const calls: Array<{ id: string; force?: boolean }> = []
+    const forcedRouter = new Router()
+    registerApiRoutes(forcedRouter, {
+      proposals,
+      archive: {
+        runArchive: async (id: string, options: { force?: boolean } = {}) => {
+          calls.push({ id, ...(options.force !== undefined ? { force: options.force } : {}) })
+          return { proposal: await proposals.get(id) }
+        },
+      } as never,
+      openspecRoot: 'openspec',
+      projectRoot: '',
+      registry: undefined as never,
+      qualitySyncEnabled: false,
+    })
+    await proposals.upsert({ id: 'p9', title: 't' })
+
+    const withForce = stubRes()
+    await forcedRouter.handle(
+      '/api/proposals/p9/archive',
+      stubReq('POST', '/api/proposals/p9/archive', { force: true }),
+      withForce.res,
+    )
+    expect(withForce.result.status).toBe(200)
+
+    const noBody = stubRes()
+    await forcedRouter.handle('/api/proposals/p9/archive', stubReq('POST', '/api/proposals/p9/archive'), noBody.res)
+    expect(noBody.result.status).toBe(200)
+
+    expect(calls).toEqual([
+      { id: 'p9', force: true },
+      { id: 'p9', force: false },
+    ])
   })
 
   it('rejects invalid creates with a readable error', async () => {

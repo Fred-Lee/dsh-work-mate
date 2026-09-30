@@ -66,6 +66,12 @@ export function nextState(status: ProposalState): ProposalState | undefined {
   return index >= 0 && index < PROPOSAL_STATES.length - 1 ? PROPOSAL_STATES[index + 1] : undefined
 }
 
+/** The single adjacent state behind `status` (the only free backward move). */
+export function prevState(status: ProposalState): ProposalState | undefined {
+  const index = PROPOSAL_STATES.indexOf(status)
+  return index > 0 ? PROPOSAL_STATES[index - 1] : undefined
+}
+
 export interface TransitionCheck {
   ok: boolean
   /** Readable reason when not ok (non-adjacent, unknown state, …). */

@@ -4,12 +4,22 @@
  */
 import { execFile } from 'node:child_process'
 
-export function gitExec(args: string[], cwd: string, timeoutMs = 15_000): Promise<string> {
+export function gitExec(
+  args: string[],
+  cwd: string,
+  timeoutMs = 15_000,
+  signal?: AbortSignal,
+): Promise<string> {
   return new Promise((resolvePromise, reject) => {
-    execFile('git', args, { cwd, timeout: timeoutMs }, (error, stdout, stderr) => {
-      if (error) reject(new Error(stderr?.trim() || error.message))
-      else resolvePromise(stdout)
-    })
+    execFile(
+      'git',
+      args,
+      { cwd, timeout: timeoutMs, ...(signal !== undefined ? { signal } : {}) },
+      (error, stdout, stderr) => {
+        if (error) reject(new Error(stderr?.trim() || error.message))
+        else resolvePromise(stdout)
+      },
+    )
   })
 }
 

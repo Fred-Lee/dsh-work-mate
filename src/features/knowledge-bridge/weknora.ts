@@ -12,7 +12,7 @@ export interface WeknoraResult {
 }
 
 export interface WeknoraClient {
-  search(projectRoot: string, query: string, topK?: number): Promise<WeknoraResult>
+  search(projectRoot: string, query: string, topK?: number, signal?: AbortSignal): Promise<WeknoraResult>
 }
 
 interface FetchLike {
@@ -48,10 +48,12 @@ export function extractFragments(payload: unknown, topK: number): string[] {
 
 export function createWeknoraClient(baseUrl: string, fetchImpl: FetchLike = fetch as unknown as FetchLike): WeknoraClient {
   return {
-    async search(projectRoot, query, topK = 3): Promise<WeknoraResult> {
+    async search(projectRoot, query, topK = 3, callerSignal): Promise<WeknoraResult> {
       validateProjectRoot(projectRoot)
       const endpoint = `${baseUrl.replace(/\/+$/, '')}/api/v1/retrieval/search`
-      const signal = AbortSignal.timeout(10_000)
+      // Own deadline AND caller cancellation: whichever fires first aborts.
+      const timeout = AbortSignal.timeout(10_000)
+      const signal = callerSignal === undefined ? timeout : AbortSignal.any([timeout, callerSignal])
       try {
         const response = await fetchImpl(endpoint, {
           method: 'POST',

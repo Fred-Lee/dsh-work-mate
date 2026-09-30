@@ -48,12 +48,23 @@ export function parseTasksMd(content: string): TaskSnapshot {
   return { done, total: lines.length, lines }
 }
 
-function execCli(cmd: string, args: string[], cwd: string, timeoutMs: number): Promise<string> {
+function execCli(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<string> {
   return new Promise((resolvePromise, reject) => {
-    execFile(cmd, args, { cwd, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) reject(new Error(stderr?.trim() || error.message))
-      else resolvePromise(stdout)
-    })
+    execFile(
+      cmd,
+      args,
+      { cwd, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, ...(signal !== undefined ? { signal } : {}) },
+      (error, stdout, stderr) => {
+        if (error) reject(new Error(stderr?.trim() || error.message))
+        else resolvePromise(stdout)
+      },
+    )
   })
 }
 
@@ -106,14 +117,21 @@ export async function revertArchiveDir(
 export interface OrchestrateDeps {
   /** `openspec` CLI binary; overridable in tests. */
   openspecBin?: string
-  gitnexusEnabled?: boolean
   runSwarmTasks?(tasks: TaskSnapshot, projectRoot: string): Promise<string>
+}
+
+export interface OrchestrateOptions {
+  openspecRoot: string
+  gitnexusAnalyzeEnabled?: boolean
+  reviewGate?: boolean
+  /** Caller cancellation, forwarded to every spawned CLI. */
+  signal?: AbortSignal
 }
 
 export async function orchestrateArchive(
   proposal: Proposal,
   targets: OrchestrationTarget[],
-  options: { openspecRoot: string; gitnexusAnalyzeEnabled?: boolean; reviewGate?: boolean },
+  options: OrchestrateOptions,
   deps: OrchestrateDeps = {},
 ): Promise<OrchestrationResult> {
   const steps: OrchestrationStep[] = []
@@ -204,7 +222,13 @@ export async function orchestrateArchive(
   for (const target of targets) {
     const label = targets.length > 1 ? `[${target.project}] ` : ''
     try {
-      const output = await execCli(openspecBin, ['archive', proposal.openspecChangeId, '--yes'], target.root, 60_000)
+      const output = await execCli(
+        openspecBin,
+        ['archive', proposal.openspecChangeId, '--yes'],
+        target.root,
+        60_000,
+        options.signal,
+      )
       steps.push({
         step: 'openspec-archive',
         status: 'ok',
@@ -232,7 +256,7 @@ export async function orchestrateArchive(
       }
     }
     if (options.gitnexusAnalyzeEnabled !== false) {
-      const result = await gitnexusAnalyze(target.root, { force: true })
+      const result = await gitnexusAnalyze(target.root, { force: true }, options.signal)
       steps.push(
         result.note === undefined
           ? { step: 'gitnexus-analyze', status: 'ok', summary: `${label}${result.output.split('\n').slice(-2).join(' / ')}` }
@@ -258,9 +282,15 @@ export async function orchestrateArchive(
 export async function orchestrateReopen(
   proposal: Proposal,
   targets: OrchestrationTarget[],
-  options: { openspecRoot: string },
+  options: { openspecRoot: string; signal?: AbortSignal },
 ): Promise<OrchestrationResult> {
   const steps: OrchestrationStep[] = []
+  // Only filesystem renames here — an aborted caller still gets its state
+  // rollback (the status field must never depend on directory housekeeping).
+  if (options.signal?.aborted === true) {
+    steps.push({ step: 'reopen-dir', status: 'skipped', summary: 'aborted by caller — state rollback only' })
+    return { ok: true, steps }
+  }
   if (targets.length === 0) {
     steps.push({ step: 'reopen-dir', status: 'skipped', summary: 'no resolvable project roots — state rollback only' })
   }

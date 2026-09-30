@@ -42,11 +42,18 @@ export interface LifecycleDeps {
   orchestrate(
     proposal: Proposal,
     targets: OrchestrationTarget[],
-    options: { openspecRoot: string },
+    options: { openspecRoot: string; reviewGate?: boolean; signal?: AbortSignal },
+  ): Promise<OrchestrationResult>
+  /** Reverse orchestration behind archived→archiving (change dirs moved back). */
+  reopen?(
+    proposal: Proposal,
+    targets: OrchestrationTarget[],
+    options: { openspecRoot: string; signal?: AbortSignal },
   ): Promise<OrchestrationResult>
   /** Resolves the proposal's associated project names into per-project roots. */
   resolveProjectRoots?(proposal: Proposal): Promise<OrchestrationTarget[]>
-  gitnexusEnabled?: boolean
+  /** OpenSpec root relative to the target project (`Config.openspecRoot`). @default 'openspec' */
+  openspecRoot?: string
   now?: () => Date
 }
 
@@ -58,6 +65,16 @@ export interface LifecycleState {
   portRange?: number[]
 }
 
+export interface TransitionOptions {
+  /** Forwarded to git / package-manager / CLI subprocesses so a caller can abort. */
+  signal?: AbortSignal
+}
+
+export interface ArchiveOptions extends TransitionOptions {
+  /** Skip the review gate only (review.md presence + unresolved CRITICAL). */
+  force?: boolean
+}
+
 export interface TransitionOutcome {
   proposal: Proposal
   /** Set when the transition created the worktree (ready→implementing). */
@@ -67,6 +84,11 @@ export interface TransitionOutcome {
 
 export class LifecycleServiceImpl {
   constructor(private readonly deps: LifecycleDeps) {}
+
+  /** Configured OpenSpec directory name; the single source for every path below. */
+  private get openspecRoot(): string {
+    return this.deps.openspecRoot ?? 'openspec'
+  }
 
   async getState(id: string): Promise<LifecycleState> {
     const proposal = await this.mustGet(id)
@@ -81,26 +103,38 @@ export class LifecycleServiceImpl {
   }
 
   /** Move one state forward, checking that state's preconditions. */
-  async advance(id: string): Promise<TransitionOutcome> {
+  async advance(id: string, options: TransitionOptions = {}): Promise<TransitionOutcome> {
     const proposal = await this.mustGet(id)
     const next = nextState(proposal.status)
     if (next === undefined) throw new InvalidTransitionError(`proposal ${id} is already archived (terminal)`)
-    return this.transition(id, next)
+    return this.transition(id, next, options)
   }
 
   /** Move to an adjacent state (forward: preconditions; backward: free). */
-  async transition(id: string, to: ProposalState): Promise<TransitionOutcome> {
+  async transition(id: string, to: ProposalState, options: TransitionOptions = {}): Promise<TransitionOutcome> {
     const proposal = await this.mustGet(id)
     const check = checkTransition(proposal.status, to)
     if (!check.ok) throw new InvalidTransitionError(check.reason ?? 'invalid transition')
 
     if (check.direction === 'forward') {
       await this.checkPreconditions(proposal, to)
-      const worktree = await this.applySideEffects(proposal, to)
+      const worktree = await this.applySideEffects(proposal, to, options)
       const updated = await this.deps.proposals.setStatus(id, to)
       return { proposal: updated, ...(worktree !== undefined ? { worktree } : {}) }
     }
-    return { proposal: await this.deps.proposals.setStatus(id, to) }
+
+    // Backward from archived: the change directories moved under
+    // changes/archive/ when the pipeline ran, so roll the filesystem back too
+    // (the status field alone would leave a "reopened" proposal with no dir).
+    const orchestration =
+      proposal.status === 'archived' && this.deps.reopen !== undefined
+        ? await this.deps.reopen(proposal, (await this.deps.resolveProjectRoots?.(proposal)) ?? [], {
+            openspecRoot: this.openspecRoot,
+            ...(options.signal !== undefined ? { signal: options.signal } : {}),
+          })
+        : undefined
+    const updated = await this.deps.proposals.setStatus(id, to)
+    return { proposal: updated, ...(orchestration !== undefined ? { orchestration } : {}) }
   }
 
   private async checkPreconditions(proposal: Proposal, to: ProposalState): Promise<void> {
@@ -110,10 +144,10 @@ export class LifecycleServiceImpl {
     switch (to) {
       case 'proposing': {
         try {
-          await stat(join(root, 'openspec', 'changes', proposal.openspecChangeId, 'proposal.md'))
+          await stat(join(root, this.openspecRoot, 'changes', proposal.openspecChangeId, 'proposal.md'))
         } catch {
           throw new InvalidTransitionError(
-            `openspec/changes/${proposal.openspecChangeId}/proposal.md 不存在 — 先生成提案文件`,
+            `${this.openspecRoot}/changes/${proposal.openspecChangeId}/proposal.md 不存在 — 先生成提案文件`,
           )
         }
         return
@@ -140,7 +174,7 @@ export class LifecycleServiceImpl {
         return // worktree is created as the side effect; failures surface there
       case 'merging': {
         if (root === undefined) return
-        const tasks = await readWikiTasks(root, 'openspec', proposal.openspecChangeId)
+        const tasks = await readWikiTasks(root, this.openspecRoot, proposal.openspecChangeId)
         if (tasks.length === 0) return
         const coverage = checkCoverage(tasks, proposal.wikiLinks ?? [])
         if (!coverage.ok) {
@@ -173,13 +207,18 @@ export class LifecycleServiceImpl {
   private async applySideEffects(
     proposal: Proposal,
     to: ProposalState,
+    options: TransitionOptions = {},
   ): Promise<TransitionOutcome['worktree'] | undefined> {
     if (to === 'implementing') {
       const root = await this.primaryRoot(proposal)
       if (root === undefined) {
         throw new InvalidTransitionError('无关联项目根 — 无法创建 worktree；先在面板关联项目')
       }
-      const created = await this.deps.worktree.create({ projectRoot: root, proposalId: proposal.id })
+      const created = await this.deps.worktree.create({
+        projectRoot: root,
+        proposalId: proposal.id,
+        ...(options.signal !== undefined ? { signal: options.signal } : {}),
+      })
       await this.deps.proposals.patchFields(proposal.id, {
         worktreePath: created.worktreePath,
         portRange: created.portRange,
@@ -192,7 +231,7 @@ export class LifecycleServiceImpl {
       // moves it under changes/archive/<date>-<id>/
       const root = await this.primaryRoot(proposal)
       if (root === undefined) return undefined
-      const changeDir = join(root, 'openspec', 'changes', proposal.openspecChangeId)
+      const changeDir = join(root, this.openspecRoot, 'changes', proposal.openspecChangeId)
       await writeFile(join(changeDir, 'wiki.md'), renderWikiMd(proposal.wikiLinks ?? []), 'utf8')
       const { listProposalCommits } = await import('../proposal/git.ts')
       const scan = await listProposalCommits(root, proposal.openspecChangeId)
@@ -206,8 +245,9 @@ export class LifecycleServiceImpl {
    * The archive endpoint: only a proposal already in `archiving` (all
    * preconditions passed, wiki.md/commits.md written) may run the
    * orchestration. Success stamps `archived` and reclaims the worktree.
+   * `force` skips the review gate only — never the CLI steps.
    */
-  async runArchive(id: string): Promise<TransitionOutcome> {
+  async runArchive(id: string, options: ArchiveOptions = {}): Promise<TransitionOutcome> {
     const proposal = await this.mustGet(id)
     if (proposal.status !== 'archiving') {
       throw new InvalidTransitionError(
@@ -215,7 +255,11 @@ export class LifecycleServiceImpl {
       )
     }
     const targets = (await this.deps.resolveProjectRoots?.(proposal)) ?? []
-    const orchestration = await this.deps.orchestrate(proposal, targets, { openspecRoot: 'openspec' })
+    const orchestration = await this.deps.orchestrate(proposal, targets, {
+      openspecRoot: this.openspecRoot,
+      reviewGate: options.force !== true,
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
+    })
     if (!orchestration.ok) {
       return { proposal, orchestration }
     }
@@ -224,7 +268,11 @@ export class LifecycleServiceImpl {
     if (proposal.worktreePath !== undefined) {
       const root = await this.primaryRoot(proposal)
       if (root !== undefined) {
-        const removed = await this.deps.worktree.remove({ projectRoot: root, proposalId: proposal.id })
+        const removed = await this.deps.worktree.remove({
+          projectRoot: root,
+          proposalId: proposal.id,
+          ...(options.signal !== undefined ? { signal: options.signal } : {}),
+        })
         cleanup = removed.summary
       }
     }

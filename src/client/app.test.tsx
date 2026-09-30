@@ -100,6 +100,69 @@ describe('ProposalPanel (kanban)', () => {
     expect(JSON.parse(String(createCall[1].body))).toMatchObject({ title: '新提案标题' })
   })
 
+  it('drives the lifecycle from the expanded card (rollback posts the adjacent target)', async () => {
+    fetchMock.mockResolvedValue(ok({ proposals: [proposal({ status: 'reviewing' })] }))
+    render(<ProposalPanel />)
+    await screen.findByText('批量批改 v2.1')
+
+    fireEvent.click(screen.getByText('批量批改 v2.1'))
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        proposal: proposal({ status: 'reviewing' }),
+        projects: [],
+        lifecycle: { status: 'reviewing', hint: '评审提案分支，完成后合并进 main', prev: 'proposing', next: 'ready' },
+      }),
+    )
+    fireEvent.click(screen.getByText('加载详情'))
+
+    await screen.findByText('推进到 待实现 ›')
+    expect(screen.getByText('‹ 回退到 提案分支')).toBeTruthy()
+    expect(screen.getByText('下一步：评审提案分支，完成后合并进 main')).toBeTruthy()
+
+    fetchMock.mockResolvedValueOnce(ok({ proposal: proposal({ status: 'proposing' }) }))
+    fetchMock.mockResolvedValueOnce(ok({ proposals: [proposal({ status: 'proposing' })] }))
+    fetchMock.mockResolvedValueOnce(ok({ proposal: proposal({ status: 'proposing' }), projects: [] }))
+    fireEvent.click(screen.getByText('‹ 回退到 提案分支'))
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls[2] as unknown as [string, RequestInit]
+      expect(call[0]).toBe('/workmate/api/proposals/batch-grading-v2/transition')
+      expect(JSON.parse(String(call[1].body))).toEqual({ to: 'proposing' })
+    })
+  })
+
+  it('offers force-archive while archiving and never advances to the terminal state', async () => {
+    fetchMock.mockResolvedValue(ok({ proposals: [proposal({ status: 'archiving' })] }))
+    render(<ProposalPanel />)
+    await screen.findByText('批量批改 v2.1')
+
+    fireEvent.click(screen.getByText('批量批改 v2.1'))
+    fetchMock.mockResolvedValueOnce(
+      ok({
+        proposal: proposal({ status: 'archiving' }),
+        projects: [],
+        lifecycle: { status: 'archiving', hint: '推进后运行归档编排', prev: 'merging', next: 'archived' },
+      }),
+    )
+    fireEvent.click(screen.getByText('加载详情'))
+
+    await screen.findByText('完成归档')
+    expect(screen.getByText('强制归档（跳过审查门）')).toBeTruthy()
+    // `archived` is reached by the orchestration, never by an advance call
+    expect(screen.queryByText(/^推进到/)).toBeNull()
+
+    fetchMock.mockResolvedValueOnce(ok({ proposal: proposal({ status: 'archiving' }), orchestration: { ok: false, steps: [] } }))
+    fetchMock.mockResolvedValueOnce(ok({ proposals: [proposal({ status: 'archiving' })] }))
+    fetchMock.mockResolvedValueOnce(ok({ proposal: proposal({ status: 'archiving' }), projects: [] }))
+    fireEvent.click(screen.getByText('强制归档（跳过审查门）'))
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls[2] as unknown as [string, RequestInit]
+      expect(call[0]).toBe('/workmate/api/proposals/batch-grading-v2/archive')
+      expect(JSON.parse(String(call[1].body))).toEqual({ force: true })
+    })
+  })
+
   it('surfaces REST errors inline', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({ error: '存储不可读' }) })
 

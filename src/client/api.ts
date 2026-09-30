@@ -2,7 +2,7 @@
  * Browser-side REST client. Same-origin relative paths work both from the
  * standalone page (/workmate/) and inside the DSH shell (better-sidebar tab).
  */
-import type { CreateProposalBody, Proposal, ProposalStatusPayload } from './types'
+import type { CreateProposalBody, Proposal, ProposalState, ProposalStatusPayload } from './types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -33,10 +33,6 @@ export function createProposal(body: CreateProposalBody): Promise<{ proposal: Pr
   return request('/workmate/api/proposals', { method: 'POST', body: JSON.stringify(body) })
 }
 
-export function startProposal(id: string): Promise<{ proposal: Proposal }> {
-  return request(`/workmate/api/proposals/${encodeURIComponent(id)}/start`, { method: 'POST', body: '{}' })
-}
-
 export function advanceProposal(id: string): Promise<{ proposal: Proposal }> {
   return request(`/workmate/api/proposals/${encodeURIComponent(id)}/advance`, {
     method: 'POST',
@@ -44,24 +40,25 @@ export function advanceProposal(id: string): Promise<{ proposal: Proposal }> {
   })
 }
 
-export function archiveProposal(id: string, force = false): Promise<{ proposal: Proposal }> {
+/** Adjacent-state move (forward checks preconditions, backward is free). */
+export function transitionProposal(id: string, to: ProposalState): Promise<{ proposal: Proposal }> {
+  return request(`/workmate/api/proposals/${encodeURIComponent(id)}/transition`, {
+    method: 'POST',
+    body: JSON.stringify({ to }),
+  })
+}
+
+/**
+ * Run the archive orchestration. `force` skips the review gate only
+ * (missing review.md / unresolved CRITICAL) — never the CLI steps.
+ */
+export function archiveProposal(
+  id: string,
+  force = false,
+): Promise<{ proposal: Proposal; orchestration?: { ok: boolean; steps: Array<{ step: string; status: string; summary: string }> } }> {
   return request(`/workmate/api/proposals/${encodeURIComponent(id)}/archive`, {
     method: 'POST',
     body: JSON.stringify({ force }),
-  })
-}
-
-export function stopProposal(id: string): Promise<{ proposal: Proposal }> {
-  return request(`/workmate/api/proposals/${encodeURIComponent(id)}/stop`, {
-    method: 'POST',
-    body: JSON.stringify({}),
-  })
-}
-
-export function reopenProposal(id: string): Promise<{ proposal: Proposal }> {
-  return request(`/workmate/api/proposals/${encodeURIComponent(id)}/reopen`, {
-    method: 'POST',
-    body: JSON.stringify({}),
   })
 }
 

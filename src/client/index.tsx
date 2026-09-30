@@ -1,16 +1,18 @@
 /**
- * DSH client-module entry (ModuleLoader CJS bundle). Three registrations:
+ * DSH client-module entry (ModuleLoader CJS bundle). Three registrations, each
+ * behind its OWN optional dependency:
  *
- *  1. better-sidebar tab 「🛠 WorkMate」 — the full kanban panel (workbench-proven)
+ *  1. better-sidebar tab 「🛠 WorkMate」 — the full kanban panel
  *  2. assistant-message action row 「🚀 转为提案」 — the scene switch at the end
- *     of a brainstorm reply (ui-workbench「保存为任务」-proven)
+ *     of a brainstorm reply
  *  3. input tool area 「🚀 转为提案」 — the same switch beside the attach button
- *     (`conversation.input.left`, Codingns4DSH quick-phrase position)
+ *     (`conversation.input.left`)
  *
- * The tab registry is the module-level inject (hard dep). `slots` is OPTIONAL
- * by design: declared nowhere in module-level inject, activated through
- * `ctx.inject(['slots'], …)` so a missing slot registry can never park the
- * client half — and take the tab down with it.
+ * No hard `inject`: `betterSidebar` is a THIRD-PARTY service
+ * (`dsh-better-sidebar`), so declaring it at module level would park the whole
+ * client half — including the two `slots` entries that only need the
+ * first-party slot registry — whenever that plugin is absent or disabled.
+ * Everything is registered through reactive `ctx.inject([...], …)` instead.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import './slot-types'
@@ -19,19 +21,21 @@ import { ProposalPanel } from './App'
 import { ChatProposalAction } from './ChatProposalAction'
 import { ASSISTANT_ACTIONS, INPUT_LEFT } from './slot-types'
 
-/** Required service: the better-sidebar tab registry. */
-export const inject = ['betterSidebar'] as const
+/** Optional services only: the module itself has no hard dependency. */
+export const inject = [] as const
 
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() =>
-    ctx.betterSidebar.registerTab({
-      id: 'workmate:proposals',
-      title: '🛠 WorkMate',
-      single: true,
-      order: 45,
-      component: () => <ProposalPanel />,
-    }),
-  )
+  ctx.inject(['betterSidebar'], (scope: ClientContext) => {
+    scope.effect(() =>
+      scope.betterSidebar.registerTab({
+        id: 'workmate:proposals',
+        title: '🛠 WorkMate',
+        single: true,
+        order: 45,
+        component: () => <ProposalPanel />,
+      }),
+    )
+  })
 
   ctx.inject(['slots'], (scope: ClientContext) => {
     scope.effect(() =>

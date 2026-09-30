@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm, chmod, writeFile, readFile } from 'node:fs/promises'
+import { mkdtemp, rm, chmod, writeFile, readFile, mkdir, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { parseTasksMd, orchestrateArchive } from './orchestrate.ts'
+import { parseTasksMd, orchestrateArchive, orchestrateReopen } from './orchestrate.ts'
 import { ProposalStore } from '../proposal/store.ts'
 import { ProposalServiceImpl } from '../proposal/service.ts'
 import { LifecycleServiceImpl } from './service.ts'
@@ -155,5 +155,121 @@ describe('orchestrateArchive (fake CLIs)', () => {
     const badResult = (await badArchive.runArchive('p1')) as { proposal: { status: string }; orchestration: { ok: boolean } }
     expect(badResult.proposal.status).toBe('archiving')
     expect(badResult.orchestration.ok).toBe(false)
+  })
+
+  it('force skips the review gate only — missing review.md otherwise blocks', async () => {
+    const project = join(home, 'proj-noreview')
+    await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+    await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [ ] 1. a\n', 'utf8')
+
+    const store = new ProposalStore({ homeRoot: home, subdir: 'workmate' })
+    const proposals = new ProposalServiceImpl(store)
+    await proposals.upsert({ id: 'p1', title: 't' })
+    const executing = await proposals.setStatus('p1', 'implementing')
+    const targets = [{ project: 'demo', root: project }]
+
+    const gated = await orchestrateArchive(executing, targets, { openspecRoot: 'openspec' })
+    expect(gated.ok).toBe(false)
+    expect(gated.steps.find((s) => s.step === 'review-gate')?.status).toBe('failed')
+
+    await installFakeOpenspec()
+    const forced = await orchestrateArchive(
+      executing,
+      targets,
+      { openspecRoot: 'openspec', reviewGate: false, gitnexusAnalyzeEnabled: false },
+      { openspecBin: join(binDir, 'openspec') },
+    )
+    expect(forced.steps.find((s) => s.step === 'review-gate')).toMatchObject({ status: 'skipped' })
+    expect(forced.steps.find((s) => s.step === 'openspec-archive')).toMatchObject({ status: 'ok' })
+    expect(forced.ok).toBe(true)
+  })
+
+  it('passes the configured openspecRoot through service preconditions, writer and orchestration', async () => {
+    const project = join(home, 'proj-custom-root')
+    const changeDir = join(project, 'spec', 'changes', 'p1')
+    await mkdir(changeDir, { recursive: true })
+    await writeFile(join(changeDir, 'proposal.md'), '# P\n', 'utf8')
+
+    const store = new ProposalStore({ homeRoot: home, subdir: 'workmate' })
+    const proposals = new ProposalServiceImpl(store)
+    await proposals.upsert({ id: 'p1', title: 't', projects: ['demo'] })
+
+    const seen: Array<{ openspecRoot: string; reviewGate?: boolean }> = []
+    const lifecycle = new LifecycleServiceImpl({
+      proposals,
+      worktree: new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10, copyFiles: [], packageManager: 'pnpm' }),
+      openspecRoot: 'spec',
+      resolveProjectRoots: async () => [{ project: 'demo', root: project }],
+      orchestrate: async (_proposal, _targets, options) => {
+        seen.push({ openspecRoot: options.openspecRoot, ...(options.reviewGate !== undefined ? { reviewGate: options.reviewGate } : {}) })
+        return { ok: true, steps: [{ step: 'status' as const, status: 'ok' as const, summary: '' }] }
+      },
+    })
+
+    // proposing precondition reads <root>/spec/changes/p1/proposal.md — it must pass
+    await expect(lifecycle.transition('p1', 'proposing')).resolves.toMatchObject({
+      proposal: { status: 'proposing' },
+    })
+
+    // archiving (reached from merging: implementing/merging preconditions need
+    // real branches, so seed the state directly) writes wiki.md/commits.md
+    // under the CONFIGURED root, not the default 'openspec'
+    await proposals.setStatus('p1', 'merging')
+    await lifecycle.transition('p1', 'archiving')
+    await expect(stat(join(changeDir, 'wiki.md'))).resolves.toBeTruthy()
+    await expect(stat(join(changeDir, 'commits.md'))).resolves.toBeTruthy()
+    await expect(stat(join(project, 'openspec', 'changes', 'p1', 'wiki.md'))).rejects.toThrow()
+
+    await lifecycle.runArchive('p1', { force: true })
+    expect(seen).toEqual([{ openspecRoot: 'spec', reviewGate: false }])
+  })
+
+  it('archived → archiving moves the change directories back (orchestrateReopen)', async () => {
+    const project = join(home, 'proj-reopen')
+    const archivedDir = join(project, 'openspec', 'changes', 'archive', '2026-09-28-p1')
+    await mkdir(archivedDir, { recursive: true })
+    await writeFile(join(archivedDir, 'proposal.md'), '# archived\n', 'utf8')
+
+    const store = new ProposalStore({ homeRoot: home, subdir: 'workmate' })
+    const proposals = new ProposalServiceImpl(store)
+    await proposals.upsert({ id: 'p1', title: 't', projects: ['demo'] })
+    await proposals.setStatus('p1', 'archived')
+
+    const lifecycle = new LifecycleServiceImpl({
+      proposals,
+      worktree: new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10, copyFiles: [], packageManager: 'pnpm' }),
+      openspecRoot: 'openspec',
+      resolveProjectRoots: async () => [{ project: 'demo', root: project }],
+      orchestrate: async () => ({ ok: true, steps: [] }),
+      reopen: (proposal, targets, options) => orchestrateReopen(proposal, targets, options),
+    })
+
+    const result = await lifecycle.transition('p1', 'archiving')
+    expect(result.proposal.status).toBe('archiving')
+    expect(result.orchestration?.steps).toContainEqual({
+      step: 'reopen-dir',
+      status: 'ok',
+      summary: '[demo] restored 2026-09-28-p1 → changes/p1',
+    })
+    await expect(stat(join(project, 'openspec', 'changes', 'p1', 'proposal.md'))).resolves.toBeTruthy()
+  })
+
+  it('reopen never blocks the state rollback when the directory move fails', async () => {
+    const store = new ProposalStore({ homeRoot: home, subdir: 'workmate' })
+    const proposals = new ProposalServiceImpl(store)
+    await proposals.upsert({ id: 'p1', title: 't' })
+    await proposals.setStatus('p1', 'archived')
+
+    const lifecycle = new LifecycleServiceImpl({
+      proposals,
+      worktree: new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10, copyFiles: [], packageManager: 'pnpm' }),
+      resolveProjectRoots: async () => [{ project: 'demo', root: join(home, 'no-such-project') }],
+      orchestrate: async () => ({ ok: true, steps: [] }),
+      reopen: (proposal, targets, options) => orchestrateReopen(proposal, targets, options),
+    })
+
+    const result = await lifecycle.transition('p1', 'archiving')
+    expect(result.proposal.status).toBe('archiving')
+    expect(result.orchestration?.steps.some((s) => s.step === 'reopen-dir')).toBe(true)
   })
 })
