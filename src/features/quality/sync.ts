@@ -1,11 +1,18 @@
 /**
- * Project quality-asset syncer (change add-proposal-quality-gates, design D1):
- * writes the OpenSpec constraint config, the workmate-review schema and the
- * Claude Code workflow assets into the TARGET project — idempotently. An
- * existing file is never overwritten (Helmsman presets discipline: "synced 0"
- * is correct behaviour, not a failure). The one merge case is
- * `.claude/settings.json`, whose hooks array is deduplicated by the hook
- * command string so user hooks survive untouched.
+ * Project quality-asset syncer (change add-proposal-quality-gates, design D1;
+ * split into OpenSpec / Claude sets by `adopt-dsh-native-config-and-guidance`):
+ * writes the OpenSpec constraint config + the workmate-review schema and, when
+ * enabled, the Claude Code workflow assets into the TARGET project —
+ * idempotently. An existing file is never overwritten (Helmsman presets
+ * discipline: "synced 0" is correct behaviour, not a failure). The one merge
+ * case is `.claude/settings.json`, whose hooks array is deduplicated by the
+ * hook command string so user hooks survive untouched.
+ *
+ * Why the split: DSH never reads `.claude/**` (the only reader is the
+ * first-party `@deepseek-ai/dsh-hooks-claude-code` bridge, which this profile
+ * does not load) — those files serve people running Claude Code in the same
+ * repository, so they are behind `Config.claudeAssetsEnabled`. The OpenSpec
+ * assets are the ones the review gate depends on and always ship.
  */
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
@@ -21,6 +28,8 @@ export interface SyncResult {
 export interface SyncOptions {
   /** Absolute dir holding the packaged assets (defaults to dist/assets). */
   assetsDir?: string
+  /** Also distribute the Claude Code asset set. @default true */
+  claudeAssets?: boolean
 }
 
 /** Runtime asset root: <dist>/assets/quality (build.mjs copies assets/ there). */
@@ -33,7 +42,8 @@ const HOOK_ENTRY = {
   hooks: [{ type: 'command', command: 'bash .claude/hooks/check-proposal-tag.sh' }],
 } as const
 
-const FILE_COPIES: Array<{ from: string; to: string; mode?: number }> = [
+/** OpenSpec-side assets: the review gate depends on these, so they always ship. */
+const OPENSPEC_COPIES: Array<{ from: string; to: string; mode?: number }> = [
   { from: 'openspec/config.default.yaml', to: 'openspec/config.yaml' },
   { from: 'openspec/schemas/workmate-review/schema.yaml', to: 'openspec/schemas/workmate-review/schema.yaml' },
   { from: 'openspec/schemas/workmate-review/templates/proposal.md', to: 'openspec/schemas/workmate-review/templates/proposal.md' },
@@ -41,6 +51,10 @@ const FILE_COPIES: Array<{ from: string; to: string; mode?: number }> = [
   { from: 'openspec/schemas/workmate-review/templates/design.md', to: 'openspec/schemas/workmate-review/templates/design.md' },
   { from: 'openspec/schemas/workmate-review/templates/review.md', to: 'openspec/schemas/workmate-review/templates/review.md' },
   { from: 'openspec/schemas/workmate-review/templates/tasks.md', to: 'openspec/schemas/workmate-review/templates/tasks.md' },
+]
+
+/** Claude Code assets: only meaningful under Claude Code (see the module doc). */
+const CLAUDE_COPIES: Array<{ from: string; to: string; mode?: number }> = [
   { from: 'claude/rules/knowledge-bridge.md', to: '.claude/rules/knowledge-bridge.md' },
   { from: 'claude/rules/archive.md', to: '.claude/rules/archive.md' },
   { from: 'claude/agents/proposal-auditor.md', to: '.claude/agents/proposal-auditor.md' },
@@ -57,15 +71,17 @@ async function exists(path: string): Promise<boolean> {
 }
 
 /**
- * Sync all quality assets into the target project. Per-file errors are
+ * Sync the quality assets into the target project. Per-file errors are
  * collected into the note — one unreadable asset must not abort the rest.
  */
 export async function syncProjectAssets(projectRoot: string, options: SyncOptions = {}): Promise<SyncResult> {
   const root = validateProjectRoot(projectRoot)
   const assets = options.assetsDir ?? defaultAssetsDir()
+  const claudeAssets = options.claudeAssets !== false
   const result: SyncResult = { written: [], skipped: [] }
+  const copies = claudeAssets ? [...OPENSPEC_COPIES, ...CLAUDE_COPIES] : OPENSPEC_COPIES
 
-  for (const copy of FILE_COPIES) {
+  for (const copy of copies) {
     const target = join(root, copy.to)
     try {
       if (await exists(target)) {
@@ -83,6 +99,10 @@ export async function syncProjectAssets(projectRoot: string, options: SyncOption
     }
   }
 
+  if (!claudeAssets) {
+    result.note = `${result.note ?? ''}claudeAssetsEnabled=false — .claude/** 未分发（DSH 侧由内置 skill 代替）; `
+    return result
+  }
   try {
     result.note = await mergeHookEntry(root, result.note)
   } catch (error) {

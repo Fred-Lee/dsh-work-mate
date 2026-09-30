@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CONFIG_DEFAULTS, resolveConfig } from './config.ts'
+import { CONFIG_DEFAULTS, Config, resolveConfig } from './config.ts'
 
 describe('resolveConfig', () => {
   it('fills every knob with its documented default', () => {
@@ -11,6 +11,7 @@ describe('resolveConfig', () => {
       openspecRoot: 'openspec',
       projectRoot: '',
       qualitySyncEnabled: true,
+      claudeAssetsEnabled: true,
       basePort: 3000,
       portStep: 10,
       copyFiles: ['.env', '.env.local'],
@@ -36,5 +37,47 @@ describe('resolveConfig', () => {
     expect(resolveConfig({ maxConcurrent: undefined, weknoraBaseUrl: undefined })).toEqual(
       resolveConfig(),
     )
+  })
+})
+
+/**
+ * The host collects a plugin's config schema by identity-checking the runtime
+ * `Config` export — see packages/boot/app-boot/src/config-schema/native.ts.
+ * These three conditions are copied verbatim from that predicate, so a change in
+ * shape (or dropping the runtime export) fails here instead of silently
+ * downgrading the plugin to "no validation, no config UI".
+ */
+describe('host config-schema contract', () => {
+  function isNativeConfigSchema(value: unknown): boolean {
+    if (value === null || (typeof value !== 'object' && typeof value !== 'function')) return false
+    const meta: unknown = Reflect.get(value, 'meta')
+    return (
+      Reflect.get(value, Symbol.for('schemastery')) === true &&
+      typeof Reflect.get(value, 'type') === 'string' &&
+      meta !== null &&
+      typeof meta === 'object'
+    )
+  }
+
+  it('exports a runtime value the host recognises as a native schema', () => {
+    expect(isNativeConfigSchema(Config)).toBe(true)
+  })
+
+  it('applies the same values as CONFIG_DEFAULTS through the schema alone', () => {
+    const parsed = (Config as unknown as (value: unknown) => Record<string, unknown>)({})
+    for (const [key, value] of Object.entries(CONFIG_DEFAULTS)) {
+      expect(parsed[key]).toEqual(value)
+    }
+  })
+
+  it('declares every documented knob as a schema field', () => {
+    const dict = (Config as unknown as { dict?: Record<string, unknown> }).dict ?? {}
+    expect(Object.keys(dict).sort()).toEqual(Object.keys(CONFIG_DEFAULTS).sort())
+  })
+
+  it('actually validates (the point of exporting a runtime schema)', () => {
+    const validate = Config as unknown as (value: unknown) => Record<string, unknown>
+    expect(() => validate({ basePort: 'not-a-number' })).toThrow(/expected number/)
+    expect(() => validate({ weknoraBaseUrl: 42 })).toThrow(/expected string/)
   })
 })

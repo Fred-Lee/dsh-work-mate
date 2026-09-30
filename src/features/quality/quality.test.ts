@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -68,5 +68,15 @@ describe('syncProjectAssets', () => {
 
     await syncProjectAssets(project, { assetsDir: REPO_ASSETS })
     expect(JSON.parse(readFileSync(settingsPath, 'utf8')).hooks.PreToolUse).toHaveLength(2)
+  })
+
+  it('distributes only the OpenSpec set when Claude assets are switched off', async () => {
+    const result = await syncProjectAssets(project, { assetsDir: REPO_ASSETS, claudeAssets: false })
+
+    expect(result.written).toContain('openspec/config.yaml')
+    expect(result.written).toContain('openspec/schemas/workmate-review/schema.yaml')
+    expect(result.written.some((path) => path.startsWith('.claude/'))).toBe(false)
+    expect(result.note).toContain('claudeAssetsEnabled=false')
+    expect(existsSync(join(project, '.claude'))).toBe(false)
   })
 })

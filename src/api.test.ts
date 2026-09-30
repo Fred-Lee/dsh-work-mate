@@ -85,7 +85,7 @@ beforeEach(async () => {
     }),
   })
   router = new Router()
-  registerApiRoutes(router, { proposals, archive, openspecRoot: 'openspec', projectRoot: '', registry: undefined as never, qualitySyncEnabled: false })
+  registerApiRoutes(router, { proposals, archive, openspecRoot: 'openspec', projectRoot: '', registry: undefined as never, qualitySyncEnabled: false, claudeAssetsEnabled: false })
 })
 
 afterEach(async () => {
@@ -130,6 +130,7 @@ describe('proposal REST API', () => {
       projectRoot: '',
       registry: undefined as never,
       qualitySyncEnabled: false,
+      claudeAssetsEnabled: false,
     })
     await proposals.upsert({ id: 'p9', title: 't' })
 

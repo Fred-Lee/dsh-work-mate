@@ -34,6 +34,7 @@ import { buildProposalStatus } from './features/proposal/status.ts'
 import { gitnexusRun } from './features/knowledge-bridge/gitnexus.ts'
 import { createWeknoraClient } from './features/knowledge-bridge/weknora.ts'
 import { mountWorkmateApi, createProposal, type WebServerLike } from './api.ts'
+import { registerGuidance } from './features/guidance/index.ts'
 export const name = 'workmate'
 /**
  * Only services every profile provides. `webServer` belongs to the web-app
@@ -43,8 +44,13 @@ export const name = 'workmate'
  */
 export const inject = ['tools'] as const
 
-export type { Config, ResolvedConfig } from './config.ts'
-export { CONFIG_DEFAULTS, resolveConfig } from './config.ts'
+/**
+ * `Config` is re-exported with both meanings: the TypeScript interface (host
+ * contract type) and the runtime Schemastery schema the host collects. Without
+ * the runtime value the plugin gets no config validation and no config-UI row.
+ */
+export { Config, CONFIG_DEFAULTS, resolveConfig } from './config.ts'
+export type { ResolvedConfig } from './config.ts'
 export type { Proposal, ProposalStoreOptions } from './features/proposal/store.ts'
 export { ProjectRegistry } from './features/project/registry.ts'
 export type { RegisteredProject } from './features/project/registry.ts'
@@ -131,6 +137,9 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.provide('workmate.worktree', worktree)
 
   registerTools(ctx, { proposals, archive, registry, worktree, resolved })
+  // Native guidance surfaces: two runtime skills + one flow section. Lazy, so
+  // a composition without those services keeps the plugin ACTIVE.
+  registerGuidance(ctx)
   // UI is optional: mounted only once a webServer exists, and torn down with
   // it. In a profile without the web bundle the tools above stay available.
   ctx.inject(['webServer'], (scope) => {
@@ -141,6 +150,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       openspecRoot: resolved.openspecRoot,
       projectRoot: resolved.projectRoot,
       qualitySyncEnabled: resolved.qualitySyncEnabled,
+      claudeAssetsEnabled: resolved.claudeAssetsEnabled,
     })
   })
 }
@@ -178,6 +188,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
             openspecRoot: resolved.openspecRoot,
             projectRoot: resolved.projectRoot,
             qualitySyncEnabled: resolved.qualitySyncEnabled,
+      claudeAssetsEnabled: resolved.claudeAssetsEnabled,
           },
           {
             id: args.id,
@@ -244,7 +255,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     defineTool({
       name: 'workmate_proposal_decide',
       description:
-        'Record one directional decision on a proposal (mandatory after every directional choice). If this overturns an earlier decision, pass supersedes with that entry id — silent reversals are forbidden and the auditor checks the chain.',
+        'Record one directional decision on a proposal. Pass supersedes with the overturned entry id instead of silently reversing it.',
       parameters: {
         id: { type: 'string', required: true, description: 'Proposal id.' },
         decision: { type: 'string', required: true, description: 'The decision in one sentence.' },
@@ -266,7 +277,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     defineTool({
       name: 'workmate_proposal_block',
       description:
-        'Escalate a blocker on a proposal instead of thinking forever: after two stuck rounds on the same direction you MUST call this with the question and what you already tried. The open blocker appears on the panel; call workmate_proposal_unblock with the answer once resolved.',
+        'Escalate a blocker on a proposal: the question plus what you already tried. It appears on the panel; resolve it with the answer via workmate_proposal_unblock (or let the user answer there).',
       parameters: {
         id: { type: 'string', required: true, description: 'Proposal id.' },
         question: { type: 'string', required: true, description: 'The blocking question, precisely.' },
@@ -285,7 +296,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
   ctx.tools.register(
     defineTool({
       name: 'workmate_proposal_unblock',
-      description: 'Answer and resolve one open blocker (blockerId from workmate_proposal_block or the panel).',
+      description: 'Answer and resolve one open blocker (blockerId from workmate_proposal_block or the panel). WorkMate flow: workmate-proposal-flow skill.',
       parameters: {
         id: { type: 'string', required: true, description: 'Proposal id.' },
         blockerId: { type: 'string', required: true, description: 'Blocker id, e.g. blocker-1.' },
@@ -302,7 +313,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     defineTool({
       name: 'workmate_wiki_link',
       description:
-        'Register a WeKnora Wiki page reference on a proposal (call after creating/updating the page with the weknora tools). pageType must be concept | synthesis | entity; type coverage is checked before merging.',
+        'Register a WeKnora Wiki page reference on a proposal (after creating/updating the page). pageType must be concept | synthesis | entity; declared wiki tasks must be covered before merging.',
       parameters: {
         id: { type: 'string', required: true, description: 'Proposal id.' },
         url: { type: 'string', required: true, description: 'weknora:// page URL or deep link.' },

@@ -2,11 +2,14 @@
   "manifestVersion": 1,
   "profile": {
     "dsh": "0.1.7-rc.2",
-    "note": "Local workbench runs the 0.1.7-rc.2 harness source tree (~/Documents/workspace/deepseek-harness). The profile's installed @deepseek-ai/dsh-tools is 0.1.2-alpha.5 — the same alpha line Helmsman verified; do not move to the rc line without re-verifying CallId/ToolCallId imports (knownIssues[0])."
+    "note": "Local workbench runs the 0.1.7-rc.2 harness source tree (~/Documents/workspace/deepseek-harness). The profile's installed @deepseek-ai/dsh-tools is 0.1.2-alpha.5 — the same alpha line Helmsman verified; do not move to the rc line without re-verifying CallId/ToolCallId imports (knownIssues[0]). Additional verified runtime line: @deepseek-ai/schemastery ^3.18.2 (the same range @deepseek-ai/dsh-tools@0.1.2-alpha.5 depends on); it is a runtime dependency, so it is recorded under runtime rather than require (require guards the devDependencies kernel pins)."
   },
   "require": {
     "@deepseek-ai/cordis": "^4.0.2",
     "@deepseek-ai/dsh-tools": "0.1.2-alpha.5"
+  },
+  "runtime": {
+    "@deepseek-ai/schemastery": "^3.18.2"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

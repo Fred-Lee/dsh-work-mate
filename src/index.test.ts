@@ -1,14 +1,16 @@
 /**
- * Host entry dependency shape (change harden-dsh-plugin-fit): `webServer` is
- * provided by the web-app bundle ONLY, so a hard `inject` on it would park the
- * fiber — and with it every `workmate_*` tool — in headless / acp / sdk
- * profiles. These tests pin `inject = ['tools']` plus the lazy UI mount.
+ * Host entry shape: `webServer` is provided by the web-app bundle ONLY, so a
+ * hard `inject` on it would park the fiber — and with it every `workmate_*`
+ * tool — in headless / acp / sdk profiles (change `harden-dsh-plugin-fit`).
+ * These tests pin `inject = ['tools']`, the lazy UI mount, the native
+ * Schemastery `Config` export and the guidance registrations (change
+ * `adopt-dsh-native-config-and-guidance`).
  */
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apply, inject, name } from './index.ts'
+import { Config, apply, inject, name } from './index.ts'
 
 let home: string
 
@@ -21,10 +23,14 @@ function fakeCtx(available: Record<string, unknown>): {
   ctx: never
   registered: unknown[]
   routes: FakeRoute[]
+  skills: { register: ReturnType<typeof vi.fn> } | undefined
+  prompt: { section: ReturnType<typeof vi.fn> } | undefined
 } {
   const registered: unknown[] = []
   const routes: FakeRoute[] = []
   const webServer = available['webServer'] as { register(route: FakeRoute): void } | undefined
+  const skills = available['skills'] as { register: ReturnType<typeof vi.fn> } | undefined
+  const prompt = available['systemPrompt'] as { section: ReturnType<typeof vi.fn> } | undefined
   const scopeFor = (): Record<string, unknown> => ({
     ...available,
     get: (key: string) => available[key],
@@ -50,7 +56,7 @@ function fakeCtx(available: Record<string, unknown>): {
       routes.push(route)
     }
   }
-  return { ctx: ctx as never, registered, routes }
+  return { ctx: ctx as never, registered, routes, skills, prompt }
 }
 
 beforeEach(async () => {
@@ -128,5 +134,29 @@ describe('host entry dependency shape', () => {
       registered as Array<{ name: string; parameters: { properties?: Record<string, unknown> } }>
     ).find((definition) => definition.name === 'workmate_proposal_archive')
     expect(archiveTool?.parameters.properties).toHaveProperty('force')
+  })
+
+  it('exports the Config schema the host collects (native Schemastery identity)', () => {
+    const meta: unknown = Reflect.get(Config, 'meta')
+    expect(Reflect.get(Config, Symbol.for('schemastery'))).toBe(true)
+    expect(typeof Reflect.get(Config, 'type')).toBe('string')
+    expect(meta).not.toBeNull()
+    expect(typeof meta).toBe('object')
+  })
+
+  it('registers the guidance skills and prompt section when those services exist', () => {
+    const skills = { register: vi.fn(() => () => {}) }
+    const prompt = { section: vi.fn(() => () => {}) }
+    const { ctx } = fakeCtx({ skills, systemPrompt: prompt })
+    apply(ctx)
+
+    expect(skills.register).toHaveBeenCalledTimes(2)
+    expect(prompt.section).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays ACTIVE with no guidance services (tools still register)', () => {
+    const { ctx, registered } = fakeCtx({})
+    expect(() => apply(ctx)).not.toThrow()
+    expect(registered).toHaveLength(10)
   })
 })

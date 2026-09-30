@@ -34,6 +34,8 @@ export interface ApiDeps {
   projectRoot: string
   /** Sync quality assets into the target project on creation. @default true */
   qualitySyncEnabled: boolean
+  /** Also distribute the Claude Code asset set (.claude/**). @default true */
+  claudeAssetsEnabled: boolean
 }
 
 export interface CreateProjectBody {
@@ -209,7 +211,7 @@ export async function createProposal(
 
   let qualitySync: Awaited<ReturnType<typeof syncProjectAssets>> | undefined
   if (deps.qualitySyncEnabled) {
-    qualitySync = await syncProjectAssets(projectRoot)
+    qualitySync = await syncProjectAssets(projectRoot, { claudeAssets: deps.claudeAssetsEnabled })
   }
   return {
     proposal,
