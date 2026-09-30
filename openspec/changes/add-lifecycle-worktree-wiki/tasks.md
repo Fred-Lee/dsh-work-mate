@@ -16,3 +16,5 @@
       - 真机抓出并修复：api 切块误伤 projects/graph 端点、implementing
         root 缺失静默推进（改为阻断）、install 误走 git 执行器、copyFiles
         覆盖端口注入（顺序对调）
+      - headless 语义定稿：无项目根的提案允许推进至 ready（轻量提案），
+        implementing 因需要创建环境而阻断

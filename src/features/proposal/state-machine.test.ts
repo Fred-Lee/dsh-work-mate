@@ -79,16 +79,16 @@ describe('state machine structure', () => {
 })
 
 describe('lifecycle transitions (headless)', () => {
-  it('advances step by step; jumps are refused by construction', async () => {
+  it('advances to ready, then blocks at implementing without a project root', async () => {
     await proposals.upsert({ id: 'p1', title: 't' })
 
-    // draft → proposing is blocked for headless proposals? No: headless skips
-    // project-side facts entirely, so the whole chain walks freely.
-    for (const expected of PROPOSAL_STATES.slice(1)) {
+    for (const expected of ['proposing', 'reviewing', 'ready'] as const) {
       const result = await lifecycle.advance('p1')
       expect(result.proposal.status).toBe(expected)
     }
-    await expect(lifecycle.advance('p1')).rejects.toThrow('already archived')
+    // worktree creation requires a project root — the transition must block
+    await expect(lifecycle.advance('p1')).rejects.toThrow('无法创建 worktree')
+    expect((await proposals.get('p1'))?.status).toBe('ready')
   })
 
   it('transitions backward freely and refuses unknown targets', async () => {

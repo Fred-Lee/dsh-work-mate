@@ -140,15 +140,15 @@ describe('proposal REST API', () => {
     await expect(call('POST', '/api/proposals/p2/transition', { to: 'proposing' }, undefined)).resolves.toMatchObject({
       body: { proposal: { status: 'proposing' } },
     })
-    // walk to archiving
-    for (const state of ['reviewing', 'ready', 'implementing', 'merging', 'archiving']) {
+    // walk to ready, then implementing blocks without an associated project root
+    for (const state of ['reviewing', 'ready']) {
       await call('POST', '/api/proposals/p2/advance', {})
     }
     const detail = await call('GET', '/api/proposals/p2')
-    expect((detail.body as { proposal: { status: string } }).proposal.status).toBe('archiving')
-    // archive endpoint runs from archiving (headless: orchestration fails without roots, state unchanged)
-    const archived = await call('POST', '/api/proposals/p2/archive', {})
-    expect(archived.status).toBe(200)
+    expect((detail.body as { proposal: { status: string } }).proposal.status).toBe('ready')
+    const blocked = await call('POST', '/api/proposals/p2/advance', {})
+    expect(blocked.status).toBe(400)
+    expect((blocked.body as { error: string }).error).toContain('无法创建 worktree')
   })
 })
 
