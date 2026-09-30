@@ -15,7 +15,9 @@ draft → proposing → reviewing → ready → implementing → merging → arc
   自动分配注入 `.env`、配置文件复制、依赖安装；归档后自动回收
 - **质量门**：归档前强制交叉审查报告（proposal-auditor），未解决 CRITICAL 阻断
 - **知识沉淀**：WeKnora Wiki 引用随提案登记并归档留痕；GitNexus 提供事实锚
-- **寄生而非替代**：UI 注入 DSH 原生界面（右侧栏标签 + 对话入口），不另起 Web 应用
+- **寄生而非替代**：UI 注入 DSH 原生界面（better-sidebar 标签 + 两个对话入口），
+  同名面板另有 `/workmate/` 独立页供调试直连；UI 是**可选面**——任何 profile
+  （含 headless / acp / sdk）里 agent 工具面都照常可用
 
 > 前身 Helmsman（Agent 舰队指挥中心，15 插件包 monorepo）完整存档于 `main` 分支；
 > 当前 `feat/workmate` 分支是按 `docs/DESIGN.md` 另起的全新实现。
@@ -49,6 +51,11 @@ draft → proposing → reviewing → ready → implementing → merging → arc
 | openspec CLI | `>= 1.3.1` | ✅ | 提案工件与归档编排（`npm i -g @fission-ai/openspec`） |
 | GitNexus CLI | 最新 | 可选 | `workmate_knowledge_query` 需要；目标仓库需先 `gitnexus analyze` |
 | WeKnora 服务 | 自建部署 | 可选 | Wiki 关联与知识检索；未部署时自动降级 |
+
+> **profile 覆盖**：agent 工具面只依赖 `tools`，在 headless / acp / sdk / web 任何
+> profile 都可装载；面板与 `/workmate/` 独立页只在带 `webServer` 的 profile
+> （`dsh-web-app`）挂载。客户端半同样零硬依赖——`dsh-better-sidebar` 缺失时只少一个
+> 侧栏标签，两个对话入口照常注册。
 
 ---
 
@@ -117,7 +124,7 @@ pnpm dsh web                                            # 启动，默认 http:/
 | `workmateHome` | `'workmate'` | 状态目录名（`$DSH_HOME` 下，默认 `~/.dsh/workmate`） |
 | `maxConcurrent` | `3` | swarm 并行执行上限（保留项） |
 | `projectRoot` | `''` | 默认项目根；空 = 每次显式传 |
-| `openspecRoot` | `'openspec'` | 目标项目内 OpenSpec 目录名 |
+| `openspecRoot` | `'openspec'` | 目标项目内 OpenSpec 目录名（提案目录生成、状态聚合、生命周期前置校验、归档编排全链路一致） |
 | `gitnexusEnabled` | `true` | GitNexus 知识查询总开关 |
 | `weknoraBaseUrl` | `''` | WeKnora REST 地址（空 = 禁用知识检索） |
 | `qualitySyncEnabled` | `true` | 创建提案时向目标项目同步规范资产 |
@@ -162,11 +169,15 @@ curl -X POST $API/proposals/batch-grading-v2/wiki-links -H 'content-type: applic
 # ⑥ archiving → 运行归档编排（审查门 → openspec archive → gitnexus → 清理）
 curl -X POST $API/proposals/batch-grading-v2/advance -H 'content-type: application/json' -d '{}'
 curl -X POST $API/proposals/batch-grading-v2/archive -H 'content-type: application/json' -d '{}'
+#   审查门未过（缺 review.md 或有未解决 CRITICAL）时，可只跳过审查门重跑：
+curl -X POST $API/proposals/batch-grading-v2/archive -H 'content-type: application/json' -d '{"force":true}'
 #   归档后：changes/archive/<日期>-<id>/ 内含 wiki.md + commits.md；worktree 已回收
 ```
 
-面板操作与以上等价：卡片「推进 →」按钮逐步前进，「完成归档」在 archiving 状态
-出现；卡片展开可看 Git 关联、worktree 信息、决策日志、卡点、审查报告与 Wiki 引用。
+面板操作与以上等价：卡片展开后「推进到 X ›」「‹ 回退到 Y」逐步流转（回退离开
+`archived` 时会把各项目 `changes/archive/*-<id>/` 搬回 `changes/<id>/`），
+「完成归档」与「强制归档（跳过审查门）」在 archiving 状态出现；卡片展开还可看
+Git 关联、worktree 信息、决策日志、卡点、审查报告与 Wiki 引用。
 
 ---
 
@@ -181,7 +192,7 @@ curl -X POST $API/proposals/batch-grading-v2/archive -H 'content-type: applicati
 | `implementing` | （自动）worktree 已创建 | Agent 在 worktree 执行 tasks；更新 Wiki；落决策日志 | ✅ |
 | `merging` | wiki 类型覆盖通过 | 实现分支合并进 main | ✅ |
 | `archiving` | 实现分支已合并 main | 生成 wiki.md/commits.md，运行归档编排 | ✅ |
-| `archived` | 编排全部通过 | 终态（可回退 archiving 重开） | ✅ |
+| `archived` | 编排全部通过 | 终态（可回退 archiving 重开，目录一并搬回） | ✅ |
 
 - **不跳步**：`transition` 只接受相邻状态；`advance` 自动推进下一步
 - **前置不过 = 400 + 可读原因**（如「等待提案分支合并进 main」），状态不变
@@ -196,8 +207,8 @@ Agent 会话中可直接调用（DSH 工具面注册，名字以 `workmate_` 前
 | 工具 | 用途 |
 |---|---|
 | `workmate_proposal_create` | 创建提案，联动 OpenSpec 目录与规范资产同步 |
-| `workmate_proposal_status` | 详情聚合：Git 关联 / OpenSpec 进度 / 审查报告（按项目） |
-| `workmate_proposal_archive` | 生命周期驱动：`mode=advance`（默认）/ `archive` / 任意状态名 |
+| `workmate_proposal_status` | 详情聚合：Git 关联 / OpenSpec 进度 / 审查报告（按项目）+ 生命周期位置（prev/next） |
+| `workmate_proposal_archive` | 生命周期驱动：`mode=advance`（默认）/ `archive`（`force` 只跳过审查门）/ 任意状态名；`exec.signal` 中断会终止正在跑的 git / openspec / gitnexus 子进程 |
 | `workmate_proposal_decide` | 落决策日志（推翻必须 `supersedes`，禁止静默改口） |
 | `workmate_proposal_block` | 卡点上报（卡两轮必须上报，附已尝试内容） |
 | `workmate_proposal_unblock` | 答复并解除卡点 |
@@ -222,7 +233,7 @@ Agent 会话中可直接调用（DSH 工具面注册，名字以 `workmate_` 前
 | `GET /proposals/:id?projectRoot=` | 详情（多项目 Git/OpenSpec/审查报告聚合） |
 | `POST /proposals/:id/advance` | 推进到下一状态 |
 | `POST /proposals/:id/transition` | 显式相邻转换 `{to}` |
-| `POST /proposals/:id/archive` | 运行归档编排（仅 archiving 状态） |
+| `POST /proposals/:id/archive` | 运行归档编排（仅 archiving 状态；`{force:true}` 只跳过审查门） |
 | `POST /proposals/:id/decisions` | 追加决策（supersedes 校验） |
 | `POST /proposals/:id/block` / `/:id/unblock` | 卡点上报 / 答复解除 |
 | `POST /proposals/:id/wiki-links` | 登记 WeKnora 页面引用 |
