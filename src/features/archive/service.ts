@@ -1,13 +1,31 @@
 /**
- * Archive state machine (M2 semantics): proposals move along
- * `draft → executing → archived` with validation. Milestone M4 replaces the
- * internals of the archive call with full orchestration (tasks parsing →
- * swarm → openspec archive CLI → gitnexus analyze) behind the same signature.
+ * Lifecycle state-machine integration (change add-lifecycle-worktree-wiki):
+ * the eight-state chain from `state-machine.ts` with real preconditions —
+ * git merge facts for branch states, worktree creation as the
+ * ready→implementing side effect, wiki type-coverage before merging, and the
+ * archive orchestration behind archiving→archived. Adjacent backward
+ * transitions stay free (the lifecycle remains fully reversible); jumping is
+ * impossible by construction.
  */
+import { readFile, stat, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import {
+  checkTransition,
+  nextState,
+  STATE_HINTS,
+  type ProposalState,
+} from '../proposal/state-machine.ts'
 import type { Proposal } from '../proposal/store.ts'
 import type { ProposalService } from '../proposal/service.ts'
+import { WorktreeManager } from '../worktree/manager.ts'
+import { branchExists, isMergedInto } from '../worktree/git.ts'
+import {
+  checkCoverage,
+  readWikiTasks,
+  renderCommitsMd,
+  renderWikiMd,
+} from '../wiki/links.ts'
 import type { OrchestrationResult, OrchestrationTarget } from './orchestrate.ts'
-import { orchestrateReopen } from './orchestrate.ts'
 
 export class InvalidTransitionError extends Error {
   readonly code = 'INVALID_TRANSITION'
@@ -17,171 +35,211 @@ export class InvalidTransitionError extends Error {
   }
 }
 
-export interface ArchiveCheckOptions {
-  projectRoot?: string
-  openspecRoot: string
-}
-
-export interface ArchiveServiceDeps {
+export interface LifecycleDeps {
   proposals: ProposalService
-  /** Returns true when `openspec/changes/<id>` (or its archive) exists. */
-  changeDirExists?(projectRoot: string, openspecRoot: string, changeId: string): Promise<boolean>
+  worktree: WorktreeManager
+  /** Archive orchestration behind archiving→archived (review gate etc.). */
+  orchestrate(
+    proposal: Proposal,
+    targets: OrchestrationTarget[],
+    options: { openspecRoot: string },
+  ): Promise<OrchestrationResult>
   /** Resolves the proposal's associated project names into per-project roots. */
   resolveProjectRoots?(proposal: Proposal): Promise<OrchestrationTarget[]>
-  /**
-   * M4 orchestration: when present, archive runs the full pipeline against
-   * the resolvable targets and only stamps `archived` on success.
-   */
-  orchestrate?(
-    proposal: Proposal,
-    targets: OrchestrationTarget[],
-    options: { openspecRoot: string },
-  ): Promise<OrchestrationResult>
-  /** Reverse orchestration (archive dir moved back). */
-  orchestrateReopen?(
-    proposal: Proposal,
-    targets: OrchestrationTarget[],
-    options: { openspecRoot: string },
-  ): Promise<OrchestrationResult>
+  gitnexusEnabled?: boolean
   now?: () => Date
 }
 
-export class ArchiveServiceImpl {
-  constructor(private readonly deps: ArchiveServiceDeps) {}
+export interface LifecycleState {
+  status: ProposalState
+  hint: string
+  next?: ProposalState
+  worktreePath?: string
+  portRange?: number[]
+}
 
-  async list(): Promise<Proposal[]> {
-    return this.deps.proposals.list()
-  }
+export interface TransitionOutcome {
+  proposal: Proposal
+  /** Set when the transition created the worktree (ready→implementing). */
+  worktree?: { worktreePath: string; portRange: number[]; install: string }
+  orchestration?: OrchestrationResult
+}
 
-  /** `draft → executing`. */
-  async start(id: string): Promise<Proposal> {
+export class LifecycleServiceImpl {
+  constructor(private readonly deps: LifecycleDeps) {}
+
+  async getState(id: string): Promise<LifecycleState> {
     const proposal = await this.mustGet(id)
-    if (proposal.status !== 'draft') {
-      throw new InvalidTransitionError(`only draft proposals can start, ${id} is ${proposal.status}`)
+    const next = nextState(proposal.status)
+    return {
+      status: proposal.status,
+      hint: STATE_HINTS[proposal.status],
+      ...(next !== undefined ? { next } : {}),
+      ...(proposal.worktreePath !== undefined ? { worktreePath: proposal.worktreePath } : {}),
+      ...(proposal.portRange !== undefined ? { portRange: proposal.portRange } : {}),
     }
-    return this.writeStatus(proposal, 'executing')
   }
 
-  /**
-   * `executing → archived`. With an orchestrator wired and a resolvable
-   * projectRoot this runs the full M4 pipeline (tasks snapshot → swarm →
-   * openspec archive → gitnexus analyze) and stamps `archived` only on
-   * success; the M2 state-machine path remains for headless proposals.
-   */
-  private async resolveTargets(
+  /** Move one state forward, checking that state's preconditions. */
+  async advance(id: string): Promise<TransitionOutcome> {
+    const proposal = await this.mustGet(id)
+    const next = nextState(proposal.status)
+    if (next === undefined) throw new InvalidTransitionError(`proposal ${id} is already archived (terminal)`)
+    return this.transition(id, next)
+  }
+
+  /** Move to an adjacent state (forward: preconditions; backward: free). */
+  async transition(id: string, to: ProposalState): Promise<TransitionOutcome> {
+    const proposal = await this.mustGet(id)
+    const check = checkTransition(proposal.status, to)
+    if (!check.ok) throw new InvalidTransitionError(check.reason ?? 'invalid transition')
+
+    if (check.direction === 'forward') {
+      await this.checkPreconditions(proposal, to)
+      const worktree = await this.applySideEffects(proposal, to)
+      const updated = await this.deps.proposals.setStatus(id, to)
+      return { proposal: updated, ...(worktree !== undefined ? { worktree } : {}) }
+    }
+    return { proposal: await this.deps.proposals.setStatus(id, to) }
+  }
+
+  private async checkPreconditions(proposal: Proposal, to: ProposalState): Promise<void> {
+    const root = await this.primaryRoot(proposal)
+    // Headless proposals (no associated project root) skip project-side facts.
+    if (root === undefined) return
+    switch (to) {
+      case 'proposing': {
+        try {
+          await stat(join(root, 'openspec', 'changes', proposal.openspecChangeId, 'proposal.md'))
+        } catch {
+          throw new InvalidTransitionError(
+            `openspec/changes/${proposal.openspecChangeId}/proposal.md 不存在 — 先生成提案文件`,
+          )
+        }
+        return
+      }
+      case 'reviewing': {
+        const branch = proposal.proposalBranch ?? `proposal/${proposal.id}`
+        if (!(await branchExists(root, branch))) {
+          throw new InvalidTransitionError(
+            `提案分支 ${branch} 不存在 — 先创建分支并提交提案文件（提交信息携带 [proposal:${proposal.id}]）`,
+          )
+        }
+        return
+      }
+      case 'ready': {
+        if (proposal.proposalBranch === undefined) return
+        if (!(await isMergedInto(root, proposal.proposalBranch, 'main'))) {
+          throw new InvalidTransitionError(
+            `提案分支 ${proposal.proposalBranch} 尚未合并进 main — 等待提案评审合并`,
+          )
+        }
+        return
+      }
+      case 'implementing':
+        return // worktree is created as the side effect; failures surface there
+      case 'merging': {
+        if (root === undefined) return
+        const tasks = await readWikiTasks(root, 'openspec', proposal.openspecChangeId)
+        if (tasks.length === 0) return
+        const coverage = checkCoverage(tasks, proposal.wikiLinks ?? [])
+        if (!coverage.ok) {
+          const detail = coverage.missing
+            .map((m) => `${m.task.slice(0, 40)}（缺 ${m.missingTypes.join('/')}）`)
+            .join('；')
+          throw new InvalidTransitionError(
+            `Wiki 关联未完成 — 以下任务缺少对应 WeKnora 页面类型：${detail}。先经 WeKnora 工具更新页面，再用 workmate_wiki_link 登记。`,
+          )
+        }
+        return
+      }
+      case 'archiving': {
+        if (proposal.featureBranch === undefined) return
+        if (!(await isMergedInto(root, proposal.featureBranch, 'main'))) {
+          throw new InvalidTransitionError(
+            `实现分支 ${proposal.featureBranch} 尚未合并进 main — 先完成实现合并再归档`,
+          )
+        }
+        return
+      }
+      case 'archived':
+        throw new InvalidTransitionError('archived 由归档编排成功后自动达成 — 使用归档端点而非直接转换')
+      default:
+        return
+    }
+  }
+
+  /** Heavy work bound to a forward transition. */
+  private async applySideEffects(
     proposal: Proposal,
-    explicitRoot?: string,
-  ): Promise<OrchestrationTarget[]> {
-    if (explicitRoot !== undefined) {
-      return [{ project: '(explicit)', root: explicitRoot }]
+    to: ProposalState,
+  ): Promise<TransitionOutcome['worktree'] | undefined> {
+    if (to === 'implementing') {
+      const root = await this.primaryRoot(proposal)
+      if (root === undefined) {
+        throw new InvalidTransitionError('无关联项目根 — 无法创建 worktree；先在面板关联项目')
+      }
+      const created = await this.deps.worktree.create({ projectRoot: root, proposalId: proposal.id })
+      await this.deps.proposals.patchFields(proposal.id, {
+        worktreePath: created.worktreePath,
+        portRange: created.portRange,
+        featureBranch: created.featureBranch,
+      })
+      return { worktreePath: created.worktreePath, portRange: created.portRange, install: created.install }
     }
-    if (this.deps.resolveProjectRoots !== undefined) {
-      return this.deps.resolveProjectRoots(proposal)
+    if (to === 'archiving') {
+      // wiki.md + commits.md land in the change dir BEFORE openspec archive
+      // moves it under changes/archive/<date>-<id>/
+      const root = await this.primaryRoot(proposal)
+      if (root === undefined) return undefined
+      const changeDir = join(root, 'openspec', 'changes', proposal.openspecChangeId)
+      await writeFile(join(changeDir, 'wiki.md'), renderWikiMd(proposal.wikiLinks ?? []), 'utf8')
+      const { listProposalCommits } = await import('../proposal/git.ts')
+      const scan = await listProposalCommits(root, proposal.openspecChangeId)
+      await writeFile(join(changeDir, 'commits.md'), renderCommitsMd(scan.commits), 'utf8')
+      return undefined
     }
-    return []
+    return undefined
   }
 
-  async archive(
-    id: string,
-    options: ArchiveCheckOptions & { force?: boolean } = { openspecRoot: 'openspec' },
-  ): Promise<Proposal | (Proposal & { orchestration: OrchestrationResult })> {
+  /**
+   * The archive endpoint: only a proposal already in `archiving` (all
+   * preconditions passed, wiki.md/commits.md written) may run the
+   * orchestration. Success stamps `archived` and reclaims the worktree.
+   */
+  async runArchive(id: string): Promise<TransitionOutcome> {
     const proposal = await this.mustGet(id)
-    if (proposal.status === 'draft') {
+    if (proposal.status !== 'archiving') {
       throw new InvalidTransitionError(
-        `proposal ${id} is draft — move it to executing before archiving`,
+        `proposal ${id} is ${proposal.status} — advance to archiving first（先合并实现分支进 main）`,
       )
     }
-    if (proposal.status === 'reviewing') {
-      throw new InvalidTransitionError(
-        `proposal ${id} is still reviewing — approve the review before archiving`,
-      )
-    }
-    if (proposal.status === 'archived') return proposal
-
-    const { projectRoot, openspecRoot, force } = options
-    if (this.deps.orchestrate && force !== true) {
-      const targets = await this.resolveTargets(proposal, projectRoot)
-      const orchestration = await this.deps.orchestrate(proposal, targets, { openspecRoot })
-      if (!orchestration.ok) {
-        // pipeline failed: state untouched, caller inspects the step log
-        return Object.assign(proposal, { orchestration })
-      }
-      return { ...(await this.writeStatus(proposal, 'archived')), orchestration }
+    const targets = (await this.deps.resolveProjectRoots?.(proposal)) ?? []
+    const orchestration = await this.deps.orchestrate(proposal, targets, { openspecRoot: 'openspec' })
+    if (!orchestration.ok) {
+      return { proposal, orchestration }
     }
 
-    if (projectRoot && this.deps.changeDirExists) {
-      const exists = await this.deps.changeDirExists(projectRoot, openspecRoot, proposal.openspecChangeId)
-      if (!exists && !force) {
-        throw new InvalidTransitionError(
-          `openspec change '${proposal.openspecChangeId}' not found under ${projectRoot} — pass force: true to archive anyway`,
-        )
+    let cleanup: string | undefined
+    if (proposal.worktreePath !== undefined) {
+      const root = await this.primaryRoot(proposal)
+      if (root !== undefined) {
+        const removed = await this.deps.worktree.remove({ projectRoot: root, proposalId: proposal.id })
+        cleanup = removed.summary
       }
     }
-    return this.writeStatus(proposal, 'archived')
-  }
 
-  /**
-   * `draft → reviewing` (change add-proposal-quality-gates): the proposal
-   * enters cross-consistency review (report produced by the proposal-auditor
-   * subagent in the session layer; the host only validates the artifact).
-   */
-  async startReview(id: string): Promise<Proposal> {
-    const proposal = await this.mustGet(id)
-    if (proposal.status !== 'draft') {
-      throw new InvalidTransitionError(`only draft proposals can enter review, ${id} is ${proposal.status}`)
+    const updated = await this.deps.proposals.setStatus(id, 'archived')
+    return {
+      proposal: updated,
+      orchestration:
+        cleanup !== undefined
+          ? {
+              ...orchestration,
+              steps: [...orchestration.steps, { step: 'worktree-cleanup' as const, status: 'ok' as const, summary: cleanup }],
+            }
+          : orchestration,
     }
-    return this.writeStatus(proposal, 'reviewing')
-  }
-
-  /** `reviewing → executing` — review passed. */
-  async approveReview(id: string): Promise<Proposal> {
-    const proposal = await this.mustGet(id)
-    if (proposal.status !== 'reviewing') {
-      throw new InvalidTransitionError(`only reviewing proposals can be approved, ${id} is ${proposal.status}`)
-    }
-    return this.writeStatus(proposal, 'executing')
-  }
-
-  /** `reviewing → draft` — back to preparation. */
-  async unreview(id: string): Promise<Proposal> {
-    const proposal = await this.mustGet(id)
-    if (proposal.status !== 'reviewing') {
-      throw new InvalidTransitionError(`only reviewing proposals can return to draft, ${id} is ${proposal.status}`)
-    }
-    return this.writeStatus(proposal, 'draft')
-  }
-
-  /**
-   * `executing → draft` (change make-lifecycle-fully-reversible): the reverse
-   * of `start`. No project-side action — the change directory never moved.
-   */
-  async stop(id: string): Promise<Proposal> {
-    const proposal = await this.mustGet(id)
-    if (proposal.status !== 'executing') {
-      throw new InvalidTransitionError(`only executing proposals can stop, ${id} is ${proposal.status}`)
-    }
-    return this.writeStatus(proposal, 'draft')
-  }
-
-  /**
-   * `archived → executing` (change add-multi-project-reopen-git-visibility):
-   * reverse the per-project directory moves where possible — a failed move
-   * never blocks the state rollback.
-   */
-  async reopen(
-    id: string,
-    options: { openspecRoot: string } = { openspecRoot: 'openspec' },
-  ): Promise<Proposal & { orchestration: OrchestrationResult }> {
-    const proposal = await this.mustGet(id)
-    if (proposal.status !== 'archived') {
-      throw new InvalidTransitionError(`only archived proposals can reopen, ${id} is ${proposal.status}`)
-    }
-    const targets = await this.resolveTargets(proposal)
-    const orchestration =
-      this.deps.orchestrateReopen !== undefined
-        ? await this.deps.orchestrateReopen(proposal, targets, options)
-        : { ok: true, steps: [{ step: 'reopen-dir' as const, status: 'skipped' as const, summary: 'no reopen orchestration wired' }] }
-    return { ...(await this.writeStatus(proposal, 'executing')), orchestration }
   }
 
   private async mustGet(id: string): Promise<Proposal> {
@@ -190,7 +248,17 @@ export class ArchiveServiceImpl {
     return proposal
   }
 
-  private async writeStatus(proposal: Proposal, status: Proposal['status']): Promise<Proposal> {
-    return this.deps.proposals.setStatus(proposal.id, status)
+  private async primaryRoot(proposal: Proposal): Promise<string | undefined> {
+    const targets = (await this.deps.resolveProjectRoots?.(proposal)) ?? []
+    return targets[0]?.root
+  }
+}
+
+/** Review-report read used by the detail aggregation (status.ts imports it indirectly). */
+export async function readProposalFile(root: string, openspecRoot: string, changeId: string, file: string): Promise<string | undefined> {
+  try {
+    return await readFile(join(root, openspecRoot, 'changes', changeId, file), 'utf8')
+  } catch {
+    return undefined
   }
 }

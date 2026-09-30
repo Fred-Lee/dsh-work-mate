@@ -11,6 +11,13 @@ describe('resolveConfig', () => {
       openspecRoot: 'openspec',
       projectRoot: '',
       qualitySyncEnabled: true,
+      basePort: 3000,
+      portStep: 10,
+      copyFiles: ['.env', '.env.local'],
+      packageManager: 'pnpm',
+      weknoraEnabled: true,
+      weknoraKbId: '',
+      weknoraWikiRequired: false,
     })
   })
 

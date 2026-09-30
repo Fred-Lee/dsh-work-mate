@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { parseTasksMd, orchestrateArchive } from './orchestrate.ts'
 import { ProposalStore } from '../proposal/store.ts'
 import { ProposalServiceImpl } from '../proposal/service.ts'
-import { ArchiveServiceImpl } from './service.ts'
+import { LifecycleServiceImpl } from './service.ts'
+import { WorktreeManager } from '../worktree/manager.ts'
 
 let home: string
 let binDir: string
@@ -73,7 +74,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
       const store = new ProposalStore({ homeRoot: home, subdir: 'workmate' })
       const proposals = new ProposalServiceImpl(store)
       await proposals.upsert({ id: 'p1', title: 't' })
-      const executing = await proposals.setStatus('p1', 'executing')
+      const executing = await proposals.setStatus('p1', 'implementing')
 
       const result = await orchestrateArchive(
         executing,
@@ -110,7 +111,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
     const store = new ProposalStore({ homeRoot: home, subdir: 'workmate' })
     const proposals = new ProposalServiceImpl(store)
     await proposals.upsert({ id: 'p1', title: 't' })
-    const executing = await proposals.setStatus('p1', 'executing')
+    const executing = await proposals.setStatus('p1', 'implementing')
 
     const result = await orchestrateArchive(
       executing,
@@ -122,7 +123,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
     expect(result.ok).toBe(false)
     expect(result.steps.find((s) => s.step === 'openspec-archive')?.status).toBe('failed')
     expect(result.steps.find((s) => s.step === 'gitnexus-analyze')).toBeUndefined()
-    expect((await proposals.get('p1'))?.status).toBe('executing')
+    expect((await proposals.get('p1'))?.status).toBe('implementing')
   })
 
   it('service archive stamps archived only after the pipeline succeeds', async () => {
@@ -134,23 +135,25 @@ describe('orchestrateArchive (fake CLIs)', () => {
     const store = new ProposalStore({ homeRoot: home, subdir: 'workmate' })
     const proposals = new ProposalServiceImpl(store)
     await proposals.upsert({ id: 'p1', title: 't' })
-    await proposals.setStatus('p1', 'executing')
+    await proposals.setStatus('p1', 'archiving')
 
-    const okArchive = new ArchiveServiceImpl({
+    const okArchive = new LifecycleServiceImpl({
       proposals,
+      worktree: new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10, copyFiles: [], packageManager: 'pnpm' }),
       orchestrate: async () => ({ ok: true, steps: [{ step: 'status', status: 'ok', summary: '' }] }),
     })
-    const okResult = (await okArchive.archive('p1', { openspecRoot: 'openspec', projectRoot: project })) as { status?: string; orchestration?: unknown }
-    expect(okResult.status).toBe('archived')
+    const okResult = (await okArchive.runArchive('p1')) as { proposal: { status: string }; orchestration?: unknown }
+    expect(okResult.proposal.status).toBe('archived')
     expect(okResult.orchestration).toBeTruthy()
 
-    await proposals.setStatus('p1', 'executing')
-    const badArchive = new ArchiveServiceImpl({
+    await proposals.setStatus('p1', 'archiving')
+    const badArchive = new LifecycleServiceImpl({
       proposals,
+      worktree: new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10, copyFiles: [], packageManager: 'pnpm' }),
       orchestrate: async () => ({ ok: false, steps: [{ step: 'openspec-archive', status: 'failed', summary: 'boom' }] }),
     })
-    const badResult = (await badArchive.archive('p1', { openspecRoot: 'openspec', projectRoot: project })) as { status?: string; orchestration?: { ok: boolean } }
-    expect(badResult.status).toBe('executing')
-    expect(badResult.orchestration?.ok).toBe(false)
+    const badResult = (await badArchive.runArchive('p1')) as { proposal: { status: string }; orchestration: { ok: boolean } }
+    expect(badResult.proposal.status).toBe('archiving')
+    expect(badResult.orchestration.ok).toBe(false)
   })
 })

@@ -30,6 +30,20 @@ export interface Config {
    * hooks) into the target project on proposal creation. @default true
    */
   qualitySyncEnabled?: boolean
+  /** Port allocation base for worktree .env injection. @default 3000 */
+  basePort?: number
+  /** Port step between worktree segments. @default 10 */
+  portStep?: number
+  /** Files copied from the main checkout into each new worktree. @default ['.env', '.env.local'] */
+  copyFiles?: string[]
+  /** Package manager run inside a new worktree. @default 'pnpm' */
+  packageManager?: string
+  /** Enable the WeKnora Wiki association flow. @default true */
+  weknoraEnabled?: boolean
+  /** Default WeKnora knowledge base id; empty = unconfigured. @default '' */
+  weknoraKbId?: string
+  /** Fail implementing→merging when declared wiki pages are missing. @default false */
+  weknoraWikiRequired?: boolean
 }
 
 export type ResolvedConfig = Required<Config>
@@ -42,6 +56,13 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   openspecRoot: 'openspec',
   projectRoot: '',
   qualitySyncEnabled: true,
+  basePort: 3000,
+  portStep: 10,
+  copyFiles: ['.env', '.env.local'],
+  packageManager: 'pnpm',
+  weknoraEnabled: true,
+  weknoraKbId: '',
+  weknoraWikiRequired: false,
 }
 
 /**

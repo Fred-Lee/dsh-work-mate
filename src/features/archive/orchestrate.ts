@@ -16,7 +16,7 @@ import { parseReviewMd, unresolvedCriticals } from '../quality/review-parser.ts'
 import type { Proposal } from '../proposal/store.ts'
 
 export interface OrchestrationStep {
-  step: 'review-gate' | 'tasks' | 'swarm' | 'openspec-archive' | 'gitnexus-analyze' | 'reopen-dir' | 'status'
+  step: 'review-gate' | 'tasks' | 'swarm' | 'openspec-archive' | 'gitnexus-analyze' | 'reopen-dir' | 'worktree-cleanup' | 'status'
   status: 'ok' | 'skipped' | 'failed'
   summary: string
 }

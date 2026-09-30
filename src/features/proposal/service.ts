@@ -6,6 +6,9 @@
  */
 import { ProposalStore, type BlockerEntry, type DecisionEntry, type Proposal } from './store.ts'
 
+/** Fields the lifecycle layer may patch directly (manager outputs, branches, wiki refs). */
+const PATCHABLE = new Set(['worktreePath', 'portRange', 'proposalBranch', 'featureBranch', 'wikiLinks'])
+
 export interface UpsertProposalInput {
   id: string
   title: string
@@ -42,6 +45,8 @@ export interface ProposalService {
   block(id: string, input: BlockInput): Promise<BlockerEntry>
   /** Answer and resolve one blocker. */
   unblock(id: string, blockerId: string, answer: string): Promise<BlockerEntry>
+  /** Patch lifecycle-owned fields (worktree/branches/wiki links). */
+  patchFields(id: string, patch: Partial<Proposal>): Promise<Proposal>
 }
 
 export class ProposalServiceImpl implements ProposalService {
@@ -161,6 +166,19 @@ export class ProposalServiceImpl implements ProposalService {
     existing.updatedAt = blocker.answeredAt
     await this.store.save(proposals)
     return blocker
+  }
+
+  async patchFields(id: string, patch: Partial<Proposal>): Promise<Proposal> {
+    const proposals = await this.store.load()
+    const existing = proposals.find((proposal) => proposal.id === id)
+    if (!existing) throw new Error(`proposal not found: ${id}`)
+    for (const [key, value] of Object.entries(patch)) {
+      if (!PATCHABLE.has(key)) throw new Error(`field '${key}' is not patchable`)
+      ;(existing as unknown as Record<string, unknown>)[key] = value
+    }
+    existing.updatedAt = this.now().toISOString()
+    await this.store.save(proposals)
+    return existing
   }
 
   async setStatus(id: string, status: Proposal['status']): Promise<Proposal> {

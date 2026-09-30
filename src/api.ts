@@ -11,7 +11,9 @@ import { fileURLToPath } from 'node:url'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Router, readJsonBody } from './http.ts'
 import type { ProposalService } from './features/proposal/service.ts'
-import type { ArchiveServiceImpl } from './features/archive/service.ts'
+import type { LifecycleServiceImpl } from './features/archive/service.ts'
+import { PROPOSAL_STATES, isProposalState } from './features/proposal/state-machine.ts'
+import { linkWikiToProposal } from './features/wiki/links.ts'
 import type { ProjectRegistry } from './features/project/registry.ts'
 import { syncProjectAssets } from './features/quality/sync.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
@@ -25,7 +27,7 @@ function resolveRoot(deps: ApiDeps, explicit?: string): string {
 
 export interface ApiDeps {
   proposals: ProposalService
-  archive: ArchiveServiceImpl
+  archive: LifecycleServiceImpl
   registry: ProjectRegistry
   openspecRoot: string
   /** Config-level default project root; may be empty. */
@@ -97,28 +99,24 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     })
   })
 
-  router.post('/api/proposals/:id/start', async (r) => {
-    const proposal = await deps.archive.start(r.params['id'] ?? '')
-    return { proposal }
+  router.post('/api/proposals/:id/advance', async (r) => {
+    const result = await deps.archive.advance(r.params['id'] ?? '')
+    return { proposal: result.proposal, ...(result.worktree !== undefined ? { worktree: result.worktree } : {}) }
+  })
+
+  router.post('/api/proposals/:id/transition', async (r) => {
+    const body = await readJsonBody<{ to?: string }>(r.req)
+    const to = body.to ?? ''
+    if (!isProposalState(to)) {
+      throw new Error(`unknown state '${to}' — valid: ${PROPOSAL_STATES.join(', ')}`)
+    }
+    const result = await deps.archive.transition(r.params['id'] ?? '', to)
+    return { proposal: result.proposal, ...(result.worktree !== undefined ? { worktree: result.worktree } : {}) }
   })
 
   router.post('/api/proposals/:id/archive', async (r) => {
-    const body = await readJsonBody<{ force?: boolean; projectRoot?: string }>(r.req).catch(() => ({}) as { force?: boolean; projectRoot?: string })
-    const archived = await deps.archive.archive(r.params['id'] ?? '', {
-      openspecRoot: deps.openspecRoot,
-      projectRoot: resolveRoot(deps, body.projectRoot) || undefined,
-      force: body.force,
-    })
-    return {
-      proposal: archived,
-      ...(typeof archived === 'object' && 'orchestration' in archived
-        ? { orchestration: (archived as { orchestration: unknown }).orchestration }
-        : {}),
-    }
-  })
-
-  router.get('/api/graph', async (r) => {
-    return buildGraphData(deps, resolveRoot(deps, r.query.get('projectRoot') ?? undefined) || undefined)
+    const result = await deps.archive.runArchive(r.params['id'] ?? '')
+    return { proposal: result.proposal, ...(result.orchestration !== undefined ? { orchestration: result.orchestration } : {}) }
   })
 
   router.get('/api/projects', async () => {
@@ -136,6 +134,20 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
   router.delete('/api/projects/:name', async (r) => {
     const removed = await deps.registry.remove(r.params['name'] ?? '')
     return { removed }
+  })
+  router.get('/api/graph', async (r) => {
+    return buildGraphData(deps, resolveRoot(deps, r.query.get('projectRoot') ?? undefined) || undefined)
+  })
+  router.post('/api/proposals/:id/wiki-links', async (r) => {
+    const body = await readJsonBody<{ url?: string; pageType?: string; version?: number; commit?: string; taskId?: string }>(r.req)
+    const link = await linkWikiToProposal(deps.proposals, r.params['id'] ?? '', {
+      url: body.url ?? '',
+      pageType: body.pageType ?? '',
+      ...(body.version !== undefined ? { version: body.version } : {}),
+      ...(body.commit !== undefined ? { commit: body.commit } : {}),
+      ...(body.taskId !== undefined ? { taskId: body.taskId } : {}),
+    })
+    return { link }
   })
 
   router.post('/api/proposals/:id/decisions', async (r) => {
@@ -167,30 +179,10 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     return { blocker }
   })
 
-  router.post('/api/proposals/:id/review', async (r) => {
-    const proposal = await deps.archive.startReview(r.params['id'] ?? '')
-    return { proposal }
-  })
 
-  router.post('/api/proposals/:id/approve', async (r) => {
-    const proposal = await deps.archive.approveReview(r.params['id'] ?? '')
-    return { proposal }
-  })
 
-  router.post('/api/proposals/:id/unreview', async (r) => {
-    const proposal = await deps.archive.unreview(r.params['id'] ?? '')
-    return { proposal }
-  })
 
-  router.post('/api/proposals/:id/stop', async (r) => {
-    const proposal = await deps.archive.stop(r.params['id'] ?? '')
-    return { proposal }
-  })
 
-  router.post('/api/proposals/:id/reopen', async (r) => {
-    const reopened = await deps.archive.reopen(r.params['id'] ?? '', { openspecRoot: deps.openspecRoot })
-    return { proposal: reopened, orchestration: reopened.orchestration }
-  })
 }
 
 export async function createProposal(

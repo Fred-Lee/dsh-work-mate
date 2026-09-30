@@ -42,7 +42,8 @@ function ok(body: unknown) {
 }
 
 function columnFor(status: string): HTMLElement {
-  const heads = screen.getAllByText(status === 'draft' ? '提案中' : status === 'executing' ? '执行中' : '已归档')
+  const label = status === 'draft' ? '提案阶段' : status === 'executing' ? '实现与合并' : '已归档'
+  const heads = screen.getAllByText(label)
   const head = heads[0] as HTMLElement
   const column = head.closest('section')
   if (column === null) throw new Error('column section not found')
@@ -55,7 +56,7 @@ describe('ProposalPanel (kanban)', () => {
       ok({
         proposals: [
           proposal(),
-          proposal({ id: 'p2', title: '另一提案', status: 'executing' }),
+          proposal({ id: 'p2', title: '另一提案', status: 'implementing' }),
           proposal({ id: 'p3', title: '旧提案', status: 'archived' }),
         ],
       }),
@@ -107,14 +108,14 @@ describe('ProposalPanel (kanban)', () => {
   })
 
   it('expands a card to load per-project detail facts', async () => {
-    fetchMock.mockResolvedValue(ok({ proposals: [proposal({ status: 'executing', projects: ['grading-core'] })] }))
+    fetchMock.mockResolvedValue(ok({ proposals: [proposal({ status: 'implementing', projects: ['grading-core'] })] }))
     render(<ProposalPanel />)
     await screen.findByText('批量批改 v2.1')
 
     fireEvent.click(screen.getByText('批量批改 v2.1'))
     fetchMock.mockResolvedValueOnce(
       ok({
-        proposal: proposal({ status: 'executing', projects: ['grading-core'] }),
+        proposal: proposal({ status: 'implementing', projects: ['grading-core'] }),
         projects: [
           {
             project: 'grading-core',

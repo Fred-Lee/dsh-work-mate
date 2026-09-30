@@ -16,10 +16,17 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool, type InferValue, type JsonValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-tools'
 import { resolveConfig, type Config } from './config.ts'
+import type { Proposal } from './features/proposal/store.ts'
+import type { OrchestrationTarget } from './features/archive/orchestrate.ts'
 import { ProposalStore } from './features/proposal/store.ts'
 import { ProposalServiceImpl, type ProposalService } from './features/proposal/service.ts'
-import { ArchiveServiceImpl } from './features/archive/service.ts'
-import { orchestrateArchive, orchestrateReopen } from './features/archive/orchestrate.ts'
+import { LifecycleServiceImpl } from './features/archive/service.ts'
+import { WorktreeManager } from './features/worktree/manager.ts'
+import { linkWikiToProposal, listWikiLinks } from './features/wiki/links.ts'
+import { STATE_HINTS, type ProposalState } from './features/proposal/state-machine.ts'
+
+const nextStepHint = (status: string): string => STATE_HINTS[status as keyof typeof STATE_HINTS] ?? ''
+import { orchestrateArchive } from './features/archive/orchestrate.ts'
 import { ProjectRegistry } from './features/project/registry.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
 import { gitnexusRun } from './features/knowledge-bridge/gitnexus.ts'
@@ -37,13 +44,15 @@ export type { RegisteredProject } from './features/project/registry.ts'
 export { ProposalStore, resolveDshHome, StoreCorruptError } from './features/proposal/store.ts'
 export type { ProposalService, UpsertProposalInput } from './features/proposal/service.ts'
 export { ProposalServiceImpl } from './features/proposal/service.ts'
-export { ArchiveServiceImpl, InvalidTransitionError } from './features/archive/service.ts'
+export { LifecycleServiceImpl, InvalidTransitionError } from './features/archive/service.ts'
+export { WorktreeManager } from './features/worktree/manager.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
     'workmate.proposal': ProposalService
-    'workmate.archive': ArchiveServiceImpl
+    'workmate.archive': LifecycleServiceImpl
     'workmate.projects': ProjectRegistry
+    'workmate.worktree': WorktreeManager
   }
 }
 
@@ -53,32 +62,39 @@ const asJson = (value: unknown): ToolJson => JSON.parse(JSON.stringify(value)) a
 
 export function apply(ctx: Context, config: Config = {}): void {
   const resolved = resolveConfig(config)
+  if (resolved.weknoraWikiRequired && resolved.weknoraKbId === '') {
+    console.error(
+      '[workmate] invalid config: weknoraWikiRequired=true but weknoraKbId is empty — the merging gate would block every proposal. Set weknoraKbId or clear weknoraWikiRequired.',
+    )
+  }
   const store = new ProposalStore({ subdir: resolved.workmateHome })
   const proposals = new ProposalServiceImpl(store)
   const registry = new ProjectRegistry({ subdir: resolved.workmateHome })
-  const archive = new ArchiveServiceImpl({
+  const worktree = new WorktreeManager({
+    subdir: resolved.workmateHome,
+    basePort: resolved.basePort,
+    portStep: resolved.portStep,
+    copyFiles: resolved.copyFiles,
+    packageManager: resolved.packageManager,
+  })
+  const resolveRoots = async (proposal: Proposal): Promise<OrchestrationTarget[]> => {
+    const targets: OrchestrationTarget[] = []
+    for (const name of proposal.projects) {
+      const registered = await registry.get(name)
+      if (registered !== undefined) targets.push({ project: name, root: registered.root })
+    }
+    return targets
+  }
+  const archive = new LifecycleServiceImpl({
     proposals,
-    async resolveProjectRoots(proposal) {
-      const targets: Array<{ project: string; root: string }> = []
-      for (const name of proposal.projects) {
-        const registered = await registry.get(name)
-        if (registered !== undefined) targets.push({ project: name, root: registered.root })
-      }
-      return targets
-    },
-    async changeDirExists(projectRoot, openspecRoot, changeId) {
-      const state = await import('./features/proposal/openspec.ts')
-      const result = await state.readChangeState(projectRoot, openspecRoot, changeId)
-      return result.state !== 'missing'
-    },
-    async orchestrate(proposal, targets, opts) {
+    worktree,
+    resolveProjectRoots: resolveRoots,
+    gitnexusEnabled: resolved.gitnexusEnabled,
+    orchestrate(proposal, targets, opts) {
       return orchestrateArchive(proposal, targets, {
         openspecRoot: opts.openspecRoot,
         gitnexusAnalyzeEnabled: resolved.gitnexusEnabled,
       })
-    },
-    async orchestrateReopen(proposal, targets, opts) {
-      return orchestrateReopen(proposal, targets, { openspecRoot: opts.openspecRoot })
     },
   })
 
@@ -97,8 +113,9 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.provide('workmate.proposal', proposals)
   ctx.provide('workmate.archive', archive)
   ctx.provide('workmate.projects', registry)
+  ctx.provide('workmate.worktree', worktree)
 
-  registerTools(ctx, { proposals, archive, registry, resolved })
+  registerTools(ctx, { proposals, archive, registry, worktree, resolved })
   mountWorkmateApi(
     ctx.get('webServer') as Parameters<typeof mountWorkmateApi>[0],
     {
@@ -114,13 +131,14 @@ export function apply(ctx: Context, config: Config = {}): void {
 
 interface ToolDeps {
   proposals: ProposalService
-  archive: ArchiveServiceImpl
+  archive: LifecycleServiceImpl
   registry: ProjectRegistry
+  worktree: WorktreeManager
   resolved: ReturnType<typeof resolveConfig>
 }
 
 function registerTools(ctx: Context, deps: ToolDeps): void {
-  const { proposals, archive, registry, resolved } = deps
+  const { proposals, archive, registry, worktree, resolved } = deps
 
   ctx.tools.register(
     defineTool({
@@ -180,47 +198,24 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     defineTool({
       name: 'workmate_proposal_archive',
       description:
-        'Advance a proposal along draft → executing → archived. Use workmate_proposal_status first; draft proposals cannot be archived directly, and a missing OpenSpec change directory requires force: true.',
+        'Drive the eight-state proposal lifecycle: mode=advance moves one state forward (auto-creates the worktree at ready→implementing; wiki coverage is checked before merging); mode=archive runs the archive orchestration once in archiving; any state name performs an adjacent transition (backward is free, forward checks preconditions).',
       parameters: {
         id: { type: 'string', required: true, description: 'Proposal id.' },
-        mode: { type: 'string', description: 'Lifecycle direction: archive (default) | start | review | approve | unreview | reopen | stop.' },
-        start: { type: 'boolean', description: 'Legacy shorthand for mode=start (draft → executing).' },
-        force: { type: 'boolean', description: 'Archive even when the OpenSpec change directory is missing.' },
-        projectRoot: { type: 'string', description: 'Absolute project root; falls back to Config.projectRoot.' },
+        mode: { type: 'string', description: 'advance (default) | archive | a state name (draft/proposing/reviewing/ready/implementing/merging/archiving/archived).' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
       async execute(args) {
-        const mode = args.mode ?? (args.start === true ? 'start' : 'archive')
-        if (mode === 'start') {
-          const proposal = await archive.start(args.id)
-          return asJson({ proposal, note: 'proposal moved to executing' })
+        const mode = args.mode ?? 'advance'
+        if (mode === 'advance') {
+          const result = await archive.advance(args.id)
+          return asJson({ proposal: result.proposal, ...(result.worktree !== undefined ? { worktree: result.worktree } : {}), note: `next: ${nextStepHint(result.proposal.status)}` })
         }
-        if (mode === 'stop') {
-          const proposal = await archive.stop(args.id)
-          return asJson({ proposal, note: 'proposal moved back to draft' })
+        if (mode === 'archive') {
+          const result = await archive.runArchive(args.id)
+          return asJson({ proposal: result.proposal, ...(result.orchestration !== undefined ? { orchestration: result.orchestration } : {}) })
         }
-        if (mode === 'review') {
-          const proposal = await archive.startReview(args.id)
-          return asJson({ proposal, note: 'proposal entered review — run the proposal-auditor subagent to produce review.md' })
-        }
-        if (mode === 'approve') {
-          const proposal = await archive.approveReview(args.id)
-          return asJson({ proposal, note: 'review approved — proposal moved to executing' })
-        }
-        if (mode === 'unreview') {
-          const proposal = await archive.unreview(args.id)
-          return asJson({ proposal, note: 'proposal returned to draft' })
-        }
-        if (mode === 'reopen') {
-          const reopened = await archive.reopen(args.id, { openspecRoot: resolved.openspecRoot })
-          return asJson({ proposal: reopened, orchestration: reopened.orchestration })
-        }
-        const proposal = await archive.archive(args.id, {
-          openspecRoot: resolved.openspecRoot,
-          projectRoot: args.projectRoot ?? (resolved.projectRoot || undefined),
-          force: args.force,
-        })
-        return asJson({ proposal })
+        const result = await archive.transition(args.id, mode as ProposalState)
+        return asJson({ proposal: result.proposal, ...(result.worktree !== undefined ? { worktree: result.worktree } : {}) })
       },
     }),
   )
@@ -284,6 +279,45 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
   )
   ctx.tools.register(
     defineTool({
+      name: 'workmate_wiki_link',
+      description:
+        'Register a WeKnora Wiki page reference on a proposal (call after creating/updating the page with the weknora tools). pageType must be concept | synthesis | entity; type coverage is checked before merging.',
+      parameters: {
+        id: { type: 'string', required: true, description: 'Proposal id.' },
+        url: { type: 'string', required: true, description: 'weknora:// page URL or deep link.' },
+        pageType: { type: 'string', required: true, description: 'concept | synthesis | entity.' },
+        version: { type: 'integer', description: 'Page version after the update.' },
+        commit: { type: 'string', description: 'Related commit short hash.' },
+        taskId: { type: 'string', description: 'tasks.md task id this page documents, e.g. 2.3.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      async execute(args) {
+        const link = await linkWikiToProposal(proposals, args.id, {
+          url: args.url,
+          pageType: args.pageType,
+          ...(args.version !== undefined ? { version: args.version } : {}),
+          ...(args.commit !== undefined ? { commit: args.commit } : {}),
+          ...(args.taskId !== undefined ? { taskId: args.taskId } : {}),
+        })
+        return asJson({ link })
+      },
+    }),
+  )
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_wiki_links',
+      description: 'List the WeKnora Wiki page references registered on a proposal.',
+      parameters: {
+        id: { type: 'string', required: true, description: 'Proposal id.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      async execute(args) {
+        return asJson({ links: await listWikiLinks(proposals, args.id) })
+      },
+    }),
+  )
+  ctx.tools.register(
+    defineTool({
       name: 'workmate_knowledge_query',
       description:
         'Query the GitNexus code knowledge graph of a project (must be gitnexus-analyzed): action "query" finds execution flows for a concept, "context" gives a 360-degree view of a symbol, "impact" reports the blast radius of changing a symbol.',
@@ -336,5 +370,5 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     }),
   )
 
-  console.log('[workmate] tools registered (proposal_create/status/archive + decide/block/unblock + knowledge_query/knowledge_search)')
+  console.log('[workmate] tools registered (proposal lifecycle + decide/block/unblock + wiki_link(s) + knowledge_query/search)')
 }

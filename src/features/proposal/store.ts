@@ -10,6 +10,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { migrateStatus, type ProposalState } from './state-machine.ts'
 
 export interface DecisionEntry {
   id: string
@@ -31,11 +32,30 @@ export interface BlockerEntry {
   answeredAt?: string
 }
 
+export interface WikiLink {
+  url: string
+  pageType: 'concept' | 'synthesis' | 'entity'
+  version?: number
+  commit?: string
+  taskId?: string
+  registeredAt: string
+}
+
 export interface Proposal {
   /** Slug-style identifier, e.g. "batch-grading-v2". */
   id: string
   title: string
-  status: 'draft' | 'reviewing' | 'executing' | 'archived'
+  status: ProposalState
+  /** Worktree created at ready→implementing (auto, design D3). */
+  worktreePath?: string
+  /** Port segment allocated for this proposal's worktree. */
+  portRange?: number[]
+  /** Proposal branch (created at proposing). */
+  proposalBranch?: string
+  /** Implementation branch inside the worktree. */
+  featureBranch?: string
+  /** WeKnora page references registered by the agent. */
+  wikiLinks?: WikiLink[]
   /** Associated project identifiers. */
   projects: string[]
   /** Associated Git commit hashes (tag-proposal association, M2). */
@@ -105,11 +125,14 @@ export class ProposalStore {
       if (!Array.isArray(parsed)) {
         throw new StoreCorruptError('proposals.json must contain a JSON array', parsed)
       }
-      // Normalize records written before decisions/blockers existed.
+      // Normalize records written before newer fields existed, and migrate
+      // the pre-eight-state status onto the lifecycle chain.
       return (parsed as Proposal[]).map((proposal) => ({
         ...proposal,
+        status: migrateStatus(proposal.status),
         decisions: proposal.decisions ?? [],
         blockers: proposal.blockers ?? [],
+        wikiLinks: proposal.wikiLinks ?? [],
       }))
     } catch (error) {
       if (error instanceof StoreCorruptError) throw error

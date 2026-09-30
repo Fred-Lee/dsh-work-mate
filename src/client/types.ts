@@ -18,15 +18,39 @@ export interface BlockerEntry {
   answeredAt?: string
 }
 
+export type ProposalState =
+  | 'draft'
+  | 'proposing'
+  | 'reviewing'
+  | 'ready'
+  | 'implementing'
+  | 'merging'
+  | 'archiving'
+  | 'archived'
+
+export interface WikiLinkEntry {
+  url: string
+  pageType: 'concept' | 'synthesis' | 'entity'
+  version?: number
+  commit?: string
+  taskId?: string
+  registeredAt: string
+}
+
 export interface Proposal {
   id: string
   title: string
-  status: 'draft' | 'executing' | 'archived'
+  status: ProposalState
   projects: string[]
   commits: string[]
   openspecChangeId: string
   decisions?: DecisionEntry[]
   blockers?: BlockerEntry[]
+  wikiLinks?: WikiLinkEntry[]
+  worktreePath?: string
+  portRange?: number[]
+  featureBranch?: string
+  proposalBranch?: string
   createdAt: string
   updatedAt: string
 }

@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { ProposalStore } from './features/proposal/store.ts'
 import { ProposalServiceImpl } from './features/proposal/service.ts'
-import { ArchiveServiceImpl } from './features/archive/service.ts'
+import { LifecycleServiceImpl } from './features/archive/service.ts'
+import { WorktreeManager } from './features/worktree/manager.ts'
 import { Router, readJsonBody } from './http.ts'
 import { registerApiRoutes } from './api.ts'
 
@@ -69,9 +70,22 @@ beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'workmate-api-'))
   store = new ProposalStore({ homeRoot: home, subdir: 'workmate' })
   proposals = new ProposalServiceImpl(store)
-  archive = new ArchiveServiceImpl({ proposals })
+  archive = new LifecycleServiceImpl({
+    proposals,
+    worktree: new WorktreeManager({
+      subdir: 'workmate',
+      basePort: 3000,
+      portStep: 10,
+      copyFiles: [],
+      packageManager: 'pnpm',
+    }),
+    orchestrate: async () => ({
+      ok: false,
+      steps: [{ step: 'status' as const, status: 'failed' as const, summary: 'no roots (headless test)' }],
+    }),
+  })
   router = new Router()
-  registerApiRoutes(router, { proposals, archive, openspecRoot: 'openspec', projectRoot: '' })
+  registerApiRoutes(router, { proposals, archive, openspecRoot: 'openspec', projectRoot: '', registry: undefined as never, qualitySyncEnabled: false })
 })
 
 afterEach(async () => {
@@ -110,18 +124,31 @@ describe('proposal REST API', () => {
     expect((created.body as { proposal: { id: string } }).proposal.id).toMatch(/^proposal-/)
   })
 
-  it('walks the lifecycle endpoints (start then archive)', async () => {
+  it('walks the lifecycle endpoints (advance × N then archive requires archiving)', async () => {
     await call('POST', '/api/proposals', { id: 'p2', title: 't' })
 
-    const early = await call('POST', '/api/proposals/p2/archive', {})
-    expect(early.status).toBe(400)
-
-    await expect(call('POST', '/api/proposals/p2/start', {})).resolves.toMatchObject({
-      body: { proposal: { status: 'executing' } },
+    await expect(call('POST', '/api/proposals/p2/advance', {})).resolves.toMatchObject({
+      body: { proposal: { status: 'proposing' } },
     })
-    await expect(call('POST', '/api/proposals/p2/archive', {})).resolves.toMatchObject({
-      body: { proposal: { status: 'archived' } },
+    await expect(call('POST', '/api/proposals/p2/advance', {})).resolves.toMatchObject({
+      body: { proposal: { status: 'reviewing' } },
     })
+    // jump refusal
+    const jump = await call('POST', '/api/proposals/p2/transition', { to: 'implementing' })
+    expect(jump.status).toBe(400)
+    // backward is free
+    await expect(call('POST', '/api/proposals/p2/transition', { to: 'proposing' }, undefined)).resolves.toMatchObject({
+      body: { proposal: { status: 'proposing' } },
+    })
+    // walk to archiving
+    for (const state of ['reviewing', 'ready', 'implementing', 'merging', 'archiving']) {
+      await call('POST', '/api/proposals/p2/advance', {})
+    }
+    const detail = await call('GET', '/api/proposals/p2')
+    expect((detail.body as { proposal: { status: string } }).proposal.status).toBe('archiving')
+    // archive endpoint runs from archiving (headless: orchestration fails without roots, state unchanged)
+    const archived = await call('POST', '/api/proposals/p2/archive', {})
+    expect(archived.status).toBe(200)
   })
 })
 

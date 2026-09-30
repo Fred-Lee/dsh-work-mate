@@ -7,15 +7,13 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  advanceProposal,
   archiveProposal,
   createProposal,
   getProposal,
   listProjects,
   listProposals,
   registerProject,
-  reopenProposal,
-  startProposal,
-  stopProposal,
   type RegisteredProject,
 } from './api'
 import type { Proposal, ProposalStatusPayload } from './types'
@@ -24,15 +22,21 @@ import { PANEL_STYLE } from './styles'
 
 const POLL_MS = 5_000
 
-const STATUS_TONE: Record<Proposal['status'], string> = {
-  draft: '#9ca3af',
-  executing: '#3b82f6',
-  archived: '#22c55e',
+const STATE_META: Record<Proposal['status'], { label: string; tone: string }> = {
+  draft: { label: '需求输入', tone: '#9ca3af' },
+  proposing: { label: '提案分支', tone: '#a78bfa' },
+  reviewing: { label: '评审中', tone: '#f59e0b' },
+  ready: { label: '待实现', tone: '#38bdf8' },
+  implementing: { label: '实现中', tone: '#3b82f6' },
+  merging: { label: '合并校验', tone: '#818cf8' },
+  archiving: { label: '归档中', tone: '#fb923c' },
+  archived: { label: '已归档', tone: '#22c55e' },
 }
-const COLUMNS: Array<{ status: Proposal['status']; label: string }> = [
-  { status: 'draft', label: '提案中' },
-  { status: 'executing', label: '执行中' },
-  { status: 'archived', label: '已归档' },
+/** Three kanban columns aggregate the eight lifecycle states. */
+const COLUMNS: Array<{ states: Proposal['status'][]; label: string; tone: string }> = [
+  { states: ['draft', 'proposing', 'reviewing', 'ready'], label: '提案阶段', tone: '#a78bfa' },
+  { states: ['implementing', 'merging', 'archiving'], label: '实现与合并', tone: '#3b82f6' },
+  { states: ['archived'], label: '已归档', tone: '#22c55e' },
 ]
 
 function relativeTime(iso: string): string {
@@ -86,12 +90,10 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   )
 
   const act = useCallback(
-    async (id: string, action: 'start' | 'archive' | 'reopen' | 'stop') => {
+    async (id: string, action: 'advance' | 'archive') => {
       setBusy(true)
       try {
-        if (action === 'start') await startProposal(id)
-        else if (action === 'reopen') await reopenProposal(id)
-        else if (action === 'stop') await stopProposal(id)
+        if (action === 'advance') await advanceProposal(id)
         else await archiveProposal(id)
         setError('')
         await Promise.all([refresh(), loadDetail(id)])
@@ -108,7 +110,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
     () =>
       COLUMNS.map((column) => ({
         ...column,
-        cards: proposals.filter((proposal) => proposal.status === column.status),
+        cards: proposals.filter((proposal) => column.states.includes(proposal.status)),
       })),
     [proposals],
   )
@@ -145,15 +147,16 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
       ) : (
         <div className="wm-board">
           {columns.map((column) => (
-            <section className="wm-col" key={column.status}>
+            <section className="wm-col" key={column.label}>
               <header className="wm-col-head">
-                <i className="wm-dot" style={{ background: STATUS_TONE[column.status] }} />
+                <i className="wm-dot" style={{ background: column.tone }} />
                 <span>{column.label}</span>
                 <span className="wm-col-count">{column.cards.length}</span>
               </header>
               <div className="wm-col-body">
                 {column.cards.length === 0 && <div className="wm-col-empty">暂无提案</div>}
                 {column.cards.map((proposal) => {
+                  void proposal
                   const detail = details[proposal.id]
                   const tasks = detail?.openspec?.tasks
                   return (
@@ -162,7 +165,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                       key={proposal.id}
                       onClick={() => setExpanded((prev) => (prev === proposal.id ? null : proposal.id))}
                     >
-                      <span className="wm-card-bar" style={{ background: STATUS_TONE[proposal.status] }} />
+                      <span className="wm-card-bar" style={{ background: STATE_META[proposal.status].tone }} />
                       <h3 className="wm-card-title">{proposal.title}</h3>
                       <div className="wm-card-id">{proposal.id}</div>
                       {tasks !== undefined && tasks.total > 0 && (
@@ -179,6 +182,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                         </div>
                       )}
                       <div className="wm-meta">
+                        <span>{STATE_META[proposal.status].label}</span>
                         <span>{relativeTime(proposal.updatedAt)}</span>
                         {proposal.projects.length > 0 && <span>{proposal.projects.length} 个关联项目</span>}
                       </div>
@@ -313,34 +317,10 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                 <button
                                   className="wm-btn mini"
                                   type="button"
-                                  disabled={busy || proposal.status !== 'draft'}
-                                  onClick={() => void act(proposal.id, 'start')}
-                                >
-                                  推进执行
-                                </button>
-                                <button
-                                  className="wm-btn mini"
-                                  type="button"
-                                  disabled={busy || proposal.status !== 'executing'}
+                                  disabled={busy || proposal.status !== 'archiving'}
                                   onClick={() => void act(proposal.id, 'archive')}
                                 >
-                                  归档
-                                </button>
-                                <button
-                                  className="wm-btn mini"
-                                  type="button"
-                                  disabled={busy || proposal.status !== 'executing'}
-                                  onClick={() => void act(proposal.id, 'stop')}
-                                >
-                                  退回提案
-                                </button>
-                                <button
-                                  className="wm-btn mini"
-                                  type="button"
-                                  disabled={busy || proposal.status !== 'archived'}
-                                  onClick={() => void act(proposal.id, 'reopen')}
-                                >
-                                  重新打开
+                                  完成归档
                                 </button>
                               </div>
                             </>
