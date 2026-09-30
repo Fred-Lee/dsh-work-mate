@@ -66,5 +66,8 @@
     "change-proposal",
     "openspec",
     "gitnexus"
-  ]
+  ],
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.2"
+  }
 }
