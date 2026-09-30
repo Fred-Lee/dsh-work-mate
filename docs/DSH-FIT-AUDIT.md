@@ -301,8 +301,15 @@ P2 若干卫生项、i18n。
 **独立小修**：P2-8（`pnpm build` 的 decls 步骤——TypeScript 提到 `^5.7`，需先解决
 pnpm store v10/v11 不一致）。
 
-> 落地进度（2026-09-30）：Step 1 已实现并归档在 `openspec/changes/harden-dsh-plugin-fit`
-> （P0-1/2/4/6/7 + P1-3）；Step 2/3 仍未开始。
+> 落地进度（2026-09-30）：
+> - Step 1 已实现 `openspec/changes/harden-dsh-plugin-fit`（P0-1/2/4/6/7 + P1-3）；
+> - Step 2 已实现 `openspec/changes/adopt-dsh-native-config-and-guidance`（P0-3、P1-4、P1-5）：
+>   Config 改 native Schemastery 导出、流程与审查规程改 skill + systemPrompt 分发、
+>   Claude 资产加 `claudeAssetsEnabled` 开关。**P1-4 的结论据此修正**：DSH 源码里
+>   `.claude/**` 没有任何原生读取路径（唯一读取者是第一方
+>   `@deepseek-ai/dsh-hooks-claude-code` 桥，本机 profile 未装载），所以那批资产不是
+>   "写错了通道"，而是**受众是 Claude Code 用户**——保留分发、加开关、DSH 侧另走 skill。
+> - Step 3 仍未开始。
 
 > 建议按本项目既有工作流走：先 `docs(openspec): ...` 写 `openspec/changes/<name>/{proposal,design,tasks}.md`，
 > 再 `feat(...)` 实现。Step 1 建议拆成 `fix(dsh-fit): ...` 一次提交，Step 3 单独一个 change

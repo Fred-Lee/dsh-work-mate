@@ -17,7 +17,7 @@ Schemastery 内部图结构遍历字段，伪造必炸）。
 
 版本选择：profile 实装的 `@deepseek-ai/dsh-tools@0.1.2-alpha.5` 自身依赖
 `@deepseek-ai/schemastery@^3.18.2`，我们声明同一区间（装到 3.18.2），
-`toolchain.json.require` 记录该区间。多一份 copy 不影响身份检查（`Symbol.for` 是
+`toolchain.json` 的 `runtime` 段记录该区间（它不是 `require` 门禁项：那份门禁管的是 devDependencies 里的 kernel 钉子）。多一份 copy 不影响身份检查（`Symbol.for` 是
 全局注册表，brand 由创建者打上），宿主投影器只读结构字段、不 `instanceof`。
 
 `resolveConfig` 保留：它管的是"显式 `undefined` 不覆盖默认"，而 schema 管的是宿主

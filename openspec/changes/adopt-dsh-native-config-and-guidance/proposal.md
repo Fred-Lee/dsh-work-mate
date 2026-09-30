@@ -21,9 +21,10 @@
 ## What Changes
 
 1. **配置改 Schemastery**（`src/config.ts`）：新增 `export const Config: z<Config>`，
-   14 项各带 `default` + `description`；`Config` interface 保留为宿主契约类型，
+   15 项各带 `default` + `description`；`Config` interface 保留为宿主契约类型，
    `resolveConfig` 继续做内部归一（既有嵌入方与测试不受影响）。新增依赖
-   `@deepseek-ai/schemastery@^3.18.2`（与 profile 内 `dsh-tools` 的同名依赖同线）。
+   `@deepseek-ai/schemastery@^3.18.2`（与 profile 内 `dsh-tools` 的同名依赖同线，
+   记入 `toolchain.json` 的 `runtime` 段）。
 2. **两个 DSH 运行时 skill**（`src/features/guidance/`）：
    - `workmate-proposal-flow` —— 八态流程 + 工具地图 + 纪律（decide / block /
      wiki 登记 / 提交标记 / 归档触发 / 回退）；

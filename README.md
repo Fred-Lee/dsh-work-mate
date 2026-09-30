@@ -127,7 +127,8 @@ pnpm dsh web                                            # 启动，默认 http:/
 | `openspecRoot` | `'openspec'` | 目标项目内 OpenSpec 目录名（提案目录生成、状态聚合、生命周期前置校验、归档编排全链路一致） |
 | `gitnexusEnabled` | `true` | GitNexus 知识查询总开关 |
 | `weknoraBaseUrl` | `''` | WeKnora REST 地址（空 = 禁用知识检索） |
-| `qualitySyncEnabled` | `true` | 创建提案时向目标项目同步规范资产 |
+| `qualitySyncEnabled` | `true` | 创建提案时向目标项目同步规范资产（OpenSpec 侧） |
+| `claudeAssetsEnabled` | `true` | 同时分发 Claude Code 资产（`.claude/rules`、`agents`、`hooks`、`settings.json` 合并）；DSH 侧用插件内置 skill，不需要这一组 |
 | `basePort` / `portStep` | `3000` / `10` | worktree 端口段分配（每提案 `portStep` 个端口） |
 | `copyFiles` | `['.env', '.env.local']` | worktree 创建时从主工作区复制的文件清单 |
 | `packageManager` | `'pnpm'` | worktree 内依赖安装命令 |
@@ -136,6 +137,9 @@ pnpm dsh web                                            # 启动，默认 http:/
 | `weknoraWikiRequired` | `false` | `true` 时实现→合并被缺失 Wiki 引用阻断 |
 
 无效组合启动时响亮提示（如 `weknoraWikiRequired=true` 但 `weknoraKbId` 为空）。
+
+> 配置以 **native Schemastery schema** 运行时导出（`export const Config`），宿主因此能
+> 校验取值并在配置界面里渲染这些开关；写错类型会在装载时报错，而不是被静默忽略。
 
 ---
 
@@ -216,9 +220,19 @@ Agent 会话中可直接调用（DSH 工具面注册，名字以 `workmate_` 前
 | `workmate_knowledge_query` | GitNexus 查询（query / context / impact） |
 | `workmate_knowledge_search` | WeKnora 文档检索（未配置返回禁用说明） |
 
-**会话纪律**（由同步到目标项目的 rules 注入）：提交信息必须携带
-`[proposal:<id>]`（PreToolUse hook 强制）；方向性选择必须 `decide`；卡两轮必须
-`block`；调研类问题 fork 子代理；GitNexus 先查后写。
+**会话纪律**改为经 DSH 原生面分发（不再依赖 Claude Code 的 rules/hook）：
+
+| 分发面 | 内容 |
+|---|---|
+| skill `workmate-proposal-flow` | 八态流程、工具地图、三条硬纪律（决策日志 / 卡点 / 提交标记）、归档与回退 |
+| skill `workmate-proposal-audit` | 提案审查规程与 `review.md` 的机器可读形状（归档门读取） |
+| systemPrompt 段落 `tool:workmate` | 一段话的流程指引，从第一轮就可见（工具描述只留"怎么做"） |
+
+两个 skill 随插件注册（`ctx.skills.register`，fiber 卸载即注销），**不写用户项目**。
+DSH 侧据此执行：提交信息带 `[proposal:<id>]`、方向性选择必须 `decide`、同一方向卡两轮
+必须 `block`、代码事实先经 `workmate_knowledge_query` 核实。
+若配置 `claudeAssetsEnabled: true`（默认），同一套纪律还会以 Claude Code 的
+rules/agent/hook 形式分发到目标项目，供在同一个仓库里跑 Claude Code 的人使用。
 
 ---
 
@@ -246,15 +260,18 @@ Agent 会话中可直接调用（DSH 工具面注册，名字以 `workmate_` 前
 
 - **审查门**：归档编排第一步检查每个关联项目的
   `openspec/changes/<id>/review.md`——缺失或存在未勾选的 CRITICAL 条目即失败
-  （step 列出原因）；`proposal-auditor` subagent 生成该报告
-- **决策日志**：`supersedes` 链显式化推翻；auditor 比对链一致性与 GitNexus 事实
+  （step 列出原因，`force` 可只跳过这一道门）；报告由 skill `workmate-proposal-audit`
+  描述的规程生成
+- **决策日志**：`supersedes` 链显式化推翻；审查时比对链一致性与 GitNexus 事实
 - **卡点上报**：open 卡点面板红色置顶，答复后归档留痕
-- **验收谓词**：归档编排校验 tasks.md 全部勾选（`force` 可跳过）
-- **提交标记 hook**：目标项目 `.claude/settings.json` 的 PreToolUse hook 拦截
-  无 `[proposal:<id>]` 的提交
+- **验收谓词**：归档编排校验 tasks.md 全部勾选（`force` 不跳过这一步）
 
-规范资产（OpenSpec 硬约束、workmate-review schema、rules/agents/hooks）在创建
-提案时自动同步到目标项目——已存在的文件**永不覆盖**。
+资产分发在创建提案时进行，已存在的文件**永不覆盖**，分两组：
+
+| 组 | 内容 | 受谁控制 | 适用面 |
+|---|---|---|---|
+| OpenSpec | `openspec/config.yaml`、`workmate-review` schema 与模板 | `qualitySyncEnabled`（默认 true） | 审查门依赖它，DSH 与 Claude Code 共用 |
+| Claude Code | `.claude/rules`、`.claude/agents`、`.claude/hooks` + `settings.json` hook 合并 | `claudeAssetsEnabled`（默认 true） | **只在 Claude Code 里生效**（或宿主装了第一方 `@deepseek-ai/dsh-hooks-claude-code` 桥）；DSH 侧对应能力由内置 skill 提供 |
 
 ---
 
