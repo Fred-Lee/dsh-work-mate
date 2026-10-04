@@ -189,6 +189,50 @@ WorkBuddy 的 `ensureHarnessSession` 把"任务 ↔ agent 工作区"绑定成了
 
 ---
 
+## A. 已验证：宿主兼容性判定、peer 解析与 0.2.x 换线（2026-10-05）
+
+宿主从 `0.1.7-rc.2` 换到 `0.2.1-alpha.1` 后，本机 profile 里几乎所有社区插件被跳过装载。
+查证结论（三条，都是宿主源码级证据）：
+
+1. **判定只看 peer**：`packages/boot/app-boot/src/plugin-compatibility.ts:63-80` 遍历
+   `peerDependencies`，只挑 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*`，
+   用 `semver.satisfies(runtime, range, { includePrerelease: true })` 判定；不满足即整包
+   跳过并在日志里给 incompatible 警告。`dependencies` **完全不参与**，其它 scope
+   （`@deepseek-ai/cordis`、`@deepseek-ai/schemastery`、`@linxin666/*`）也不参与。
+   实测：peer `*` → 判定函数返回 `undefined`（放行）；peer `^0.1.2-alpha.5` →
+   返回 `{ peers: { '@deepseek-ai/dsh-tools': '^0.1.2-alpha.5' } }`（拒绝）。
+2. **运行时用宿主那份内核**：linked importer 在每个祖先 `node_modules` 位置应用当前 peer
+   声明（`profile-resolution/resolver.ts:87`、`:213-220`），官方说明见
+   `docs/user/develop/basic/publish.zh.md:103`（"需要与宿主共享实例的 dsh 包同时声明在
+   peerDependencies 与 devDependencies 中"）。所以插件的 devDependency 只是构建基准。
+3. **门禁可借宿主函数**：`packages/boot/app-boot/lib/index.js` 导出
+   `evaluatePluginCompatibility`，可直接 import 用于本地判定——`pnpm verify:host-compat`
+   就是这么做的（拿不到宿主构建时退化为"dsh peer 全为 `*`"的零依赖不变量）。
+
+**社区插件对照**（`0.2.1-alpha.1` 基准，按 peer 范围判定；"OK" = 不会被预检拒绝，
+不等于运行时一定正常——没有声明 dsh peer 的插件会直接放行）：
+
+| 插件 | 旧装版本 | 判定 | 可用版本 |
+|---|---|---|---|
+| `dsh-better-sidebar` | 0.17.1 / 0.22.1 | ❌ → ✅ | 0.24.1+ |
+| `dsh-mnemon` | 0.5.20 | ✅ | 0.5.24 |
+| `dsh-vision-router` | 2.1.2 | ❌ → ✅ | 3.0.1 |
+| `dsh-plugin-check` / `dsh-skill-manager` | 0.1.0 / 0.1.3 | ✅ | 同版本 |
+| `@changfenhuang/dsh-annotation` | 1.4.8 | ✅ | 1.4.11 |
+| `@linxin666/*`（17 个） | 0.3.12 | ✅（无 dsh peer） | 多数 0.4.4 |
+| `@deepseek-ai/dsh-mcp-client` | 0.1.1-rc.2 | ❌ | 0.2.1-alpha.1 |
+| `@deepseek-ai/dsh-subagent-claude-code` | 0.0.1-rc.1 | ❌ | 0.2.1-alpha.1 |
+| `dsh-outline` | 0.1.6 | ❌ | 暂无 |
+| `dsh-auto-review` | 0.10.4 | ❌ | 暂无（最新仍 `<0.2.0`） |
+| `dsh-mcp-adapter` | 0.6.3 | ❌ | 暂无 |
+| `@open-agfs/dsh-agfs` | 0.1.9 | ❌ | 暂无 |
+| `@dsh-forge/*`（link:） | 0.1.0 | ✅（无 dsh peer，仅 cordis） | 本地包自行评估运行时 |
+
+复现方式：读 profile 的 lockfile 取实装版本 → 拉 npm packument → 对每个版本的
+`peerDependencies` 跑一遍上面的判定（prerelease 语义用真 `semver` CLI 当 oracle）。
+
+---
+
 ## 参考
 
 - 本机 harness：`/Users/fredlee/Documents/workspace/deepseek-harness`（`0.1.2-alpha.5`）

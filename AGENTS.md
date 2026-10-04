@@ -15,43 +15,81 @@ WorkMate（`workmate4dsh`）是一个 **DSH 插件 Bundle**，围绕「变更提
 ## 常用命令
 
 ```bash
-pnpm install && pnpm build     # 构建（esbuild host 产物 + d.ts）
+pnpm install && pnpm build     # 构建（esbuild host/客户端产物 + dist/types 声明树）
 pnpm test                      # vitest
-pnpm typecheck                 # tsc --noEmit
-pnpm verify:contract           # 契约门禁：patch id / package.json / 入口 name 三处一致
+pnpm typecheck                 # host + client 两个 program
+pnpm verify                    # 三条门禁：契约 + 工具链钉版 + 宿主兼容
+pnpm verify:contract           # patch id / package.json / 入口 name 三处一致
+pnpm verify:toolchain          # toolchain.json ↔ package.json 钉版一致
+pnpm verify:host-compat        # dsh peer 范围与宿主基线（借宿主自己的判定函数）
+pnpm test:toolchain            # 上述门禁脚本自身的用例（node:test）
 
 pnpm exec vitest run src/features/proposal        # 单目录测试
 pnpm exec vitest run -t "部分用例名"               # 按用例名过滤
 ```
 
-装进本机 DSH profile（web profile 用 `link:` 直连源码目录，改完代码必须重新
-`pnpm build` 再重启 harness 才生效）：
+装进本机 DSH profile（`link:` 直连源码目录，改完代码必须重新 `pnpm build` 再重启
+harness 才生效）：
 
 ```bash
-# ~/.dsh/profiles/web/package.json 的 dependencies 加：
-#   "workmate4dsh": "link:/Users/fredlee/Documents/workspace/dsh-Helmsman"
-# dsh.profile.bundles 加： "workmate4dsh"
-cd ~/.dsh/profiles/web && pnpm install
-pnpm dsh --profile web --dump-config | grep workmate   # 应出现 workmate 条目
-pnpm dsh web                                            # http://127.0.0.1:3080
+DSH=/Users/fredlee/Documents/workspace/deepseek-harness/apps/cli/lib/bin.js
+node $DSH plugin --profile web add /Users/fredlee/Documents/workspace/dsh-Helmsman
+node $DSH --profile web --dump-config | grep workmate        # 应出现 workmate 条目
+node $DSH --profile web --dump-config-schema | grep -A3 workmate  # 应 status: schema
+node $DSH web                                                # http://127.0.0.1:3080
 ```
+
+> 手工等价：profile 的 `dependencies` 加
+> `"workmate4dsh": "link:/Users/fredlee/Documents/workspace/dsh-Helmsman"`，
+> `dsh.profile.bundles` 追加 `"workmate4dsh"`，然后在 profile 目录 `pnpm install`。
+> 本机 pnpm 11 与 profile 的 store v10 不一致时，`pnpm add` 会报
+> `ERR_PNPM_UNEXPECTED_STORE`，用 `npx --yes pnpm@10 add ...` 绕过（勿用 pnpm 11 直接
+> 重装整个 profile）。
 
 ## 插件契约（写代码之前先看这条）
 
 - 具名导出 `name` / `inject` / `Config` / `apply`，**没有 `export default`**。
-- `Config` 是 TypeScript interface（真机验证形态，非 Schemastery）。
-- **inject 只写已验证存在的服务**：声明了未就绪的服务，fiber 会永久 PENDING。
-  M1 自足（`inject = []`）；M2 引入 `tools` 前先惰性 `ctx.get` 探测。
-  可选依赖一律惰性 getter，缺失即优雅降级。
+- `Config` **同时**是 TypeScript interface（契约类型）与运行时 Schemastery schema。
+  宿主只认后者：它在 `packages/boot/app-boot/src/config-schema/native.ts` 里按
+  `Symbol.for('schemastery')` + `type` + `meta` 做身份检查，缺运行时导出就没有校验、
+  没有配置界面。schemastery 的版本必须与 `dsh-tools` 依赖的那条线一致，否则同一个
+  program 里两份 `Schema` 类型会让 `z<Config>` 注解报 TS2322。
+- `inject` 只写**每个 profile 都提供**的服务（当前只有 `['tools']`）。`webServer` /
+  `skills` / `systemPrompt` 一律用 reactive `ctx.inject([...], scope => …)` 惰性装配，
+  缺失即少一块能力，**不 park fiber**；不要用一次性 `ctx.get` 探测。
+- **dsh 内核 peer 必须是 `*`**：宿主只用 `peerDependencies` 里 `@deepseek-ai/dsh` /
+  `@deepseek-ai/dsh-*` 的范围判定兼容性（`plugin-compatibility.ts`，含 prerelease），
+  范围不满足就**整包跳过装载**——这是社区插件在 0.2.x 升级后集体失效的原因。
+  构建基准线写在 `devDependencies` + `toolchain.json`，由 `pnpm verify:host-compat` 守。
 - bundle 必须在 `package.json` 声明 `dsh.bundle.patch`，否则 profile 装载直接抛错
   （单元测试抓不到，只有真装进 profile 才暴露）。
-- `cordis.patch.yml` 只写本包条目；swarm / MCP 条目等对应社区插件真的装进 profile
-  后再追加——引用缺失插件同样断链。
+- `cordis.patch.yml` 只写本包条目；引用未安装的插件同样断链。
+
+## 跟随 DSH 升级（升级仪式）
+
+`dsh` 本体换线后按顺序做，任何一步红了都别继续：
+
+1. 装新线内核包（用 pnpm@10 绕过 store 版本不一致）：
+   `npx --yes pnpm@10 add -D @deepseek-ai/dsh-tools@<新版本>`
+   `npx --yes pnpm@10 add @deepseek-ai/schemastery@<dsh-tools 依赖的同版本>`
+2. 改 `toolchain.json`：`profile.dsh` 与新线一致，`require['@deepseek-ai/dsh-tools']`
+   与 devDependencies 完全相等（门禁要求逐字相等），`runtime` 记 schemastery 线。
+3. `pnpm typecheck && pnpm test`——API 断链在这一步暴露（历史上出现过
+   `CallId` → `ToolCallId` 改名）。
+4. `pnpm verify`（契约 + 钉版 + 宿主兼容）与 `pnpm build`。
+5. 重装进 profile 并核验（**不要**只信单元测试）：
+   `node $DSH plugin --profile <p> add <本仓库>`，然后
+   `--dump-config | grep workmate` 与 `--dump-config-schema`（workmate 条目应为
+   `status: schema`，且没有 workmate 相关 diagnostics）。
+
+运行时不需要跟着换：宿主自己的解析会把 linked importer 声明的 peer 指向**运行中安装
+的那份内核**（`profile-resolution/resolver.ts`），所以我们 import 的 `dsh-tools` 就是
+宿主那份；devDependency 只服务于类型检查与测试。
 
 ## 数据落盘
 
-`$DSH_HOME`（解析顺序：显式注入 → `$DSH_HOME` env → `~/.dsh`；env 名待与宿主
-`dsh-home-paths` 核对）下：
+`$DSH_HOME`（解析顺序：显式注入 → `$DSH_HOME` env → `~/.dsh`；env 名已与宿主
+`@deepseek-ai/dsh-home-paths` 核对一致）下：
 
 | 路径 | 内容 |
 | --- | --- |
@@ -73,10 +111,15 @@ pnpm dsh web                                            # http://127.0.0.1:3080
 待办（依赖外部条件）：swarm 并行执行（编排内已留记录性跳过位）、@快捷指令
 （`@hucj/dsh-file-mention` 未装）、WeKnora 真机契约核验。
 
-已知环境事实（M3/M4 决策依据）：本机 harness `0.1.7-rc.2`；profile 实装
-`dsh-tools 0.1.2-alpha.5`（引入时钉此线）；`@deepseek-ai/dsh-mcp-client` 不存在，
-只有社区 `dsh-mcp-adapter`；`dsh-swarm-orchestrator` / `@hucj/dsh-file-mention`
-未装。
+已知环境事实（2026-10-05 复核）：本机 harness 与宿主内核线 **`0.2.1-alpha.1`**
+（源码树 `@deepseek-ai/dsh-root 0.2.1-alpha.1`，tag `dsh-v0.2.1-alpha.1`）；
+`@deepseek-ai/dsh-tools 0.2.1-alpha.1`（devDependency 钉此线）、
+`@deepseek-ai/schemastery 3.18.5-alpha.1`、`@deepseek-ai/cordis 4.0.5-alpha.1`
+（共享 store 实装值）。社区侧：`dsh-better-sidebar` 0.24.1+ 已适配，
+`dsh-mnemon` / `@linxin666/*` / `@changfenhuang/dsh-annotation` 亦可用；
+`dsh-auto-review`、`dsh-mcp-adapter`、`@open-agfs/dsh-agfs`、`dsh-outline`
+**暂无兼容 0.2.x 的版本**（peer 停在 0.1.x）；`@deepseek-ai/dsh-mcp-client`
+与 `@deepseek-ai/dsh-subagent-claude-code` 需升到 0.2.1-alpha.1。
 
 ## 工作流
 
@@ -99,4 +142,5 @@ fix(store): 修复原子写中断后残留 tmp 文件
 | --- | --- |
 | `docs/DESIGN.md` | 技术设计文档 0.1.0-draft（架构、模块、里程碑） |
 | `docs/DSH-INTEGRATION-NOTES.md` | DSH 宿主集成契约（Origin 围栏、bundle 声明、link 安装、证据等级） |
+| `docs/DSH-FIT-AUDIT.md` | DSH 适配度评估（P0/P1/P2 清单、证据、落地进度） |
 | `openspec/specs/` | 已归档能力规格 |

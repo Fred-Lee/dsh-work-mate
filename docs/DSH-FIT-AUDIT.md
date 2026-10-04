@@ -255,7 +255,7 @@ README §1 却写"不另起 Web 应用"。
 | 5 | 无 i18n：面板与入口中文硬编码；DSH 有 `locale` 服务（`dsh-outline` 用 `ctx.locale.register`，其 `src/client/index.tsx:27`） | `src/client/App.tsx:25-40`、`ChatProposalAction.tsx:86` |
 | 6 | 服务名用点号（`workmate.proposal` 等）而宿主生态用裸名（`jobs`/`commands`/`skills`）；无功能影响，一致性偏弱 | `src/index.ts:50-57,113-116` |
 | 7 | `src/api.ts` 尾部 4 行空行 + `registerApiRoutes` 结构松散（多处空行） | `src/api.ts:181-186` |
-| 8 | **`pnpm build` 的声明文件步骤从第一天就是坏的**：`tsconfig.decls.json` 同时要求 `allowImportingTsExtensions: false` 与 `.ts` 后缀 import（TS5097），并使用了 TS 5.7 才有的 `rewriteRelativeImportExtensions`（本仓库钉 `typescript@5.6.3` → TS5023）。`git stash` 到 HEAD 复现同样报错，与本轮改动无关。影响：`pnpm build` 非零退出（`scripts/build.mjs` 的运行时产物已先产出，profile 仍可用），`exports["."].types` 指向的 `dist/types` 是陈旧产物。修法：把 TypeScript 提到 `^5.7`（本机 `pnpm add` 被 pnpm store v10/v11 不一致挡住，需先 `pnpm install` 重建） | `tsconfig.decls.json:8-9`、`pnpm-lock.yaml`（typescript 5.6.3） |
+| 8 | ~~`pnpm build` 的声明文件步骤从第一天就是坏的~~ **已修**：TypeScript 提到 `^5.7`（5.9.3）+ `tsconfig.decls.json` 排除 `src/client`（它有自己的 program，混进来会让 client 的 `effect(fn)` ambient 面覆盖 cordis 的 `effect(fn, label)`）。`pnpm build` 现在退出码 0；emitted `.d.ts` 仍用源码相对的 `.ts` 说明符，所以根导出不再声明 `types`（该声明树是内部参考，不是可消费的公共 API；要做可消费声明需要 rollup-plugin-dts 级别的打包） |`tsconfig.decls.json`、`package.json` |
 
 ---
 
@@ -310,6 +310,7 @@ pnpm store v10/v11 不一致）。
 >   `@deepseek-ai/dsh-hooks-claude-code` 桥，本机 profile 未装载），所以那批资产不是
 >   "写错了通道"，而是**受众是 Claude Code 用户**——保留分发、加开关、DSH 侧另走 skill。
 > - Step 3 仍未开始。
+> - 2026-10-05：宿主换线到 **0.2.1-alpha.1**，新增 `pnpm verify:host-compat`（借宿主自己的 `evaluatePluginCompatibility` 判定）与升级仪式；workmate 已在新线上 typecheck/test/build 全绿。
 
 > 建议按本项目既有工作流走：先 `docs(openspec): ...` 写 `openspec/changes/<name>/{proposal,design,tasks}.md`，
 > 再 `feat(...)` 实现。Step 1 建议拆成 `fix(dsh-fit): ...` 一次提交，Step 3 单独一个 change

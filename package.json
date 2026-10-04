@@ -1,14 +1,11 @@
 {
   "name": "workmate4dsh",
   "version": "0.1.0",
-  "description": "WorkMate — a DSH plugin bundle built around the change-proposal entity: proposal management, GitNexus/WeKnora knowledge bridging, swarm parallel orchestration and an OpenSpec archival loop.",
+  "description": "WorkMate \u2014 a DSH plugin bundle built around the change-proposal entity: proposal management, GitNexus/WeKnora knowledge bridging, swarm parallel orchestration and an OpenSpec archival loop.",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
-    ".": {
-      "types": "./dist/types/index.d.ts",
-      "default": "./dist/index.js"
-    },
+    ".": "./dist/index.js",
     "./client": "./dist/client/client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
@@ -31,10 +28,12 @@
     "build": "node scripts/build.mjs && tsc -p tsconfig.decls.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "test": "vitest run",
-    "test:toolchain": "node --test scripts/check-toolchain.test.mjs",
+    "test:toolchain": "node --test scripts/*.test.mjs",
     "verify:contract": "node scripts/check-contract.mjs",
     "verify:toolchain": "node scripts/check-toolchain.mjs --structural",
-    "prepack": "pnpm run build"
+    "prepack": "pnpm run build",
+    "verify:host-compat": "node scripts/check-host-compat.mjs",
+    "verify": "pnpm run verify:contract && pnpm run verify:toolchain && pnpm run verify:host-compat"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
@@ -42,7 +41,7 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-tools": "0.1.2-alpha.5",
+    "@deepseek-ai/dsh-tools": "0.2.1-alpha.1",
     "@testing-library/react": "^16.3.3",
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.0",
@@ -51,7 +50,7 @@
     "jsdom": "^30.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "typescript": "^5.6.3",
+    "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   },
   "engines": {
@@ -68,6 +67,6 @@
     "gitnexus"
   ],
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.2"
+    "@deepseek-ai/schemastery": "3.18.5-alpha.1"
   }
 }

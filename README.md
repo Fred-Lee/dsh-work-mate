@@ -57,6 +57,28 @@ draft → proposing → reviewing → ready → implementing → merging → arc
 > （`dsh-web-app`）挂载。客户端半同样零硬依赖——`dsh-better-sidebar` 缺失时只少一个
 > 侧栏标签，两个对话入口照常注册。
 
+### 1.1 跟随 DSH 升级（为什么本插件不会被"装不上"）
+
+宿主只用 `peerDependencies` 里名字为 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` 的范围判定
+兼容性（含 prerelease），**不满足就整包跳过装载**——这是社区插件在宿主换线后集体失效的
+原因。WorkMate 的 `@deepseek-ai/dsh-tools` peer 固定为 `*`，因此任何宿主版本都不会被拒；
+真正的构建基准线写在 `devDependencies` + `toolchain.json`，由门禁守：
+
+```bash
+pnpm verify:host-compat   # 借宿主自己的 evaluatePluginCompatibility 判定本包 manifest
+                          # + 比对 toolchain.json 基线与实装内核版本（漂移即失败）
+```
+
+运行时也不需要跟着换：宿主解析会把 linked importer 声明的 peer 指向**运行中安装的那份
+内核**，所以我们执行的是宿主那份 `dsh-tools`；devDependency 只服务类型检查与测试。
+
+宿主换线后的升级仪式（细节见 `AGENTS.md`）：对齐内核 devDependency 与 schemastery 线 →
+更新 `toolchain.json` → `pnpm typecheck && pnpm test` → `pnpm verify && pnpm build` →
+重装 profile 并用 `--dump-config-schema` 核验 workmate 条目 `status: schema`。
+
+当前基线：DSH `0.2.1-alpha.1`、`dsh-tools 0.2.1-alpha.1`、
+`schemastery 3.18.5-alpha.1`。
+
 ---
 
 ## 2. 安装
