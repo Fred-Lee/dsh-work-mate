@@ -117,6 +117,10 @@ node $DSH web                                                # http://127.0.0.1:
 | M3 | 知识桥接（GitNexus CLI / WeKnora） | ✅ 已归档 `2026-09-28-add-knowledge-bridge` |
 | M4 | 归档编排闭环（openspec archive + gitnexus analyze） | ✅ 已归档 `2026-09-28-add-archive-orchestration` |
 | M5 | 知识图谱可视化（SVG 分层视图） | ✅ 已归档 `2026-09-28-add-knowledge-graph-view` |
+| M6 | 过程度量（提案事件流 + 派生度量 + `workmate_metrics`） | ✅ 已归档 `2026-10-04-add-proposal-metrics` |
+| M7 | 反馈回流与控制带（来源/provenance + `workmate_bands` + 3σ 回流） | ✅ 已归档 `2026-10-04-add-feedback-loop` |
+| M8 | 客户端工厂求值门禁（`pnpm verify:client`） | ✅ 已归档 `2026-10-04-add-client-factory-gate` |
+| M9 | 原生工作台面板与控制台视图（`main` + `sidebar.panellist`） | ✅ 已归档 `2026-10-04-add-workbench-panel` |
 
 待办（依赖外部条件）：swarm 并行执行（编排内已留记录性跳过位）、@快捷指令
 （`@hucj/dsh-file-mention` 未装）、WeKnora 真机契约核验。
