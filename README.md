@@ -15,7 +15,9 @@ draft → proposing → reviewing → ready → implementing → merging → arc
   自动分配注入 `.env`、配置文件复制、依赖安装；归档后自动回收
 - **质量门**：归档前强制交叉审查报告（proposal-auditor），未解决 CRITICAL 阻断
 - **知识沉淀**：WeKnora Wiki 引用随提案登记并归档留痕；GitNexus 提供事实锚
-- **寄生而非替代**：UI 注入 DSH 原生界面（better-sidebar 标签 + 两个对话入口），
+- **寄生而非替代**：UI 优先走 DSH 原生工作台槽位——`main` 中央面板（key `workmate`）
+  + `sidebar.panellist` 左栏图标，点左栏图标即把中央切成 WorkMate；同时保留
+  better-sidebar 标签与两个对话入口，任一侧服务缺失都不影响另一条；
   同名面板另有 `/workmate/` 独立页供调试直连；UI 是**可选面**——任何 profile
   （含 headless / acp / sdk）里 agent 工具面都照常可用
 
@@ -227,6 +229,20 @@ Git 关联、worktree 信息、决策日志、卡点、审查报告与 Wiki 引�
 
 ---
 
+## 5.5 工作台面板与「控制台」视图
+
+- **原生面板**：客户端半边在 `main` 槽注册 `key: 'workmate'`，并在 `sidebar.panellist`
+  注册同名 id 的左栏图标——这是宿主自带的工作台模型（`plugins` / `schedules` /
+  `mnemon` 同款）。左栏点一下，中央就从对话切成 WorkMate；better-sidebar 的 dock 标签
+  仍然保留（两条路并存）。
+- **三个视图**：`看板`（提案卡）/ `控制台` / `知识图谱`。
+- **控制台**（跨提案只读视图）：聚合 KPI（提案数、返工率、首次通过率、周期时间中位数、
+  近 7/30 天归档数、agent/人 触发占比）+ 每提案行（状态、该状态停留、周期、返工、门禁
+  失败、未决卡点）+ 控制带表（指标 / 档位 / 当前 / 基线 / σ / 偏离 / 样本）。
+  样本不足的指标显示「**数据不足**」而不是绿色正常——这是刻意的：薄基线不等于一切安好。
+
+---
+
 ## 6. Agent 工具参考
 
 Agent 会话中可直接调用（DSH 工具面注册，名字以 `workmate_` 前缀隔离）：
@@ -352,7 +368,7 @@ src/
 │   ├── knowledge-bridge/    # GitNexus CLI 桥接 + WeKnora HTTP 客户端
 │   ├── quality/             # 规范资产同步 + review.md 解析
 │   └── project/             # 项目注册表
-├── client/                  # 面板 SPA + better-sidebar tab + 对话入口
+├── client/                  # 面板 SPA + 原生工作台面板/左栏图标 + better-sidebar tab + 对话入口
 └── assets/quality/          # 分发到目标项目的 OpenSpec/Claude 规范资产
 ```
 

@@ -6,6 +6,8 @@
  * creation lives in a modal with a project picker.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { getBands, getMetrics } from './api'
+import type { AggregateMetrics, BandEvaluation, BandsPayload } from './types'
 import {
   advanceProposal,
   archiveProposal,
@@ -53,7 +55,7 @@ function relativeTime(iso: string): string {
 
 export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const { projectRoot } = props
-  const [view, setView] = useState<'board' | 'graph'>('board')
+  const [view, setView] = useState<'board' | 'graph' | 'console'>('board')
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [details, setDetails] = useState<Record<string, ProposalStatusPayload>>({})
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -133,6 +135,9 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
             <button className={`wm-pill${view === 'board' ? ' active' : ''}`} type="button" onClick={() => setView('board')}>
               看板
             </button>
+            <button className={`wm-pill${view === 'console' ? ' active' : ''}`} type="button" onClick={() => setView('console')}>
+              控制台
+            </button>
             <button className={`wm-pill${view === 'graph' ? ' active' : ''}`} type="button" onClick={() => setView('graph')}>
               知识图谱
             </button>
@@ -147,6 +152,8 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
 
       {view === 'graph' ? (
         <GraphView projectRoot={projectRootDraft || undefined} />
+      ) : view === 'console' ? (
+        <ConsoleView onError={setError} />
       ) : (
         <div className="wm-board">
           {columns.map((column) => (
@@ -516,6 +523,178 @@ function CreateModal(props: {
           </button>
         </div>
       </form>
+    </div>
+  )
+}
+
+/** Human-readable dwell/cycle duration; unknown (0) stays unknown, never faked. */
+function formatDuration(ms: number | undefined): string {
+  if (ms === undefined || ms <= 0) return '—'
+  const minutes = Math.round(ms / 60000)
+  if (minutes < 60) return `${minutes}m`
+  const hours = minutes / 60
+  if (hours < 24) return `${hours.toFixed(1)}h`
+  return `${(hours / 24).toFixed(1)}d`
+}
+
+const percent = (value: number): string => `${Math.round(value * 100)}%`
+
+/**
+ * Control room: the cross-proposal view of the process facts (change
+ * `add-workbench-panel`). Two read-only requests — the aggregate metric
+ * projection and the control bands. `insufficient-data` is shown as such: a
+ * thin baseline is not "all good", and the UI must not imply otherwise.
+ */
+export function ConsoleView({ onError }: { onError: (message: string) => void }): JSX.Element {
+  const [metrics, setMetrics] = useState<AggregateMetrics | null>(null)
+  const [bands, setBands] = useState<BandsPayload | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    Promise.all([getMetrics(), getBands()])
+      .then(([nextMetrics, nextBands]) => {
+        if (!alive) return
+        setMetrics(nextMetrics)
+        setBands(nextBands)
+      })
+      .catch((cause: unknown) => {
+        if (alive) onError(cause instanceof Error ? cause.message : String(cause))
+      })
+    return () => {
+      alive = false
+    }
+  }, [onError])
+
+  if (metrics === null) return <div className="wm-empty">加载过程度量…</div>
+
+  const rows = [...metrics.perProposal].sort((left, right) => left.id.localeCompare(right.id))
+  return (
+    <div className="wm-console">
+      <section className="wm-section">
+        <div className="wm-kpis">
+          <div className="wm-kpi">
+            <div className="wm-kpi-value">{metrics.proposals}</div>
+            <div className="wm-kpi-label">提案总数</div>
+          </div>
+          <div className="wm-kpi">
+            <div className="wm-kpi-value">{percent(metrics.reworkRate)}</div>
+            <div className="wm-kpi-label">返工率（有过回退）</div>
+          </div>
+          <div className="wm-kpi">
+            <div className="wm-kpi-value">{percent(metrics.firstPassRate)}</div>
+            <div className="wm-kpi-label">首次通过率</div>
+          </div>
+          <div className="wm-kpi">
+            <div className="wm-kpi-value">{formatDuration(metrics.cycleTimeMedianMs)}</div>
+            <div className="wm-kpi-label">周期时间中位数</div>
+          </div>
+          <div className="wm-kpi">
+            <div className="wm-kpi-value">
+              {metrics.archived7d} / {metrics.archived30d}
+            </div>
+            <div className="wm-kpi-label">近 7 / 30 天归档</div>
+          </div>
+          <div className="wm-kpi">
+            <div className="wm-kpi-value">
+              {metrics.actorShare.agent} / {metrics.actorShare.human}
+            </div>
+            <div className="wm-kpi-label">agent / 人 触发</div>
+          </div>
+        </div>
+        <div className="wm-kpi-note">
+          共 {metrics.events} 条事件
+          {metrics.skippedLines > 0 ? `，${metrics.skippedLines} 行无法解析（已忽略）` : ''}
+          {metrics.gateFailureRanking.length > 0
+            ? `；门禁失败最多：${metrics.gateFailureRanking
+                .slice(0, 3)
+                .map((entry) => `${entry.gate}×${entry.count}`)
+                .join('、')}`
+            : ''}
+        </div>
+      </section>
+
+      <section className="wm-section">
+        <h3 className="wm-card-title">提案过程</h3>
+        {rows.length === 0 ? (
+          <div className="wm-empty">还没有提案</div>
+        ) : (
+          <table className="wm-table">
+            <thead>
+              <tr>
+                <th>提案</th>
+                <th>状态</th>
+                <th>该状态停留</th>
+                <th>周期</th>
+                <th className="wm-num">返工</th>
+                <th className="wm-num">门禁失败</th>
+                <th className="wm-num">未决卡点</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id}>
+                  <td title={row.id}>{row.title}</td>
+                  <td>{row.status}</td>
+                  <td>{formatDuration(row.currentStateMs)}</td>
+                  <td>{row.archived ? formatDuration(row.cycleTimeMs) : '—'}</td>
+                  <td className="wm-num">{row.reworkCount}</td>
+                  <td className="wm-num">{row.gateFailureCount}</td>
+                  <td className="wm-num">{row.openBlockers}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      <section className="wm-section">
+        <h3 className="wm-card-title">控制带（每提案一个样本）</h3>
+        {bands === null ? (
+          <div className="wm-empty">加载控制带…</div>
+        ) : (
+          <table className="wm-table">
+            <thead>
+              <tr>
+                <th>指标</th>
+                <th>档位</th>
+                <th className="wm-num">当前</th>
+                <th className="wm-num">基线</th>
+                <th className="wm-num">σ</th>
+                <th className="wm-num">偏离</th>
+                <th className="wm-num">样本</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bands.evaluations.map((entry: BandEvaluation) => (
+                <tr key={entry.metric}>
+                  <td>
+                    {entry.metric}
+                    <span className="wm-kpi-note"> {entry.direction === 'high' ? '越大越差' : '越小越差'}</span>
+                  </td>
+                  <td>
+                    {entry.status === 'insufficient-data' ? (
+                      <span className="wm-tier wm-tier-unknown">数据不足</span>
+                    ) : (
+                      <span className={`wm-tier wm-tier-${entry.tier}`}>{entry.tier}</span>
+                    )}
+                  </td>
+                  <td className="wm-num">{entry.status === 'ok' ? entry.current.toFixed(2) : '—'}</td>
+                  <td className="wm-num">{entry.status === 'ok' ? entry.baseline.toFixed(2) : '—'}</td>
+                  <td className="wm-num">{entry.status === 'ok' ? entry.sigma.toFixed(2) : '—'}</td>
+                  <td className="wm-num">{entry.status === 'ok' ? `${entry.deviation.toFixed(2)}σ` : '—'}</td>
+                  <td className="wm-num">
+                    {entry.samples}
+                    {entry.status === 'insufficient-data' ? `（基线 ${entry.baselineSamples}）` : ''}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <div className="wm-kpi-note">
+          窗口 {bands?.windowDays ?? '—'} 天；样本不足时不判越界（"数据不足"不等于正常）。
+        </div>
+      </section>
     </div>
   )
 }

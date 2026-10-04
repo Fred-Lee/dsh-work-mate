@@ -2,7 +2,7 @@
  * Browser-side REST client. Same-origin relative paths work both from the
  * standalone page (/workmate/) and inside the DSH shell (better-sidebar tab).
  */
-import type { CreateProposalBody, Proposal, ProposalState, ProposalStatusPayload } from './types'
+import type { AggregateMetrics, BandsPayload, CreateProposalBody, Proposal, ProposalState, ProposalStatusPayload } from './types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -22,6 +22,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function listProposals(): Promise<{ proposals: Proposal[] }> {
   return request('/workmate/api/proposals')
+}
+
+export function getMetrics(): Promise<AggregateMetrics> {
+  return request('/workmate/api/metrics')
+}
+
+export function getBands(): Promise<BandsPayload> {
+  return request('/workmate/api/bands')
 }
 
 export function getProposal(id: string, projectRoot?: string): Promise<ProposalStatusPayload> {

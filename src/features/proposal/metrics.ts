@@ -45,6 +45,21 @@ export interface ProposalMetrics {
   actorShare: Record<EventActor, number>
 }
 
+/** One row per proposal, for the control room (no N+1 requests). */
+export interface ProposalMetricRow {
+  id: string
+  title: string
+  status: ProposalState
+  archived: boolean
+  /** Dwell time in the state the proposal currently sits in. */
+  currentStateMs: number
+  cycleTimeMs?: number
+  reworkCount: number
+  gateFailureCount: number
+  openBlockers: number
+  decisions: number
+}
+
 export interface AggregateMetrics {
   proposals: number
   byState: Record<ProposalState, number>
@@ -59,6 +74,8 @@ export interface AggregateMetrics {
   firstPassRate: number
   gateFailureRanking: Array<{ gate: string; count: number }>
   actorShare: Record<EventActor, number>
+  /** Per-proposal projection: the control room renders this in one request. */
+  perProposal: ProposalMetricRow[]
   events: number
   skippedLines: number
 }
@@ -163,6 +180,7 @@ export function aggregateMetrics(
   const gateCounts = new Map<string, number>()
   let archived7d = 0
   let archived30d = 0
+  const perProposal: ProposalMetricRow[] = []
 
   for (const event of events) {
     if (event.kind === 'gate-failed') {
@@ -179,6 +197,18 @@ export function aggregateMetrics(
       totalByState[state] = (totalByState[state] ?? 0) + ms
       countedByState[state] = (countedByState[state] ?? 0) + 1
     }
+    perProposal.push({
+      id: proposal.id,
+      title: proposal.title,
+      status: proposal.status,
+      archived: metrics.archived,
+      currentStateMs: metrics.timeInStateMs[proposal.status] ?? 0,
+      ...(metrics.cycleTimeMs !== undefined ? { cycleTimeMs: metrics.cycleTimeMs } : {}),
+      reworkCount: metrics.reworkCount,
+      gateFailureCount: metrics.gateFailureCount,
+      openBlockers: metrics.openBlockers,
+      decisions: metrics.decisions,
+    })
     if (metrics.reworkCount > 0) reworked += 1
     if (metrics.firstPass) firstPassed += 1
     if (metrics.cycleTimeMs !== undefined) cycleTimes.push(metrics.cycleTimeMs)
@@ -212,6 +242,7 @@ export function aggregateMetrics(
       .map(([gate, count]) => ({ gate, count }))
       .sort((a, b) => b.count - a.count || a.gate.localeCompare(b.gate)),
     actorShare,
+    perProposal,
     events: events.length,
     skippedLines: options.skippedLines ?? 0,
   }

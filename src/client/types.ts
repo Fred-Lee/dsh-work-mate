@@ -109,6 +109,56 @@ export interface ProposalStatusPayload {
   projectNote?: string
 }
 
+/** One row of the aggregate metric projection (control room). */
+export interface ProposalMetricRow {
+  id: string
+  title: string
+  status: ProposalState
+  archived: boolean
+  currentStateMs: number
+  cycleTimeMs?: number
+  reworkCount: number
+  gateFailureCount: number
+  openBlockers: number
+  decisions: number
+}
+
+export interface AggregateMetrics {
+  proposals: number
+  byState: Record<string, number>
+  averageTimeInStateMs: Record<string, number>
+  cycleTimeMedianMs?: number
+  archived7d: number
+  archived30d: number
+  reworkRate: number
+  firstPassRate: number
+  gateFailureRanking: Array<{ gate: string; count: number }>
+  actorShare: { agent: number; human: number; system: number }
+  perProposal: ProposalMetricRow[]
+  events: number
+  skippedLines: number
+}
+
+export interface BandEvaluation {
+  metric: string
+  direction: 'high' | 'low'
+  status: 'ok' | 'insufficient-data'
+  tier: 'normal' | 'log' | 'diagnose' | 'propose'
+  action: string
+  current: number
+  baseline: number
+  sigma: number
+  deviation: number
+  samples: number
+  baselineSamples: number
+  note?: string
+}
+
+export interface BandsPayload {
+  evaluations: BandEvaluation[]
+  windowDays: number
+}
+
 export interface CreateProposalBody {
   /** Optional: auto-generated host-side when omitted (chat entry only asks for a title). */
   id?: string

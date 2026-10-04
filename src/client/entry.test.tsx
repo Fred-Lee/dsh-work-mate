@@ -53,15 +53,20 @@ describe('client module dependency shape', () => {
     expect(inject).toEqual([])
   })
 
-  it('registers both chat entries when only the first-party slots registry exists', () => {
+  it('registers the chat entries and the native workbench when only slots exists', () => {
     const { ctx, slots, sidebar } = fakeCtx({ slots: fakeSlots() })
     apply(ctx)
 
-    expect(slots?.register).toHaveBeenCalledTimes(2)
+    expect(slots?.register).toHaveBeenCalledTimes(4)
     expect(slots?.register.mock.calls.map((call) => (call[0] as { name: string }).name)).toEqual([
       'conversation.chat.assistant-actions',
       'conversation.input.left',
+      'main',
+      'sidebar.panellist',
     ])
+    // The workbench panel keys `main` and the rail icon shares the same id.
+    expect(slots?.register.mock.calls[2]?.[0]).toMatchObject({ name: 'main', key: 'workmate' })
+    expect(slots?.register.mock.calls[3]?.[0]).toMatchObject({ name: 'sidebar.panellist', id: 'workmate' })
     expect(sidebar).toBeUndefined()
   })
 
@@ -73,12 +78,12 @@ describe('client module dependency shape', () => {
     expect(slots).toBeUndefined()
   })
 
-  it('registers the tab and both entries when both services exist', () => {
+  it('registers the tab plus the slots entries when both services exist', () => {
     const { ctx, slots, sidebar } = fakeCtx({ slots: fakeSlots(), betterSidebar: fakeSidebar() })
     apply(ctx)
 
     expect(sidebar?.registerTab).toHaveBeenCalledTimes(1)
-    expect(slots?.register).toHaveBeenCalledTimes(2)
+    expect(slots?.register).toHaveBeenCalledTimes(4)
     expect(sidebar?.registerTab.mock.calls[0]?.[0]).toMatchObject({ id: 'workmate:proposals' })
   })
 })

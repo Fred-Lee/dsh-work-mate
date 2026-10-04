@@ -180,6 +180,11 @@ describe('aggregateMetrics', () => {
     expect(metrics.cycleTimeMedianMs).toBe(4 * 60 * 60 * 1000)
     expect(metrics.events).toBe(events.length)
     expect(metrics.skippedLines).toBe(1)
+    expect(metrics.perProposal.map((row) => row.id)).toEqual(['p1', 'p2', 'p3'])
+    expect(metrics.perProposal[0]?.archived).toBe(true)
+    expect(metrics.perProposal[0]?.cycleTimeMs).toBe(4 * 60 * 60 * 1000)
+    expect(metrics.perProposal[1]?.status).toBe('reviewing')
+    expect(metrics.perProposal[1]?.reworkCount).toBe(1)
     // p1 (archived) and p3 (merging) never bounced back; p2 did.
     expect(metrics.firstPassRate).toBeCloseTo(2 / 3)
   })
@@ -193,6 +198,7 @@ describe('aggregateMetrics', () => {
     expect(metrics.cycleTimeMedianMs).toBeUndefined()
     expect(metrics.gateFailureRanking).toEqual([])
     expect(metrics.averageTimeInStateMs).toEqual({})
+    expect(metrics.perProposal).toEqual([])
   })
 
   it('averages dwell time per state across the proposals that sat there', () => {

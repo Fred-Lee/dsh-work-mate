@@ -7,7 +7,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ProposalPanel } from './App'
+import { ConsoleView, ProposalPanel } from './App'
 import type { Proposal } from './types'
 
 function proposal(overrides: Partial<Proposal> = {}): Proposal {
@@ -197,5 +197,89 @@ describe('ProposalPanel (kanban)', () => {
     expect(screen.getByText('worktree')).toBeTruthy()
     expect(screen.getByText('2 个未提交变更')).toBeTruthy()
     expect(screen.getByText('feat: 接口')).toBeTruthy()
+  })
+})
+
+describe('control room (workbench panel)', () => {
+  const metricsBody = {
+    proposals: 3,
+    byState: { reviewing: 1 },
+    averageTimeInStateMs: {},
+    cycleTimeMedianMs: 4 * 60 * 60 * 1000,
+    archived7d: 2,
+    archived30d: 2,
+    reworkRate: 1 / 3,
+    firstPassRate: 2 / 3,
+    gateFailureRanking: [{ gate: 'proposal-branch', count: 2 }],
+    actorShare: { agent: 3, human: 3, system: 0 },
+    perProposal: [
+      {
+        id: 'a',
+        title: '提案 A',
+        status: 'reviewing',
+        archived: false,
+        currentStateMs: 9 * 60 * 60 * 1000,
+        reworkCount: 1,
+        gateFailureCount: 2,
+        openBlockers: 1,
+        decisions: 0,
+      },
+    ],
+    events: 7,
+    skippedLines: 1,
+  }
+  const bandsBody = {
+    windowDays: 30,
+    evaluations: [
+      {
+        metric: 'cycleTime',
+        direction: 'high' as const,
+        status: 'insufficient-data' as const,
+        tier: 'normal' as const,
+        action: 'normal',
+        current: 0,
+        baseline: 0,
+        sigma: 0,
+        deviation: 0,
+        samples: 4,
+        baselineSamples: 0,
+        note: 'baseline needs 8 samples, has 0',
+      },
+    ],
+  }
+
+  beforeEach(() => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input)
+      if (url.includes('/api/metrics')) return Promise.resolve(ok(metricsBody))
+      if (url.includes('/api/bands')) return Promise.resolve(ok(bandsBody))
+      return Promise.resolve(ok({ proposals: [] }))
+    })
+  })
+
+  it('renders aggregate KPIs, per-proposal rows and the gate-failure ranking', async () => {
+    render(<ConsoleView onError={() => {}} />)
+
+    expect(await screen.findByText('提案总数')).toBeTruthy()
+    expect(screen.getByText('33%')).toBeTruthy()
+    expect(screen.getByText('67%')).toBeTruthy()
+    expect(screen.getByText('4.0h')).toBeTruthy()
+    expect(screen.getByText('提案 A')).toBeTruthy()
+    expect(screen.getByText(/proposal-branch×2/)).toBeTruthy()
+    expect(screen.getByText(/1 行无法解析/)).toBeTruthy()
+  })
+
+  it('shows a thin baseline as 数据不足 instead of normal', async () => {
+    render(<ConsoleView onError={() => {}} />)
+
+    expect(await screen.findByText('数据不足')).toBeTruthy()
+    expect(screen.queryByText('normal')).toBeNull()
+  })
+
+  it('offers the console as a third panel view', () => {
+    fetchMock.mockResolvedValue(ok({ proposals: [] }))
+    render(<ProposalPanel />)
+
+    expect(screen.getByText('控制台')).toBeTruthy()
   })
 })

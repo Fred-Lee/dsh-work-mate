@@ -7,6 +7,10 @@
  *     of a brainstorm reply
  *  3. input tool area 「🚀 转为提案」 — the same switch beside the attach button
  *     (`conversation.input.left`)
+ *  4. NATIVE WORKBENCH: the `main` central panel keyed `workmate` plus the
+ *     matching `sidebar.panellist` rail icon — the host's own "panel selected by
+ *     sidebar entry id" model, so WorkMate is a workbench in the centre rather
+ *     than one more tab in the right dock.
  *
  * No hard `inject`: `betterSidebar` is a THIRD-PARTY service
  * (`dsh-better-sidebar`), so declaring it at module level would park the whole
@@ -19,7 +23,14 @@ import './slot-types'
 import './better-sidebar-types'
 import { ProposalPanel } from './App'
 import { ChatProposalAction } from './ChatProposalAction'
-import { ASSISTANT_ACTIONS, INPUT_LEFT } from './slot-types'
+import { WorkmatePanelIcon } from './PanelIcon'
+import {
+  ASSISTANT_ACTIONS,
+  INPUT_LEFT,
+  MAIN_PANEL,
+  SIDEBAR_PANELLIST,
+  WORKMATE_PANEL_ID,
+} from './slot-types'
 
 /** Optional services only: the module itself has no hard dependency. */
 export const inject = [] as const
@@ -63,7 +74,36 @@ export function apply(ctx: ClientContext): void {
         ),
       ),
     )
+
+    // Native workbench: registering the `main` key makes WorkMate a central
+    // panel; the `sidebar.panellist` entry with the same id is the rail button
+    // the shell resolves that key from. Both are independent effects, so a host
+    // that ships only one of the two slots still gets what it has.
+    scope.effect(() =>
+      scope.slots.inject(MAIN_PANEL, () =>
+        scope.slots.register(
+          {
+            name: MAIN_PANEL,
+            key: WORKMATE_PANEL_ID,
+          },
+          ProposalPanel,
+        ),
+      ),
+    )
+    scope.effect(() =>
+      scope.slots.inject(SIDEBAR_PANELLIST, () =>
+        scope.slots.register(
+          {
+            name: SIDEBAR_PANELLIST,
+            id: WORKMATE_PANEL_ID,
+            order: 20,
+            label: () => 'WorkMate',
+          },
+          WorkmatePanelIcon,
+        ),
+      ),
+    )
   })
 
-  console.log('[workmate/client] tab + chat entries registered')
+  console.log('[workmate/client] tab + chat entries + workbench panel registered')
 }
