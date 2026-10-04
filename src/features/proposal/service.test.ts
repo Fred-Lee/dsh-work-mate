@@ -20,6 +20,32 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true })
 })
 
+describe('provenance fields (add-feedback-loop)', () => {
+  it('stores the declared origin, relation and capture facts', async () => {
+    const created = await service.upsert({
+      id: 'fix-42',
+      title: '修复 INC-42',
+      source: 'incident',
+      sourceRef: 'INC-42',
+      relatesTo: ['p-old'],
+      provenance: { capturedAt: '2026-10-05T00:00:00.000Z', untrusted: true },
+    })
+
+    expect(created.source).toBe('incident')
+    expect(created.sourceRef).toBe('INC-42')
+    expect(created.relatesTo).toEqual(['p-old'])
+    expect(created.provenance?.untrusted).toBe(true)
+  })
+
+  it('never clears provenance on a re-run that omits it', async () => {
+    await service.upsert({ id: 'fix-42', title: '修复 INC-42', source: 'incident', sourceRef: 'INC-42' })
+    const again = await service.upsert({ id: 'fix-42', title: '修复 INC-42（改标题）' })
+
+    expect(again.source).toBe('incident')
+    expect(again.sourceRef).toBe('INC-42')
+  })
+})
+
 describe('transition events (add-proposal-metrics)', () => {
   it('records one event per status write, attributed to the caller', async () => {
     const log = new EventLog({ homeRoot: home, subdir: 'workmate' })

@@ -143,7 +143,7 @@ pnpm dsh web                                            # 启动，默认 http:/
 
 | 配置项 | 默认 | 说明 |
 |---|---|---|
-| `workmateHome` | `'workmate'` | 状态目录名（`$DSH_HOME` 下，默认 `~/.dsh/workmate`）；其中 `proposals.json` 是提案聚合（原子写、损坏 fail-closed），`events.jsonl` 是只追加的过程事件流（每次状态迁移一条，门禁失败也记一条；读取容错撕裂尾行） |
+| `workmateHome` | `'workmate'` | 状态目录名（`$DSH_HOME` 下，默认 `~/.dsh/workmate`）；其中 `proposals.json` 是提案聚合（原子写、损坏 fail-closed），`events.jsonl` 是只追加的过程事件流（每次状态迁移/门禁失败/控制带越界各一条；读取容错撕裂尾行）；`bands.json` 是控制带配置（缺失用内建默认，损坏 fail-closed） |
 | `maxConcurrent` | `3` | swarm 并行执行上限（保留项） |
 | `projectRoot` | `''` | 默认项目根；空 = 每次显式传 |
 | `openspecRoot` | `'openspec'` | 目标项目内 OpenSpec 目录名（提案目录生成、状态聚合、生命周期前置校验、归档编排全链路一致） |
@@ -232,7 +232,7 @@ Agent 会话中可直接调用（DSH 工具面注册，名字以 `workmate_` 前
 
 | 工具 | 用途 |
 |---|---|
-| `workmate_proposal_create` | 创建提案，联动 OpenSpec 目录与规范资产同步 |
+| `workmate_proposal_create` | 创建提案，联动 OpenSpec 目录与规范资产同步；可带 `source`（spec/incident/review-finding/metric-regression/maintenance）、`sourceRef`、`relatesTo`、`notes`，并把「来源 / Provenance」段写进 `proposal.md` |
 | `workmate_proposal_status` | 详情聚合：Git 关联 / OpenSpec 进度 / 审查报告（按项目）+ 生命周期位置（prev/next） |
 | `workmate_proposal_archive` | 生命周期驱动：`mode=advance`（默认）/ `archive`（`force` 只跳过审查门）/ 任意状态名；`exec.signal` 中断会终止正在跑的 git / openspec / gitnexus 子进程 |
 | `workmate_proposal_decide` | 落决策日志（推翻必须 `supersedes`，禁止静默改口） |
@@ -242,6 +242,7 @@ Agent 会话中可直接调用（DSH 工具面注册，名字以 `workmate_` 前
 | `workmate_knowledge_query` | GitNexus 查询（query / context / impact） |
 | `workmate_knowledge_search` | WeKnora 文档检索（未配置返回禁用说明） |
 | `workmate_metrics` | 过程度量（由提案事件流现算）：各状态停留、周期时间、返工次数、门禁失败排行、吞吐、agent/人 归因；带 `id` 出单提案，缺省出全局 |
+| `workmate_bands` | 控制带评测：每提案一个样本 + rolling 基线（均值/σ）+ 1σ log / 2σ diagnose / 3σ propose；样本不足报 `insufficient-data` 不误报。默认只读，`apply:true` 时 3σ 会开一个 `metric-regression` 草稿提案 |
 
 **会话纪律**改为经 DSH 原生面分发（不再依赖 Claude Code 的 rules/hook）：
 
@@ -277,6 +278,7 @@ rules/agent/hook 形式分发到目标项目，供在同一个仓库里跑 Claud
 | `GET /projects` · `POST /projects` · `DELETE /projects/:name` | 项目注册表 CRUD |
 | `GET /graph?projectRoot=` | 知识图谱数据（提案↔项目↔提交） |
 | `GET /metrics?id=` | 过程度量（带 `id` 出单提案，缺省出全局聚合） |
+| `GET /bands?windowDays=` | 控制带评测结果（只读） |
 
 ---
 

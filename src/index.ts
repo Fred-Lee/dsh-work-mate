@@ -21,7 +21,10 @@ import { resolveConfig, type Config } from './config.ts'
 import type { Proposal } from './features/proposal/store.ts'
 import type { OrchestrationTarget } from './features/archive/orchestrate.ts'
 import { ProposalStore } from './features/proposal/store.ts'
+import { join } from 'node:path'
 import { EventLog } from './features/proposal/events.ts'
+import { METRICS_SOURCE, evaluateBands, loadBands } from './features/metrics/bands.ts'
+import type { ProposalSource } from './features/proposal/store.ts'
 import { aggregateMetrics, proposalMetrics } from './features/proposal/metrics.ts'
 import { ProposalServiceImpl, type ProposalService } from './features/proposal/service.ts'
 import { LifecycleServiceImpl } from './features/archive/service.ts'
@@ -181,10 +184,18 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         title: { type: 'string', required: true, description: 'Human-readable title.' },
         projects: { type: 'string', description: 'Comma-separated project identifiers to associate.' },
         projectRoot: { type: 'string', description: 'Absolute project root; falls back to Config.projectRoot.' },
+        source: {
+          type: 'string',
+          description: 'Origin: spec | incident | review-finding | metric-regression | maintenance.',
+        },
+        sourceRef: { type: 'string', description: 'External reference (ticket id, alert id, URL).' },
+        relatesTo: { type: 'string', description: 'Comma-separated related proposal ids (rework of, same incident).' },
+        notes: { type: 'string', description: 'Problem statement, rendered into the seeded proposal.md 来源段.' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
       async execute(args) {
         const projects = args.projects?.split(',').map((p) => p.trim()).filter(Boolean)
+        const relatesTo = args.relatesTo?.split(',').map((id) => id.trim()).filter(Boolean)
         const result = await createProposal(
           {
             proposals,
@@ -200,6 +211,10 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
             title: args.title,
             ...(projects !== undefined && projects.length > 0 ? { projects } : {}),
             ...(args.projectRoot !== undefined ? { projectRoot: args.projectRoot } : {}),
+            ...(args.source !== undefined ? { source: args.source as ProposalSource } : {}),
+            ...(args.sourceRef !== undefined ? { sourceRef: args.sourceRef } : {}),
+            ...(relatesTo !== undefined && relatesTo.length > 0 ? { relatesTo } : {}),
+            ...(args.notes !== undefined ? { notes: args.notes } : {}),
           },
         )
         return asJson(result)
@@ -436,7 +451,93 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     }),
   )
 
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_bands',
+      description:
+        'Evaluate WorkMate control bands over its own process metrics: one sample per proposal, a rolling baseline (mean/σ from the older samples), and σ tiers 1 log / 2 diagnose / 3 propose. Read-only by default; with apply:true each propose-tier breach also opens a draft proposal (source: metric-regression). Baselines need minBaselineSamples before a metric can breach — thin history reports insufficient-data instead of raising a false alarm.',
+      parameters: {
+        apply: {
+          type: 'boolean',
+          description: 'Create a draft proposal for each propose-tier breach (default false: report only).',
+        },
+        windowDays: { type: 'number', description: 'Override the band window in days (default from bands.json).' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      async execute(args) {
+        const bandsFile = join(proposals.rootDir(), 'bands.json')
+        const config = await loadBands(bandsFile)
+        const all = await proposals.list()
+        const { events: log, skippedLines } = await deps.events.read()
+        const evaluations = evaluateBands(all, log, {
+          config,
+          ...(args.windowDays !== undefined ? { windowDays: args.windowDays } : {}),
+        })
+        const breaches = evaluations.filter((entry) => entry.tier !== 'normal')
+        const stamp = new Date().toISOString()
+        for (const breach of breaches) {
+          await deps.events.append({
+            at: stamp,
+            proposalId: METRICS_SOURCE,
+            kind: 'band-breach',
+            actor: 'system',
+            metric: breach.metric,
+            tier: breach.tier === 'normal' ? 'log' : breach.tier,
+            current: breach.current,
+            baseline: breach.baseline,
+            sigma: breach.sigma,
+            reason: `deviation ${breach.deviation.toFixed(2)}σ`,
+            ...(breach.note !== undefined ? { detail: breach.note } : {}),
+          })
+        }
+
+        const created: string[] = []
+        if (args.apply === true) {
+          for (const breach of breaches.filter((entry) => entry.tier === 'propose')) {
+            const id = `band-${breach.metric.toLowerCase()}-${stamp.slice(0, 10)}`
+            if (all.some((proposal) => proposal.id === id)) continue
+            await createProposal(
+              {
+                proposals,
+                archive,
+                registry,
+                openspecRoot: resolved.openspecRoot,
+                projectRoot: resolved.projectRoot,
+                qualitySyncEnabled: resolved.qualitySyncEnabled,
+                claudeAssetsEnabled: resolved.claudeAssetsEnabled,
+              },
+              {
+                id,
+                title: `指标越界：${breach.metric} 偏离基线 ${breach.deviation.toFixed(1)}σ`,
+                source: 'metric-regression',
+                sourceRef: `bands:${breach.metric}`,
+                provenance: { capturedAt: stamp },
+                notes: [
+                  `控制带越界（${breach.tier}）：metric=${breach.metric} direction=${breach.direction}`,
+                  `current=${breach.current} baseline=${breach.baseline} sigma=${breach.sigma} samples=${breach.samples}`,
+                  breach.note ?? '',
+                ]
+                  .filter((line) => line !== '')
+                  .join('\n'),
+              },
+            )
+            created.push(id)
+          }
+        }
+
+        return asJson({
+          bandsFile,
+          windowDays: config.windowDays,
+          evaluations,
+          breachCount: breaches.length,
+          created,
+          skippedLines,
+        })
+      },
+    }),
+  )
+
   console.log(
-    '[workmate] tools registered (proposal lifecycle + decide/block/unblock + wiki_link(s) + knowledge_query/search + metrics)',
+    '[workmate] tools registered (proposal lifecycle + decide/block/unblock + wiki_link(s) + knowledge_query/search + metrics + bands)',
   )
 }

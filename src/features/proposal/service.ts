@@ -4,7 +4,14 @@
  * generation, `[proposal:<id>]` commit association and the tool registration
  * arrive with M2.
  */
-import { ProposalStore, type BlockerEntry, type DecisionEntry, type Proposal } from './store.ts'
+import {
+  ProposalStore,
+  type BlockerEntry,
+  type DecisionEntry,
+  type Proposal,
+  type ProposalSource,
+  type Provenance,
+} from './store.ts'
 import { EventLog, type EventActor, type ProposalEvent } from './events.ts'
 
 /** Attribution for one status write (change `add-proposal-metrics`). */
@@ -29,6 +36,11 @@ export interface UpsertProposalInput {
    * `workmate_proposal_create` can seed `openspec/changes/<id>/` (M2).
    */
   openspecChangeId?: string
+  /** See `Proposal.source` (change `add-feedback-loop`). */
+  source?: ProposalSource
+  sourceRef?: string
+  relatesTo?: string[]
+  provenance?: Provenance
 }
 
 export interface AddDecisionInput {
@@ -97,6 +109,12 @@ export class ProposalServiceImpl implements ProposalService {
       existing.title = input.title
       if (input.projects !== undefined) existing.projects = [...input.projects]
       if (input.openspecChangeId !== undefined) existing.openspecChangeId = input.openspecChangeId
+      // Only explicitly supplied provenance overwrites: a re-run of create must
+      // not wipe where the proposal actually came from.
+      if (input.source !== undefined) existing.source = input.source
+      if (input.sourceRef !== undefined) existing.sourceRef = input.sourceRef
+      if (input.relatesTo !== undefined) existing.relatesTo = [...input.relatesTo]
+      if (input.provenance !== undefined) existing.provenance = { ...input.provenance }
       existing.updatedAt = timestamp
       await this.store.save(proposals)
       return existing
@@ -109,6 +127,10 @@ export class ProposalServiceImpl implements ProposalService {
       projects: input.projects ? [...input.projects] : [],
       commits: [],
       openspecChangeId: input.openspecChangeId ?? id,
+      ...(input.source !== undefined ? { source: input.source } : {}),
+      ...(input.sourceRef !== undefined ? { sourceRef: input.sourceRef } : {}),
+      ...(input.relatesTo !== undefined ? { relatesTo: [...input.relatesTo] } : {}),
+      ...(input.provenance !== undefined ? { provenance: { ...input.provenance } } : {}),
       createdAt: timestamp,
       updatedAt: timestamp,
     }

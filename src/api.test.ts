@@ -197,6 +197,43 @@ describe('proposal REST API', () => {
 })
 
 describe('static serving', () => {
+  it('carries intake provenance through create into the proposal record', async () => {
+    const created = await call('POST', '/api/proposals', {
+      id: 'fix-42',
+      title: '修复 INC-42',
+      source: 'incident',
+      sourceRef: 'INC-42',
+      relatesTo: ['p-old'],
+      provenance: { capturedAt: '2026-10-05T00:00:00.000Z', untrusted: true },
+    })
+
+    expect(created.status).toBe(200)
+    const proposal = (created.body as { proposal: { source: string; sourceRef: string; relatesTo: string[]; provenance: { untrusted: boolean } } }).proposal
+    expect(proposal.source).toBe('incident')
+    expect(proposal.sourceRef).toBe('INC-42')
+    expect(proposal.relatesTo).toEqual(['p-old'])
+    expect(proposal.provenance.untrusted).toBe(true)
+  })
+
+  it('rejects an unknown source with a readable error', async () => {
+    const response = await call('POST', '/api/proposals', { id: 'x', title: 'x', source: 'guessed' })
+
+    expect(response.status).toBe(400)
+    expect(JSON.stringify(response.body)).toContain('unknown source')
+  })
+
+  it('serves control-band evaluations (thin history never breaches)', async () => {
+    const bands = await call('GET', '/api/bands')
+
+    expect(bands.status).toBe(200)
+    const body = bands.body as { evaluations: Array<{ metric: string; status: string; tier: string }> }
+    expect(body.evaluations).toHaveLength(4)
+    for (const evaluation of body.evaluations) {
+      expect(evaluation.status).toBe('insufficient-data')
+      expect(evaluation.tier).toBe('normal')
+    }
+  })
+
   it('serves derived metrics from the event log', async () => {
     const log = new EventLog({ homeRoot: home, subdir: 'workmate' })
     const logged = new ProposalServiceImpl(store, undefined, log)

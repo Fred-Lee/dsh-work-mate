@@ -22,6 +22,37 @@ describe('validateProjectRoot', () => {
   })
 })
 
+describe('generateChangeDir (intake)', () => {
+  it('renders the intake provenance and the intent-shaped prompts', async () => {
+    const result = await generateChangeDir(projectRoot, 'openspec', 'fix-incident-42', '修复 INC-42 回归', {
+      source: 'incident',
+      sourceRef: 'INC-42',
+      relatesTo: ['p-old'],
+      provenance: { capturedAt: '2026-10-05T00:00:00.000Z', contentHash: 'abc123', untrusted: true },
+      notes: '线上 5xx 从 0.2% 升到 3%。',
+    })
+
+    const proposal = await readFile(join(result.dir ?? '', 'proposal.md'), 'utf8')
+    expect(proposal).toContain('## 来源 / Provenance')
+    expect(proposal).toContain('- source: `incident`')
+    expect(proposal).toContain('- sourceRef: `INC-42`')
+    expect(proposal).toContain('- relatesTo: `p-old`')
+    expect(proposal).toContain('capturedAt: `2026-10-05T00:00:00.000Z`')
+    expect(proposal).toContain('untrusted: true')
+    expect(proposal).toContain('线上 5xx 从 0.2% 升到 3%。')
+    for (const heading of ['Problem：', 'Proposed outcome：', 'Affected users and systems：', 'Constraints：', 'Open questions：']) {
+      expect(proposal).toContain(heading)
+    }
+  })
+
+  it('omits the provenance section when nothing was declared', async () => {
+    const result = await generateChangeDir(projectRoot, 'openspec', 'plain-change', '普通变更')
+
+    const proposal = await readFile(join(result.dir ?? '', 'proposal.md'), 'utf8')
+    expect(proposal).not.toContain('## 来源 / Provenance')
+  })
+})
+
 describe('generateChangeDir', () => {
   it('creates the three template files', async () => {
     const result = await generateChangeDir(projectRoot, 'openspec', 'batch-grading-v2', '批量批改 v2.1')

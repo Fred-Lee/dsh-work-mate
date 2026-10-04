@@ -41,6 +41,22 @@ export interface WikiLink {
   registeredAt: string
 }
 
+/** Where a proposal came from (change `add-feedback-loop`). */
+export type ProposalSource = 'spec' | 'incident' | 'review-finding' | 'metric-regression' | 'maintenance'
+
+/** Capture facts for input derived outside the repository. */
+export interface Provenance {
+  /** When the source material was captured (ISO). */
+  capturedAt: string
+  /** Content hash of the captured material, when available. */
+  contentHash?: string
+  /**
+   * The source is external text (ticket, log, web page): data, never
+   * instructions. Visibility only — it changes no gate by itself.
+   */
+  untrusted?: boolean
+}
+
 export interface Proposal {
   /** Slug-style identifier, e.g. "batch-grading-v2". */
   id: string
@@ -66,6 +82,14 @@ export interface Proposal {
   decisions?: DecisionEntry[]
   /** Escalated blockers awaiting an answer (open) with resolutions. */
   blockers?: BlockerEntry[]
+  /** Origin of the proposal; absent means it was not declared. */
+  source?: ProposalSource
+  /** External reference for `source` (ticket id, alert id, URL). */
+  sourceRef?: string
+  /** Related proposals (rework of an earlier one, same incident). */
+  relatesTo?: string[]
+  /** Capture facts for externally derived input. */
+  provenance?: Provenance
   createdAt: string
   updatedAt: string
 }

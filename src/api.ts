@@ -12,6 +12,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Router, readJsonBody } from './http.ts'
 import { aggregateMetrics, proposalMetrics } from './features/proposal/metrics.ts'
 import type { EventLog } from './features/proposal/events.ts'
+import { evaluateBands, loadBands } from './features/metrics/bands.ts'
+import type { ProposalSource, Provenance } from './features/proposal/store.ts'
 import type { ProposalService } from './features/proposal/service.ts'
 import type { LifecycleServiceImpl } from './features/archive/service.ts'
 import { PROPOSAL_STATES, isProposalState } from './features/proposal/state-machine.ts'
@@ -40,6 +42,8 @@ export interface ApiDeps {
   claudeAssetsEnabled: boolean
   /** Proposal event log; omitted in tests that do not measure. */
   events?: EventLog
+  /** Control-band file; defaults to `<DSH home>/<workmateHome>/bands.json`. */
+  bandsFile?: string
 }
 
 export interface CreateProjectBody {
@@ -52,7 +56,19 @@ export interface CreateProposalBody {
   title?: string
   projects?: string[]
   projectRoot?: string
+  /** Origin of the proposal (change `add-feedback-loop`). */
+  source?: ProposalSource
+  /** External reference for `source` (ticket id, alert id, URL). */
+  sourceRef?: string
+  /** Related proposal ids. */
+  relatesTo?: string[]
+  /** Capture facts for externally derived input. */
+  provenance?: Provenance
+  /** Free-form problem statement rendered into the seeded `proposal.md`. */
+  notes?: string
 }
+
+const PROPOSAL_SOURCES: ProposalSource[] = ['spec', 'incident', 'review-finding', 'metric-regression', 'maintenance']
 
 export interface WebServerLike {
   register(route: {
@@ -127,6 +143,17 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     const body = await readJsonBody<{ force?: boolean }>(r.req).catch(() => ({ force: false }))
     const result = await deps.archive.runArchive(r.params['id'] ?? '', { force: body.force === true, actor: 'human' })
     return { proposal: result.proposal, ...(result.orchestration !== undefined ? { orchestration: result.orchestration } : {}) }
+  })
+
+  router.get('/api/bands', async (r) => {
+    // The proposal store already resolved the DSH home for us.
+    const config = await loadBands(deps.bandsFile ?? join(deps.proposals.rootDir(), 'bands.json'))
+    const windowDays = r.query.get('windowDays')
+    const evaluations = evaluateBands(await deps.proposals.list(), (await deps.events?.read())?.events ?? [], {
+      config,
+      ...(windowDays !== null && windowDays !== '' ? { windowDays: Number(windowDays) } : {}),
+    })
+    return { evaluations, rules: config.rules, windowDays: config.windowDays }
   })
 
   router.get('/api/metrics', async (r) => {
@@ -211,10 +238,19 @@ export async function createProposal(
   const title = (body.title ?? '').trim()
   if (!title) throw new Error('title is required')
 
+  const source = body.source
+  if (source !== undefined && !PROPOSAL_SOURCES.includes(source)) {
+    throw new Error(`unknown source '${source}' — valid: ${PROPOSAL_SOURCES.join(', ')}`)
+  }
+
   const proposal = await deps.proposals.upsert({
     id,
     title,
     ...(body.projects !== undefined ? { projects: body.projects } : {}),
+    ...(source !== undefined ? { source } : {}),
+    ...(body.sourceRef !== undefined ? { sourceRef: body.sourceRef } : {}),
+    ...(body.relatesTo !== undefined ? { relatesTo: body.relatesTo } : {}),
+    ...(body.provenance !== undefined ? { provenance: body.provenance } : {}),
   })
 
   const projectRoot = resolveRoot(deps, body.projectRoot)
@@ -222,7 +258,13 @@ export async function createProposal(
     return { proposal, note: 'no projectRoot — openspec directory not generated' }
   }
   validateProjectRoot(projectRoot)
-  const openspec = await generateChangeDir(projectRoot, deps.openspecRoot, id, title)
+  const openspec = await generateChangeDir(projectRoot, deps.openspecRoot, id, title, {
+    ...(source !== undefined ? { source } : {}),
+    ...(body.sourceRef !== undefined ? { sourceRef: body.sourceRef } : {}),
+    ...(body.relatesTo !== undefined ? { relatesTo: body.relatesTo } : {}),
+    ...(body.provenance !== undefined ? { provenance: body.provenance } : {}),
+    ...(body.notes !== undefined ? { notes: body.notes } : {}),
+  })
 
   let qualitySync: Awaited<ReturnType<typeof syncProjectAssets>> | undefined
   if (deps.qualitySyncEnabled) {

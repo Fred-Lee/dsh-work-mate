@@ -94,7 +94,8 @@ node $DSH web                                                # http://127.0.0.1:
 | 路径 | 内容 |
 | --- | --- |
 | `workmate/proposals.json` | 提案聚合（单 JSON，可 grep） |
-| `workmate/events.jsonl` | 过程事件流（append-only，每次状态迁移/门禁失败一条） |
+| `workmate/events.jsonl` | 过程事件流（append-only：状态迁移 / 门禁失败 / 控制带越界） |
+| `workmate/bands.json` | 控制带配置（缺失用内建默认，损坏 fail-closed 报错） |
 
 `proposals.json` 写入必须 **tmp + rename 原子写**；文件损坏 fail-closed——启动期报告、
 永不覆盖（board warmUp 教训）。`events.jsonl` 是**只追加**的 JSONL：只增不改，读取端

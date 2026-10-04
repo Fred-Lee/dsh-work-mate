@@ -27,8 +27,11 @@ export interface ProposalEvent {
   /** ISO timestamp. */
   at: string
   proposalId: string
-  /** `transition` = a state change happened; `gate-failed` = one was refused. */
-  kind: 'transition' | 'gate-failed'
+  /**
+   * `transition` = a state change happened; `gate-failed` = one was refused;
+   * `band-breach` = a control band was left (change `add-feedback-loop`).
+   */
+  kind: 'transition' | 'gate-failed' | 'band-breach'
   from?: ProposalState
   to?: ProposalState
   actor: EventActor
@@ -38,6 +41,14 @@ export interface ProposalEvent {
   reason?: string
   /** Extra step-level detail (archive orchestration summaries). */
   detail?: string
+  /** `band-breach`: which metric left its band. */
+  metric?: string
+  /** `band-breach`: the tier the deviation reached. */
+  tier?: 'log' | 'diagnose' | 'propose'
+  /** `band-breach` numbers: current sample mean, baseline mean, baseline σ. */
+  current?: number
+  baseline?: number
+  sigma?: number
 }
 
 export interface EventReadResult {
@@ -59,7 +70,7 @@ const isEvent = (value: unknown): value is ProposalEvent => {
   return (
     typeof record['at'] === 'string' &&
     typeof record['proposalId'] === 'string' &&
-    (record['kind'] === 'transition' || record['kind'] === 'gate-failed')
+    (record['kind'] === 'transition' || record['kind'] === 'gate-failed' || record['kind'] === 'band-breach')
   )
 }
 
