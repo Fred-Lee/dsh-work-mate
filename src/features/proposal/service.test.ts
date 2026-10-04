@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ProposalStore } from './store.ts'
 import { ProposalServiceImpl } from './service.ts'
+import { EventLog } from './events.ts'
 
 let home: string
 let store: ProposalStore
@@ -17,6 +18,51 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(home, { recursive: true, force: true })
+})
+
+describe('transition events (add-proposal-metrics)', () => {
+  it('records one event per status write, attributed to the caller', async () => {
+    const log = new EventLog({ homeRoot: home, subdir: 'workmate' })
+    const timed = new ProposalServiceImpl(store, undefined, log)
+    await timed.upsert({ id: 'p1', title: '标题' })
+
+    await timed.setStatus('p1', 'proposing', { actor: 'agent' })
+    await timed.setStatus('p1', 'reviewing', { actor: 'human' })
+
+    const { events, skippedLines } = await log.read()
+    expect(skippedLines).toBe(0)
+    expect(events.map((event) => [event.kind, event.from, event.to, event.actor])).toEqual([
+      ['transition', 'draft', 'proposing', 'agent'],
+      ['transition', 'proposing', 'reviewing', 'human'],
+    ])
+    expect(events[0]?.at).toBeTruthy()
+    expect(events[0]?.proposalId).toBe('p1')
+  })
+
+  it('falls back to the system actor and writes nothing when the status is unchanged', async () => {
+    const log = new EventLog({ homeRoot: home, subdir: 'workmate' })
+    const timed = new ProposalServiceImpl(store, undefined, log)
+    await timed.upsert({ id: 'p1', title: '标题' })
+
+    await timed.setStatus('p1', 'draft')
+    await timed.setStatus('p1', 'proposing')
+    await timed.setStatus('p1', 'proposing')
+
+    const { events } = await log.read()
+    expect(events).toHaveLength(1)
+    expect(events[0]?.actor).toBe('system')
+  })
+
+  it('keeps working without an event log (read-only embeddings)', async () => {
+    await service.upsert({ id: 'p1', title: '标题' })
+    await expect(service.setStatus('p1', 'proposing', { actor: 'agent' })).resolves.toMatchObject({ status: 'proposing' })
+    await expect(service.recordEvent({
+      at: new Date().toISOString(),
+      proposalId: 'p1',
+      kind: 'gate-failed',
+      actor: 'system',
+    })).resolves.toBeUndefined()
+  })
 })
 
 describe('ProposalServiceImpl.upsert', () => {

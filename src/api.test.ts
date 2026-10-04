@@ -9,6 +9,7 @@ import { LifecycleServiceImpl } from './features/archive/service.ts'
 import { WorktreeManager } from './features/worktree/manager.ts'
 import { Router, readJsonBody } from './http.ts'
 import { registerApiRoutes } from './api.ts'
+import { EventLog } from './features/proposal/events.ts'
 
 let home: string
 let store: ProposalStore
@@ -196,6 +197,53 @@ describe('proposal REST API', () => {
 })
 
 describe('static serving', () => {
+  it('serves derived metrics from the event log', async () => {
+    const log = new EventLog({ homeRoot: home, subdir: 'workmate' })
+    const logged = new ProposalServiceImpl(store, undefined, log)
+    const metricsRouter = new Router()
+    registerApiRoutes(metricsRouter, {
+      proposals: logged,
+      archive,
+      openspecRoot: 'openspec',
+      projectRoot: '',
+      registry: undefined as never,
+      qualitySyncEnabled: false,
+      claudeAssetsEnabled: false,
+      events: log,
+    })
+    const get = async (url: string): Promise<StubResponse> => {
+      const { res, result: stub } = stubRes()
+      await metricsRouter.handle(url, stubReq('GET', url), res)
+      stub.body = json(stub)
+      return stub
+    }
+
+    await logged.upsert({ id: 'p1', title: '标题' })
+    await logged.setStatus('p1', 'proposing', { actor: 'agent' })
+    await log.append({
+      at: new Date().toISOString(),
+      proposalId: 'p1',
+      kind: 'gate-failed',
+      to: 'reviewing',
+      actor: 'agent',
+      gate: 'proposal-branch',
+      reason: 'proposal branch not found',
+    })
+
+    const global = await get('/api/metrics')
+    expect(global.status).toBe(200)
+    const aggregate = (global.body as { metrics: { proposals: number; gateFailureRanking: unknown[]; actorShare: unknown } }).metrics
+    expect(aggregate.proposals).toBe(1)
+    expect(aggregate.gateFailureRanking).toEqual([{ gate: 'proposal-branch', count: 1 }])
+    expect(aggregate.actorShare).toEqual({ agent: 1, human: 0, system: 0 })
+
+    const single = await get('/api/metrics?id=p1')
+    const one = (single.body as { id: string; metrics: { transitions: number; gateFailureCount: number } }).metrics
+    expect(single.status).toBe(200)
+    expect(one.transitions).toBe(1)
+    expect(one.gateFailureCount).toBe(1)
+  })
+
   it('serves whitelisted files and refuses traversal', async () => {
     const assets = await mkdtemp(join(tmpdir(), 'workmate-assets-'))
     try {

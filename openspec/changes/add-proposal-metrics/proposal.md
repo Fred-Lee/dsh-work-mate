@@ -12,17 +12,18 @@ WorkMate 能回答"现在处于哪一态"，但**答不出任何过程问题**�
 
 1. **提案事件流**（`<DSH home>/workmate/events.jsonl`，append-only JSONL）：每次状态迁移写
    一行 `{at, proposalId, kind, from?, to?, actor, gate?, reason?, detail?}`；
-   `kind` 取 `transition` / `gate-failed` / `archived` 等。读取端**容忍撕裂尾行**
+   `kind` 取 `transition`（迁移发生）/ `gate-failed`（迁移被拒）。读取端**容忍撕裂尾行**
    （最后一行解析失败即忽略并计数，不抛错）——事件流损坏绝不影响提案聚合。
-2. **actor 归因**：`TransitionOptions` 增加 `actor?: 'agent' | 'panel' | 'system'`；
-   工具调用传 `agent`，REST/面板传 `panel`，内部副作用传 `system`。默认 `system`。
+2. **actor 归因**：`TransitionOptions` 增加 `actor?: 'agent' | 'human' | 'system'`；
+   工具调用传 `agent`，REST/面板传 `human`，内部副作用传 `system`。默认 `system`。
+   这一维回答的是 SDLC 度量里最难替代的问题：「谁在批准、agent 产出了多少」。
 3. **门禁失败也留痕**：前置校验与审查门失败时写 `gate-failed` 事件（带 `to`/`gate` 与
    可读 reason）后原样抛出——失败不是噪声，是"哪道门在挡人"的唯一数据源。
 4. **度量派生**（`src/features/proposal/metrics.ts`，纯函数）：单提案给出
    time-in-state、周期时间（首条事件→archived）、**返工次数**（backward 迁移）、
    **门禁失败次数与排行**、卡点数、决策数（含 supersedes 率）、审查发现数；
    全局给出按状态的平均停留、周期时间中位数、吞吐（近 7/30 天归档数）、
-   门禁失败排行、返工率、agent/panel 触发占比。
+   门禁失败排行、返工率、**首次通过率**（无回退就走到 merging+）、agent/human 触发占比。
 5. **交付面**：新工具 `workmate_metrics`（`{id?}`，给 id 出单提案度量，缺省出全局聚合）
    与 `GET /workmate/api/metrics`（供面板后续消费）。**本变更不做 UI**。
 

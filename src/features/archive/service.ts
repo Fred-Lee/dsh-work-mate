@@ -26,6 +26,19 @@ import {
   renderWikiMd,
 } from '../wiki/links.ts'
 import type { OrchestrationResult, OrchestrationTarget } from './orchestrate.ts'
+import type { EventActor } from '../proposal/events.ts'
+
+/** Target state → the gate whose refusal blocks it (event-log `gate` value). */
+const GATE_BY_STATE: Record<ProposalState, string> = {
+  draft: 'backward-free',
+  proposing: 'proposal-file',
+  reviewing: 'proposal-branch',
+  ready: 'branch-merged',
+  implementing: 'project-root',
+  merging: 'wiki-coverage',
+  archiving: 'feature-branch',
+  archived: 'review-gate',
+}
 
 export class InvalidTransitionError extends Error {
   readonly code = 'INVALID_TRANSITION'
@@ -68,6 +81,8 @@ export interface LifecycleState {
 export interface TransitionOptions {
   /** Forwarded to git / package-manager / CLI subprocesses so a caller can abort. */
   signal?: AbortSignal
+  /** Who drove the transition (agent tool / human panel / internal), recorded in the event log. */
+  actor?: EventActor
 }
 
 export interface ArchiveOptions extends TransitionOptions {
@@ -117,9 +132,14 @@ export class LifecycleServiceImpl {
     if (!check.ok) throw new InvalidTransitionError(check.reason ?? 'invalid transition')
 
     if (check.direction === 'forward') {
-      await this.checkPreconditions(proposal, to)
+      try {
+        await this.checkPreconditions(proposal, to)
+      } catch (error) {
+        await this.recordGateFailure(proposal, to, error, options.actor)
+        throw error
+      }
       const worktree = await this.applySideEffects(proposal, to, options)
-      const updated = await this.deps.proposals.setStatus(id, to)
+      const updated = await this.deps.proposals.setStatus(id, to, { actor: options.actor ?? 'system' })
       return { proposal: updated, ...(worktree !== undefined ? { worktree } : {}) }
     }
 
@@ -133,8 +153,32 @@ export class LifecycleServiceImpl {
             ...(options.signal !== undefined ? { signal: options.signal } : {}),
           })
         : undefined
-    const updated = await this.deps.proposals.setStatus(id, to)
+    const updated = await this.deps.proposals.setStatus(id, to, { actor: options.actor ?? 'system' })
     return { proposal: updated, ...(orchestration !== undefined ? { orchestration } : {}) }
+  }
+
+  /**
+   * A refused gate is data, not noise: record it (with the reason the caller is
+   * about to receive) and rethrow unchanged, so control flow and error types are
+   * exactly as before (design D4).
+   */
+  private async recordGateFailure(
+    proposal: Proposal,
+    to: ProposalState,
+    error: unknown,
+    actor: EventActor | undefined,
+  ): Promise<void> {
+    const gate =
+      error instanceof InvalidTransitionError ? (GATE_BY_STATE[to] ?? String(to)) : 'archive-orchestration'
+    await this.deps.proposals.recordEvent({
+      at: this.deps.now?.().toISOString() ?? new Date().toISOString(),
+      proposalId: proposal.id,
+      kind: 'gate-failed',
+      to,
+      actor: actor ?? 'system',
+      gate,
+      reason: error instanceof Error ? error.message : String(error),
+    })
   }
 
   private async checkPreconditions(proposal: Proposal, to: ProposalState): Promise<void> {
@@ -261,6 +305,17 @@ export class LifecycleServiceImpl {
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
     if (!orchestration.ok) {
+      const failed = orchestration.steps.find((step) => step.status === 'failed')
+      await this.deps.proposals.recordEvent({
+        at: this.deps.now?.().toISOString() ?? new Date().toISOString(),
+        proposalId: proposal.id,
+        kind: 'gate-failed',
+        to: 'archived',
+        actor: options.actor ?? 'system',
+        gate: failed?.step ?? 'archive-orchestration',
+        reason: failed?.summary ?? 'archive orchestration failed',
+        detail: orchestration.steps.map((step) => `${step.step}:${step.status}`).join(' '),
+      })
       return { proposal, orchestration }
     }
 
@@ -277,7 +332,10 @@ export class LifecycleServiceImpl {
       }
     }
 
-    const updated = await this.deps.proposals.setStatus(id, 'archived')
+    const updated = await this.deps.proposals.setStatus(id, 'archived', {
+      actor: options.actor ?? 'system',
+      detail: cleanup ?? undefined,
+    })
     return {
       proposal: updated,
       orchestration:

@@ -94,9 +94,12 @@ node $DSH web                                                # http://127.0.0.1:
 | 路径 | 内容 |
 | --- | --- |
 | `workmate/proposals.json` | 提案聚合（单 JSON，可 grep） |
+| `workmate/events.jsonl` | 过程事件流（append-only，每次状态迁移/门禁失败一条） |
 
-写入必须 **tmp + rename 原子写**；文件损坏 fail-closed——启动期报告、永不覆盖
-（board warmUp 教训）。出现事件流时再引入 JSONL 与撕裂尾行容忍。
+`proposals.json` 写入必须 **tmp + rename 原子写**；文件损坏 fail-closed——启动期报告、
+永不覆盖（board warmUp 教训）。`events.jsonl` 是**只追加**的 JSONL：只增不改，读取端
+容忍撕裂尾行与非法行（忽略并计数，绝不抛错）；事件流损坏不得影响聚合读写。
+度量一律由事件流**现算**（`src/features/proposal/metrics.ts` 纯函数），不落第二份真相。
 
 ## 里程碑路线（`docs/DESIGN.md` §7）
 

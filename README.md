@@ -143,7 +143,7 @@ pnpm dsh web                                            # 启动，默认 http:/
 
 | 配置项 | 默认 | 说明 |
 |---|---|---|
-| `workmateHome` | `'workmate'` | 状态目录名（`$DSH_HOME` 下，默认 `~/.dsh/workmate`） |
+| `workmateHome` | `'workmate'` | 状态目录名（`$DSH_HOME` 下，默认 `~/.dsh/workmate`）；其中 `proposals.json` 是提案聚合（原子写、损坏 fail-closed），`events.jsonl` 是只追加的过程事件流（每次状态迁移一条，门禁失败也记一条；读取容错撕裂尾行） |
 | `maxConcurrent` | `3` | swarm 并行执行上限（保留项） |
 | `projectRoot` | `''` | 默认项目根；空 = 每次显式传 |
 | `openspecRoot` | `'openspec'` | 目标项目内 OpenSpec 目录名（提案目录生成、状态聚合、生命周期前置校验、归档编排全链路一致） |
@@ -241,6 +241,7 @@ Agent 会话中可直接调用（DSH 工具面注册，名字以 `workmate_` 前
 | `workmate_wiki_link` / `workmate_wiki_links` | 登记 / 列出 WeKnora Wiki 页面引用 |
 | `workmate_knowledge_query` | GitNexus 查询（query / context / impact） |
 | `workmate_knowledge_search` | WeKnora 文档检索（未配置返回禁用说明） |
+| `workmate_metrics` | 过程度量（由提案事件流现算）：各状态停留、周期时间、返工次数、门禁失败排行、吞吐、agent/人 归因；带 `id` 出单提案，缺省出全局 |
 
 **会话纪律**改为经 DSH 原生面分发（不再依赖 Claude Code 的 rules/hook）：
 
@@ -275,6 +276,7 @@ rules/agent/hook 形式分发到目标项目，供在同一个仓库里跑 Claud
 | `POST /proposals/:id/wiki-links` | 登记 WeKnora 页面引用 |
 | `GET /projects` · `POST /projects` · `DELETE /projects/:name` | 项目注册表 CRUD |
 | `GET /graph?projectRoot=` | 知识图谱数据（提案↔项目↔提交） |
+| `GET /metrics?id=` | 过程度量（带 `id` 出单提案，缺省出全局聚合） |
 
 ---
 

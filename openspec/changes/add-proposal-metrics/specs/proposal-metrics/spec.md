@@ -3,8 +3,9 @@
 ### Requirement: 提案事件流
 
 每个提案的状态迁移 SHALL 追加写入 `<DSH home>/<workmateHome>/events.jsonl` 的一行
-JSON 事件，字段包含 `at`、`proposalId`、`kind`，迁移事件另含 `from`、`to`、`actor`
-（`agent` | `panel` | `system`）；文件 SHALL 只追加、SHALL NOT 被重写。读取端 SHALL
+JSON 事件，字段包含 `at`、`proposalId`、`kind`（`transition` | `gate-failed`），迁移事件
+另含 `from`、`to`、`actor`（`agent` | `human` | `system`）；文件 SHALL 只追加、
+SHALL NOT 被重写。读取端 SHALL
 容忍撕裂尾行与无法解析的行（忽略并计数，SHALL NOT 抛错），且事件流的任何损坏 SHALL NOT
 影响提案聚合（`proposals.json`）的读写纪律。
 
@@ -33,8 +34,9 @@ JSON 事件，字段包含 `at`、`proposalId`、`kind`，迁移事件另含 `fr
 ### Requirement: 派生度量
 
 实现 SHALL 由事件流与提案记录**现算**（SHALL NOT 落盘第二份真相）出单提案度量与全局
-聚合度量，至少包含：各状态停留时长、周期时间、返工次数（backward 迁移数）、门禁失败
-次数与排行、吞吐（近 7/30 天归档数）、actor 占比；并 SHALL 经 `workmate_metrics` 工具
+聚合度量，至少包含：各状态停留时长、周期时间、返工次数（backward 迁移数）、**首次通过率**
+（无回退到达 merging+）、门禁失败次数与排行、吞吐（近 7/30 天 `to=archived` 迁移数）、
+actor 占比；并 SHALL 经 `workmate_metrics` 工具
 （`{id?}`：有 id 出单提案、缺省出全局）与 `GET /workmate/api/metrics` 暴露。
 
 #### Scenario: 单提案度量

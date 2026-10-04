@@ -5,6 +5,17 @@
  * arrive with M2.
  */
 import { ProposalStore, type BlockerEntry, type DecisionEntry, type Proposal } from './store.ts'
+import { EventLog, type EventActor, type ProposalEvent } from './events.ts'
+
+/** Attribution for one status write (change `add-proposal-metrics`). */
+export interface StatusMeta {
+  /** Who drove the transition: the agent's tool, a human on the panel, or the plugin. */
+  actor?: EventActor
+  /** Why it happened (forwarded to the event log). */
+  reason?: string
+  /** Step-level detail (e.g. the archive failure summary). */
+  detail?: string
+}
 
 /** Fields the lifecycle layer may patch directly (manager outputs, branches, wiki refs). */
 const PATCHABLE = new Set(['worktreePath', 'portRange', 'proposalBranch', 'featureBranch', 'wikiLinks'])
@@ -37,8 +48,13 @@ export interface ProposalService {
   list(): Promise<Proposal[]>
   get(id: string): Promise<Proposal | undefined>
   upsert(input: UpsertProposalInput): Promise<Proposal>
-  /** Transition `status` (draft/executing/archived) with a single read-modify-write. */
-  setStatus(id: string, status: Proposal['status']): Promise<Proposal>
+  /**
+   * Transition `status` with a single read-modify-write, appending one
+   * `transition` event to the proposal event log.
+   */
+  setStatus(id: string, status: Proposal['status'], meta?: StatusMeta): Promise<Proposal>
+  /** Append one raw process event (gate refusals, orchestration outcomes). */
+  recordEvent(event: ProposalEvent): Promise<void>
   /** Append a materialized decision; `supersedes` must reference an existing entry. */
   addDecision(id: string, input: AddDecisionInput): Promise<DecisionEntry>
   /** Escalate a blocker (open) — the finite human round-trip replaces endless thinking. */
@@ -53,6 +69,8 @@ export class ProposalServiceImpl implements ProposalService {
   constructor(
     private readonly store: ProposalStore,
     private readonly now: () => Date = () => new Date(),
+    /** Append-only process log; omitted in read-only embeddings. */
+    private readonly events?: EventLog,
   ) {}
 
   rootDir(): string {
@@ -181,13 +199,30 @@ export class ProposalServiceImpl implements ProposalService {
     return existing
   }
 
-  async setStatus(id: string, status: Proposal['status']): Promise<Proposal> {
+  async recordEvent(event: ProposalEvent): Promise<void> {
+    await this.events?.append(event)
+  }
+
+  async setStatus(id: string, status: Proposal['status'], meta: StatusMeta = {}): Promise<Proposal> {
     const proposals = await this.store.load()
     const existing = proposals.find((proposal) => proposal.id === id)
     if (!existing) throw new Error(`proposal not found: ${id}`)
+    const from = existing.status
     existing.status = status
     existing.updatedAt = this.now().toISOString()
     await this.store.save(proposals)
+    if (this.events !== undefined && from !== status) {
+      await this.events.append({
+        at: existing.updatedAt,
+        proposalId: id,
+        kind: 'transition',
+        from,
+        to: status,
+        actor: meta.actor ?? 'system',
+        ...(meta.reason !== undefined ? { reason: meta.reason } : {}),
+        ...(meta.detail !== undefined ? { detail: meta.detail } : {}),
+      })
+    }
     return existing
   }
 }

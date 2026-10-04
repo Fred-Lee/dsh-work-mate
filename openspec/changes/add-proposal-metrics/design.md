@@ -21,8 +21,9 @@
 ## D3 actor 从调用点注进来，不从环境猜
 
 `TransitionOptions.actor` 由三个入口显式传：agent 工具（`index.ts`）= `agent`、
-REST/面板（`api.ts`）= `panel`、编排内部副作用 = `system`（缺省）。这样"agent 推的 vs
-人点的"可以直接统计——这正是闭环度量里最容易缺失、又最有解释力的一维。
+REST/面板（`api.ts`）= `human`、编排内部副作用 = `system`（缺省）。这样"agent 推的 vs
+人点的"可以直接统计——这正是闭环度量里最容易缺失、又最有解释力的一维
+（Anthropic playbook 的「who asked for what, what the agent produced, and who approved it」）。
 （不引入会话/用户身份解析：宿主身份是另一个待决问题，本变更不碰。）
 
 ## D4 门禁失败必须留痕，而且不改控制流
@@ -41,10 +42,12 @@ REST/面板（`api.ts`）= `panel`、编排内部副作用 = `system`（缺省�
 | time-in-state | 用该提案相邻事件的时间差切分；当前状态算到"现在" |
 | cycle time | 该提案第一条事件 → `kind=archived` 的时间差；未归档不计入中位数 |
 | rework（返工） | 该提案 `to` 序号小于 `from` 序号的 `transition` 条数 |
+| firstPass（首次通过） | `rework === 0` 且当前状态序号 ≥ `merging`（[P1]「share of changes that merge from the first implementation pass」） |
 | gate failures | `kind=gate-failed` 计数，按 `gate` 分组排行 |
 | blocker/decision | 取提案记录里的 `blockers[]` / `decisions[]` 长度；supersedes 率 = 带
   `supersedes` 的决策占比 |
-| throughput | 近 7 / 30 天 `kind=archived` 的事件数 |
+| throughput | 近 7 / 30 天 `to=archived` 的迁移事件数 |
+| 人工等待 | `reviewing` / `merging` 的停留时长即"等待人工"（这两态的出口都依赖人合分支），不另设事件类型 |
 | actor share | `transition` 事件按 `actor` 分组占比 |
 
 明确不引入的：LOC/复杂度这类需要 diff 与静态分析的指标（留给 GitNexus 桥）、

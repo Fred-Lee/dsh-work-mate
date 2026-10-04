@@ -10,6 +10,8 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Router, readJsonBody } from './http.ts'
+import { aggregateMetrics, proposalMetrics } from './features/proposal/metrics.ts'
+import type { EventLog } from './features/proposal/events.ts'
 import type { ProposalService } from './features/proposal/service.ts'
 import type { LifecycleServiceImpl } from './features/archive/service.ts'
 import { PROPOSAL_STATES, isProposalState } from './features/proposal/state-machine.ts'
@@ -36,6 +38,8 @@ export interface ApiDeps {
   qualitySyncEnabled: boolean
   /** Also distribute the Claude Code asset set (.claude/**). @default true */
   claudeAssetsEnabled: boolean
+  /** Proposal event log; omitted in tests that do not measure. */
+  events?: EventLog
 }
 
 export interface CreateProjectBody {
@@ -102,7 +106,7 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
   })
 
   router.post('/api/proposals/:id/advance', async (r) => {
-    const result = await deps.archive.advance(r.params['id'] ?? '')
+    const result = await deps.archive.advance(r.params['id'] ?? '', { actor: 'human' })
     return { proposal: result.proposal, ...(result.worktree !== undefined ? { worktree: result.worktree } : {}) }
   })
 
@@ -112,7 +116,7 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     if (!isProposalState(to)) {
       throw new Error(`unknown state '${to}' — valid: ${PROPOSAL_STATES.join(', ')}`)
     }
-    const result = await deps.archive.transition(r.params['id'] ?? '', to)
+    const result = await deps.archive.transition(r.params['id'] ?? '', to, { actor: 'human' })
     return { proposal: result.proposal, ...(result.worktree !== undefined ? { worktree: result.worktree } : {}) }
   })
 
@@ -121,8 +125,19 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     // CRITICAL); the openspec + gitnexus steps and the archiving precondition
     // still apply. An empty body keeps the gate on.
     const body = await readJsonBody<{ force?: boolean }>(r.req).catch(() => ({ force: false }))
-    const result = await deps.archive.runArchive(r.params['id'] ?? '', { force: body.force === true })
+    const result = await deps.archive.runArchive(r.params['id'] ?? '', { force: body.force === true, actor: 'human' })
     return { proposal: result.proposal, ...(result.orchestration !== undefined ? { orchestration: result.orchestration } : {}) }
+  })
+
+  router.get('/api/metrics', async (r) => {
+    const id = r.query.get('id')
+    const read = deps.events === undefined ? { events: [], skippedLines: 0 } : await deps.events.read()
+    if (id !== null && id !== '') {
+      const proposal = await deps.proposals.get(id)
+      if (!proposal) throw new Error(`proposal not found: ${id}`)
+      return { id, metrics: proposalMetrics(proposal, read.events), skippedLines: read.skippedLines }
+    }
+    return { metrics: aggregateMetrics(await deps.proposals.list(), read.events, { skippedLines: read.skippedLines }) }
   })
 
   router.get('/api/projects', async () => {

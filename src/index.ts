@@ -21,6 +21,8 @@ import { resolveConfig, type Config } from './config.ts'
 import type { Proposal } from './features/proposal/store.ts'
 import type { OrchestrationTarget } from './features/archive/orchestrate.ts'
 import { ProposalStore } from './features/proposal/store.ts'
+import { EventLog } from './features/proposal/events.ts'
+import { aggregateMetrics, proposalMetrics } from './features/proposal/metrics.ts'
 import { ProposalServiceImpl, type ProposalService } from './features/proposal/service.ts'
 import { LifecycleServiceImpl } from './features/archive/service.ts'
 import { WorktreeManager } from './features/worktree/manager.ts'
@@ -81,7 +83,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     )
   }
   const store = new ProposalStore({ subdir: resolved.workmateHome })
-  const proposals = new ProposalServiceImpl(store)
+  const events = new EventLog({ subdir: resolved.workmateHome })
+  const proposals = new ProposalServiceImpl(store, undefined, events)
   const registry = new ProjectRegistry({ subdir: resolved.workmateHome })
   const worktree = new WorktreeManager({
     subdir: resolved.workmateHome,
@@ -136,7 +139,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.provide('workmate.projects', registry)
   ctx.provide('workmate.worktree', worktree)
 
-  registerTools(ctx, { proposals, archive, registry, worktree, resolved })
+  registerTools(ctx, { proposals, archive, registry, worktree, resolved, events })
   // Native guidance surfaces: two runtime skills + one flow section. Lazy, so
   // a composition without those services keeps the plugin ACTIVE.
   registerGuidance(ctx)
@@ -156,6 +159,8 @@ export function apply(ctx: Context, config: Config = {}): void {
 }
 
 interface ToolDeps {
+  /** Append-only proposal event log (metrics + gate-failure records). */
+  events: EventLog
   proposals: ProposalService
   archive: LifecycleServiceImpl
   registry: ProjectRegistry
@@ -239,14 +244,14 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         const signal = exec.signal
         const mode = args.mode ?? 'advance'
         if (mode === 'advance') {
-          const result = await archive.advance(args.id, { signal })
+          const result = await archive.advance(args.id, { signal, actor: 'agent' })
           return asJson({ proposal: result.proposal, ...(result.worktree !== undefined ? { worktree: result.worktree } : {}), ...(result.orchestration !== undefined ? { orchestration: result.orchestration } : {}), note: `next: ${nextStepHint(result.proposal.status)}` })
         }
         if (mode === 'archive') {
-          const result = await archive.runArchive(args.id, { force: args.force === true, signal })
+          const result = await archive.runArchive(args.id, { force: args.force === true, signal, actor: 'agent' })
           return asJson({ proposal: result.proposal, ...(result.orchestration !== undefined ? { orchestration: result.orchestration } : {}) })
         }
-        const result = await archive.transition(args.id, mode as ProposalState, { signal })
+        const result = await archive.transition(args.id, mode as ProposalState, { signal, actor: 'agent' })
         return asJson({ proposal: result.proposal, ...(result.worktree !== undefined ? { worktree: result.worktree } : {}), ...(result.orchestration !== undefined ? { orchestration: result.orchestration } : {}) })
       },
     }),
@@ -408,5 +413,30 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     }),
   )
 
-  console.log('[workmate] tools registered (proposal lifecycle + decide/block/unblock + wiki_link(s) + knowledge_query/search)')
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_metrics',
+      description:
+        'Read WorkMate process metrics derived from the proposal event log: per-state dwell time, cycle time, rework (backward transitions), first-pass merge, gate-failure ranking, throughput and agent/human attribution. Pass id for one proposal, omit it for the global aggregate.',
+      parameters: {
+        id: { type: 'string', description: 'Proposal id; omit for the global aggregate.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      isConcurrencySafe: () => true,
+      async execute(args) {
+        const { events: log, skippedLines } = await deps.events.read()
+        if (args.id !== undefined) {
+          const proposal = await deps.proposals.get(args.id)
+          if (!proposal) throw new Error(`proposal not found: ${args.id}`)
+          return asJson({ id: args.id, metrics: proposalMetrics(proposal, log), skippedLines })
+        }
+        const all = await deps.proposals.list()
+        return asJson(aggregateMetrics(all, log, { skippedLines }))
+      },
+    }),
+  )
+
+  console.log(
+    '[workmate] tools registered (proposal lifecycle + decide/block/unblock + wiki_link(s) + knowledge_query/search + metrics)',
+  )
 }
