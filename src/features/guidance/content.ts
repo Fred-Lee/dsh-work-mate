@@ -61,6 +61,13 @@ openspec archive**。\`force\` 只跳过审查门，其余步骤照跑——默�
 - 文档/规范用 \`workmate_knowledge_search\`（WeKnora；未配置会返回禁用说明）。
 - 归档前每个声明 wiki 的任务必须已登记页面引用（\`workmate_wiki_link\`，pageType 为
   concept / synthesis / entity 之一）。
+
+## 过程度量
+
+- \`workmate_metrics\` 由事件流现算过程事实：各状态停留、周期时间、返工次数（回退）、
+  首次通过、门禁失败排行、吞吐、agent/human 归因；带 \`id\` 看单提案，缺省看全局。
+- 用途：回答"这套流程有没有用、卡在哪一道门"，而不是凭感觉判断。报告数字时如实转述，
+  不要用估算代替事件流；事件流缺行（撕裂尾行）会体现在 \`skippedLines\`。
 `,
 }
 

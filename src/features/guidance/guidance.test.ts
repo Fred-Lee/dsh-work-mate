@@ -63,6 +63,7 @@ describe('registerGuidance', () => {
     expect(flow.description).toContain('WorkMate')
     expect(flow.content).toContain('workmate_proposal_block')
     expect(flow.content).toContain('supersedes')
+    expect(flow.content).toContain('workmate_metrics')
 
     expect(prompt.section).toHaveBeenCalledTimes(1)
     const section = prompt.section.mock.calls[0]?.[0] as PromptSectionFace
