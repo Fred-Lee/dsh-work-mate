@@ -18,6 +18,7 @@ WorkMate（`workmate4dsh`）是一个 **DSH 插件 Bundle**，围绕「变更提
 pnpm install && pnpm build     # 构建（esbuild host 产物 + d.ts）
 pnpm test                      # vitest
 pnpm typecheck                 # tsc --noEmit
+pnpm verify                    # 四条门禁：契约 + 钉版 + 宿主兼容 + 客户端工厂求值
 pnpm verify:contract           # 契约门禁：patch id / package.json / 入口 name 三处一致
 
 pnpm exec vitest run src/features/proposal        # 单目录测试

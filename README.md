@@ -90,7 +90,8 @@ git clone <本仓库> && cd dsh-Helmsman
 pnpm install
 pnpm build            # dist/index.js + dist/client/{app,client}.js + dist/assets/
 pnpm test             # 可选：71 个单元测试
-pnpm verify:contract && pnpm verify:toolchain   # 契约与版本门禁
+pnpm verify                                     # 四条门禁（契约 + 钉版 + 宿主兼容 + 客户端工厂求值）
+pnpm verify:client                              # 在 VM 里求值 dist/client/client.js，校验装载契约与 external 白名单
 ```
 
 ### 2.2 方式 A：tarball 安装（推荐生产）

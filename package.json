@@ -1,7 +1,7 @@
 {
   "name": "workmate4dsh",
   "version": "0.1.0",
-  "description": "WorkMate \u2014 a DSH plugin bundle built around the change-proposal entity: proposal management, GitNexus/WeKnora knowledge bridging, swarm parallel orchestration and an OpenSpec archival loop.",
+  "description": "WorkMate — a DSH plugin bundle built around the change-proposal entity: proposal management, GitNexus/WeKnora knowledge bridging, swarm parallel orchestration and an OpenSpec archival loop.",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {
@@ -33,7 +33,8 @@
     "verify:toolchain": "node scripts/check-toolchain.mjs --structural",
     "prepack": "pnpm run build",
     "verify:host-compat": "node scripts/check-host-compat.mjs",
-    "verify": "pnpm run verify:contract && pnpm run verify:toolchain && pnpm run verify:host-compat"
+    "verify": "pnpm verify:contract && pnpm verify:toolchain && pnpm verify:host-compat && pnpm verify:client",
+    "verify:client": "node scripts/check-client-factory.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",

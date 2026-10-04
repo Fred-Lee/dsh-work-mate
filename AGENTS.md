@@ -18,10 +18,13 @@ WorkMate（`workmate4dsh`）是一个 **DSH 插件 Bundle**，围绕「变更提
 pnpm install && pnpm build     # 构建（esbuild host/客户端产物 + dist/types 声明树）
 pnpm test                      # vitest
 pnpm typecheck                 # host + client 两个 program
-pnpm verify                    # 三条门禁：契约 + 工具链钉版 + 宿主兼容
+pnpm verify                    # 四条门禁：契约 + 工具链钉版 + 宿主兼容 + 客户端工厂求值
 pnpm verify:contract           # patch id / package.json / 入口 name 三处一致
 pnpm verify:toolchain          # toolchain.json ↔ package.json 钉版一致
 pnpm verify:host-compat        # dsh peer 范围与宿主基线（借宿主自己的判定函数）
+pnpm verify:client             # 在 VM 里真求值 dist/client/client.js：load 次数 / id / apply /
+                               # inject / external 白名单（**默认拒绝**）——补"单测抓不到、
+                               # 只有真机才暴露"那道门；它只管装载契约，不证明 UI 渲染对
 pnpm test:toolchain            # 上述门禁脚本自身的用例（node:test）
 
 pnpm exec vitest run src/features/proposal        # 单目录测试
@@ -61,8 +64,11 @@ node $DSH web                                                # http://127.0.0.1:
   `@deepseek-ai/dsh-*` 的范围判定兼容性（`plugin-compatibility.ts`，含 prerelease），
   范围不满足就**整包跳过装载**——这是社区插件在 0.2.x 升级后集体失效的原因。
   构建基准线写在 `devDependencies` + `toolchain.json`，由 `pnpm verify:host-compat` 守。
-- bundle 必须在 `package.json` 声明 `dsh.bundle.patch`，否则 profile 装载直接抛错
-  （单元测试抓不到，只有真装进 profile 才暴露）。
+- bundle 必须在 `package.json` 声明 `dsh.bundle.patch`，否则 profile 装载直接抛错。
+  客户端构建产物的同类失效由 `pnpm verify:client` 兜住（在 VM 里真求值
+  `dist/client/client.js`，断言 load 恰好一次 / id == 包名 / 导出 `apply` /
+  `inject` 是字符串数组 / external 只在白名单内且**默认拒绝**）——它替代不了真机，
+  但把"装载契约"从真机前移到了门禁。
 - `cordis.patch.yml` 只写本包条目；引用未安装的插件同样断链。
 
 ## 跟随 DSH 升级（升级仪式）
