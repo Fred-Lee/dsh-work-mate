@@ -73,6 +73,11 @@ export interface Config {
   approvalsRequired?: string[]
   /** Allow the agent actor to cross gated states; weakens separation of duties. @default false */
   allowAgentApproval?: boolean
+  /**
+   * Severities whose unresolved findings block archiving (any of CRIT/HIGH/MED/LOW).
+   * @default ['CRIT']
+   */
+  reviewBlockingSeverities?: string[]
 }
 
 /** Runtime schema the host collects (validation + config-UI projection). */
@@ -106,6 +111,10 @@ export const Config: z<Config> = z.object({
     .boolean()
     .default(false)
     .description('Let the agent actor cross gated states (weakens separation of duties).'),
+  reviewBlockingSeverities: z
+    .array(z.string())
+    .default(['CRIT'])
+    .description('Severities whose unresolved review findings block archiving.'),
 })
 
 export type ResolvedConfig = Required<Config>
@@ -128,6 +137,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   weknoraWikiRequired: false,
   approvalsRequired: ['merging', 'archiving'],
   allowAgentApproval: false,
+  reviewBlockingSeverities: ['CRIT'],
 }
 
 /**

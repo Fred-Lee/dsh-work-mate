@@ -17,6 +17,7 @@ describe('resolveConfig', () => {
       copyFiles: ['.env', '.env.local'],
       approvalsRequired: ['merging', 'archiving'],
       allowAgentApproval: false,
+      reviewBlockingSeverities: ['CRIT'],
       packageManager: 'pnpm',
       weknoraEnabled: true,
       weknoraKbId: '',

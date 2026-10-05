@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import { getGitInfo, listProposalCommits } from './git.ts'
 import { readChangeState, validateProjectRoot } from './openspec.ts'
 import { STATE_HINTS, nextState, prevState } from './state-machine.ts'
-import { parseReviewMd, type ReviewReport } from '../quality/review-parser.ts'
+import { parseReviewMd, reviewTally, type ReviewReport, type ReviewTally } from '../quality/review-parser.ts'
 import type { ProposalService } from './service.ts'
 
 export interface ProjectDetail {
@@ -26,6 +26,8 @@ export interface ProjectDetail {
   openspec?: OpenspecChangeState
   /** Parsed `changes/<id>/review.md` (proposal-auditor artifact). */
   reviewReport?: ReviewReport
+  /** Machine-readable severity tally of that report (change `add-review-tally`). */
+  reviewTally?: ReviewTally
   note?: string
 }
 
@@ -64,6 +66,8 @@ export interface StatusOptions {
   approvalsRequired?: string[]
   /** Set when the agent may cross gated states (`Config.allowAgentApproval`). */
   allowAgentApproval?: boolean
+  /** Severities whose open findings block archiving (`Config.reviewBlockingSeverities`). */
+  reviewBlockingSeverities?: string[]
 }
 
 export async function buildProposalStatus(
@@ -99,7 +103,14 @@ export async function buildProposalStatus(
   // association so existing callers keep their shape.
   if (associated.length === 0 && options.projectRoot) {
     validateProjectRoot(options.projectRoot)
-    const single = await collectProject('(explicit)', options.projectRoot, options.openspecRoot, proposal.openspecChangeId, options.withReviewReport)
+    const single = await collectProject(
+      '(explicit)',
+      options.projectRoot,
+      options.openspecRoot,
+      proposal.openspecChangeId,
+      options.withReviewReport,
+      options.reviewBlockingSeverities,
+    )
     status.projects.push(single)
     Object.assign(status, projectProjection(single))
     return status
@@ -125,7 +136,16 @@ export async function buildProposalStatus(
       continue
     }
     validateProjectRoot(root)
-    status.projects.push(await collectProject(name, root, options.openspecRoot, proposal.openspecChangeId, options.withReviewReport))
+    status.projects.push(
+      await collectProject(
+        name,
+        root,
+        options.openspecRoot,
+        proposal.openspecChangeId,
+        options.withReviewReport,
+        options.reviewBlockingSeverities,
+      ),
+    )
   }
 
   const first = status.projects.find((detail) => detail.root !== undefined)
@@ -182,6 +202,7 @@ async function collectProject(
   openspecRoot: string,
   changeId: string,
   withReviewReport?: boolean,
+  reviewBlockingSeverities?: string[],
 ): Promise<ProjectDetail> {
   const detail: ProjectDetail = { project: name, root }
   const [git, gitScan, openspecState, reviewContent] = await Promise.all([
@@ -194,6 +215,10 @@ async function collectProject(
   detail.commits = gitScan.commits
   if (gitScan.note !== undefined) detail.note = gitScan.note
   detail.openspec = openspecState
-  if (reviewContent !== undefined) detail.reviewReport = parseReviewMd(reviewContent)
+  if (reviewContent !== undefined) {
+    const report = parseReviewMd(reviewContent)
+    detail.reviewReport = report
+    detail.reviewTally = reviewTally(report, reviewBlockingSeverities ?? CONFIG_DEFAULTS.reviewBlockingSeverities)
+  }
   return detail
 }

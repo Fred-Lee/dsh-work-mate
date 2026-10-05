@@ -39,6 +39,27 @@ describe('parseTasksMd', () => {
   })
 })
 
+/** Minimal archiving proposal: the review gate runs before any CLI. */
+const archivingProposal = (): {
+  id: string
+  title: string
+  status: 'archiving'
+  projects: string[]
+  commits: string[]
+  openspecChangeId: string
+  createdAt: string
+  updatedAt: string
+} => ({
+  id: 'p1',
+  title: 't',
+  status: 'archiving',
+  projects: [],
+  commits: [],
+  openspecChangeId: 'p1',
+  createdAt: '2026-10-05T00:00:00.000Z',
+  updatedAt: '2026-10-05T00:00:00.000Z',
+})
+
 describe('orchestrateArchive (fake CLIs)', () => {
   async function seedProject(): Promise<string> {
     const project = join(home, 'proj')
@@ -155,6 +176,65 @@ describe('orchestrateArchive (fake CLIs)', () => {
     const badResult = (await badArchive.runArchive('p1')) as { proposal: { status: string }; orchestration: { ok: boolean } }
     expect(badResult.proposal.status).toBe('archiving')
     expect(badResult.orchestration.ok).toBe(false)
+  })
+
+  it('lets a shadow review through and says so in the summary', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'wm-shadow-'))
+    await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+    await writeFile(
+      join(project, 'openspec', 'changes', 'p1', 'review.md'),
+      ['<!-- reviewer: auditor@1.0 shadow -->', '', '## CRITICAL 问题', '', '- [ ] CRIT-1 未修复'].join('\n'),
+    )
+    await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n')
+
+    const result = await orchestrateArchive(
+      archivingProposal(),
+      [{ project: 'demo', root: project }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false },
+    )
+
+    const gate = result.steps.find((step) => step.step === 'review-gate')
+    expect(gate?.status).toBe('ok')
+    expect(gate?.summary).toContain('shadow')
+    expect(gate?.summary).toContain('CRIT 1/1')
+    await rm(project, { recursive: true, force: true })
+  })
+
+  it('blocks the configured severities beyond CRIT', async () => {
+    // A fresh project per run: the archive step may move changes/<id>/ away.
+    const seed = async (): Promise<string> => {
+      const project = await mkdtemp(join(tmpdir(), 'wm-high-'))
+      await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+      await writeFile(
+        join(project, 'openspec', 'changes', 'p1', 'review.md'),
+        ['## 疑问项', '', '- [ ] HIGH-1 缺少回滚演练证据'].join('\n'),
+      )
+      await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n')
+      return project
+    }
+
+    const permissiveProject = await seed()
+    const permissive = await orchestrateArchive(
+      archivingProposal(),
+      [{ project: 'demo', root: permissiveProject }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false },
+    )
+    expect(permissive.steps.find((step) => step.step === 'review-gate')?.status).toBe('ok')
+
+    const strictProject = await seed()
+    const strict = await orchestrateArchive(
+      archivingProposal(),
+      [{ project: 'demo', root: strictProject }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false, reviewBlockingSeverities: ['CRIT', 'HIGH'] },
+    )
+    const gate = strict.steps.find((step) => step.step === 'review-gate')
+    expect(strict.ok).toBe(false)
+    expect(gate?.status).toBe('failed')
+    expect(gate?.summary).toContain('HIGH 1/1')
+    expect(gate?.summary).toContain('缺少回滚演练证据')
+
+    await rm(permissiveProject, { recursive: true, force: true })
+    await rm(strictProject, { recursive: true, force: true })
   })
 
   it('force skips the review gate only — missing review.md otherwise blocks', async () => {

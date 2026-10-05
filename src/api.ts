@@ -49,6 +49,8 @@ export interface ApiDeps {
   approvalsRequired?: string[]
   /** Set when the agent may cross gated states (`Config.allowAgentApproval`). */
   allowAgentApproval?: boolean
+  /** Severities whose open findings block archiving (`Config.reviewBlockingSeverities`). */
+  reviewBlockingSeverities?: string[]
 }
 
 export interface CreateProjectBody {
@@ -125,6 +127,7 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
       withReviewReport: true,
       approvalsRequired: deps.approvalsRequired ?? CONFIG_DEFAULTS.approvalsRequired,
       allowAgentApproval: deps.allowAgentApproval ?? CONFIG_DEFAULTS.allowAgentApproval,
+      reviewBlockingSeverities: deps.reviewBlockingSeverities ?? CONFIG_DEFAULTS.reviewBlockingSeverities,
     })
   })
 

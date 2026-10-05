@@ -115,6 +115,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       return orchestrateArchive(proposal, targets, {
         openspecRoot: opts.openspecRoot,
         gitnexusAnalyzeEnabled: resolved.gitnexusEnabled,
+        reviewBlockingSeverities: resolved.reviewBlockingSeverities,
         ...(opts.reviewGate !== undefined ? { reviewGate: opts.reviewGate } : {}),
         ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
       })
@@ -241,6 +242,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
             openspecRoot: resolved.openspecRoot,
             approvalsRequired: resolved.approvalsRequired,
             allowAgentApproval: resolved.allowAgentApproval,
+            reviewBlockingSeverities: resolved.reviewBlockingSeverities,
           }),
         )
       },

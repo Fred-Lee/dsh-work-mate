@@ -83,6 +83,15 @@ export interface CriticalIssue {
   resolved: boolean
 }
 
+export interface ReviewTally {
+  bySeverity: Record<string, { total: number; open: number }>
+  findings: number
+  open: number
+  blocking: number
+  reviewer?: string
+  shadow: boolean
+}
+
 export interface ReviewReport {
   confirms: string[]
   questions: string[]
@@ -97,6 +106,7 @@ export interface ProjectDetail {
   commits?: AssociatedCommit[]
   openspec?: { state: 'active' | 'archived' | 'missing'; tasks?: { done: number; total: number } }
   reviewReport?: ReviewReport
+  reviewTally?: ReviewTally
   note?: string
 }
 

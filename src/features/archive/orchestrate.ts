@@ -12,7 +12,7 @@ import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import { readChangeState, validateProjectRoot } from '../proposal/openspec.ts'
 import { gitnexusAnalyze } from '../knowledge-bridge/gitnexus.ts'
-import { parseReviewMd, unresolvedCriticals } from '../quality/review-parser.ts'
+import { formatTally, parseReviewMd, reviewTally } from '../quality/review-parser.ts'
 import type { Proposal } from '../proposal/store.ts'
 
 export interface OrchestrationStep {
@@ -124,6 +124,11 @@ export interface OrchestrateOptions {
   openspecRoot: string
   gitnexusAnalyzeEnabled?: boolean
   reviewGate?: boolean
+  /**
+   * Severities whose open findings block archiving (`Config.reviewBlockingSeverities`).
+   * @default ['CRIT']
+   */
+  reviewBlockingSeverities?: string[]
   /** Caller cancellation, forwarded to every spawned CLI. */
   signal?: AbortSignal
 }
@@ -200,16 +205,33 @@ export async function orchestrateArchive(
         continue
       }
       const report = parseReviewMd(content)
-      const unresolved = unresolvedCriticals(report)
-      if (unresolved.length > 0) {
+      const tally = reviewTally(report, options.reviewBlockingSeverities ?? ['CRIT'])
+      const counts = formatTally(tally)
+      const head = `${label}${counts === '' ? '无发现' : counts}`
+      const who = tally.reviewer !== undefined ? `${tally.reviewer}${tally.shadow ? '（影子）' : ''}` : undefined
+      if (tally.shadow) {
+        // Shadow mode (change add-review-tally, design D2): a reviewer still
+        // earning trust reports without blocking — the tally is the evidence.
+        steps.push({
+          step: 'review-gate',
+          status: 'ok',
+          summary: `${head}；shadow 审查者${who !== undefined ? ` ${who}` : ''} 只记录不阻断`,
+        })
+      } else if (tally.blocking > 0) {
         gateFailed = true
         steps.push({
           step: 'review-gate',
           status: 'failed',
-          summary: `${label}${unresolved.length} 个未解决 CRITICAL — ${unresolved.map((issue) => issue.text.slice(0, 40)).join(' / ')}`,
+          summary: `${label}${tally.blocking} 条未解决阻断级发现（${head}）— ${tally.blockingFindings
+            .map((finding) => finding.text.slice(0, 40))
+            .join(' / ')}`,
         })
       } else {
-        steps.push({ step: 'review-gate', status: 'ok', summary: `${label}审查通过（${report.criticals.length} 项 CRITICAL 已解决）` })
+        steps.push({
+          step: 'review-gate',
+          status: 'ok',
+          summary: `${head}；审查通过${who !== undefined ? `（${who}）` : ''}`,
+        })
       }
     }
     if (gateFailed) return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }

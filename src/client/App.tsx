@@ -314,6 +314,26 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                     project.reviewReport === undefined ? null : (
                                       <div key={project.project} style={{ marginBottom: 6 }}>
                                         <code>{project.project}</code>
+                                        {project.reviewTally !== undefined && (
+                                          <div className="wm-meta">
+                                            {(['CRIT', 'HIGH', 'MED', 'LOW'] as const)
+                                              .filter((severity) => (project.reviewTally?.bySeverity[severity]?.total ?? 0) > 0)
+                                              .map((severity) => (
+                                                <span key={severity} className="wm-tier wm-tier-log">
+                                                  {severity} {project.reviewTally?.bySeverity[severity]?.open}/
+                                                  {project.reviewTally?.bySeverity[severity]?.total}
+                                                </span>
+                                              ))}
+                                            {project.reviewTally.shadow && (
+                                              <span className="wm-tier wm-tier-diagnose" title="影子审查者只记录不阻断">
+                                                shadow
+                                              </span>
+                                            )}
+                                            {project.reviewTally.reviewer !== undefined && (
+                                              <span>{project.reviewTally.reviewer}</span>
+                                            )}
+                                          </div>
+                                        )}
                                         {project.reviewReport.criticals.map((issue, index) => (
                                           <div
                                             key={index}
