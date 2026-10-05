@@ -253,6 +253,33 @@ Git 关联、worktree 信息、决策日志、卡点、审查报告与 Wiki 引�
 
 ---
 
+## 5.6 Maintain 回环：把控制带接到任何调度器
+
+playbook 要求"检测确定性、无模型参与，越界后才叫模型"。WorkMate 给出的可调度单元是一个
+**脚本**（不是宿主 schedule——DSH 的 `schedule` 服务是**会话绑定**的提醒投递，需要 sessionId
+且投递的是 prompt，插件启动期没有会话可绑）：
+
+```bash
+# 只看：退出码 0=无越界 / 1=达到 --fail-on 档 / 2=调用失败
+node scripts/bands-watch.mjs --fail-on propose
+
+# 越界即回流：3σ 的那一项会开一个 metric-regression 草稿提案（走与人和 agent 相同的创建路径）
+node scripts/bands-watch.mjs --fail-on propose --apply
+```
+
+接 cron（每天 09:10 检查，越界时告警）：
+
+```cron
+10 9 * * * cd /Users/fredlee/Documents/workspace/dsh-Helmsman && /usr/bin/env node scripts/bands-watch.mjs --fail-on propose >> /tmp/workmate-bands.log 2>&1
+```
+
+接 launchd（`~/Library/LaunchAgents/com.workmate.bands.plist` 里 `StartCalendarInterval` +
+`ProgramArguments` 指向 `node .../scripts/bands-watch.mjs --apply`）同理。REST 侧对应
+`GET /workmate/api/bands`（只读）与 `POST /workmate/api/bands {"apply":true}`（留痕 + 回流），
+`workmate_bands` 工具与它们共用同一个执行器——**"工具说没事、脚本说越界"不会发生**。
+
+---
+
 ## 6. Agent 工具参考
 
 Agent 会话中可直接调用（DSH 工具面注册，名字以 `workmate_` 前缀隔离）：

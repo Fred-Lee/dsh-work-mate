@@ -23,7 +23,7 @@ import type { OrchestrationTarget } from './features/archive/orchestrate.ts'
 import { ProposalStore } from './features/proposal/store.ts'
 import { join } from 'node:path'
 import { EventLog } from './features/proposal/events.ts'
-import { METRICS_SOURCE, evaluateBands, loadBands } from './features/metrics/bands.ts'
+import { runBandsCheck } from './features/metrics/check.ts'
 import type { ProposalSource } from './features/proposal/store.ts'
 import { aggregateMetrics, proposalMetrics } from './features/proposal/metrics.ts'
 import { ProposalServiceImpl, type ProposalService } from './features/proposal/service.ts'
@@ -471,74 +471,33 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
       },
       output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
       async execute(args) {
-        const bandsFile = join(proposals.rootDir(), 'bands.json')
-        const config = await loadBands(bandsFile)
-        const all = await proposals.list()
-        const { events: log, skippedLines } = await deps.events.read()
-        const evaluations = evaluateBands(all, log, {
-          config,
-          ...(args.windowDays !== undefined ? { windowDays: args.windowDays } : {}),
-        })
-        const breaches = evaluations.filter((entry) => entry.tier !== 'normal')
-        const stamp = new Date().toISOString()
-        for (const breach of breaches) {
-          await deps.events.append({
-            at: stamp,
-            proposalId: METRICS_SOURCE,
-            kind: 'band-breach',
-            actor: 'system',
-            metric: breach.metric,
-            tier: breach.tier === 'normal' ? 'log' : breach.tier,
-            current: breach.current,
-            baseline: breach.baseline,
-            sigma: breach.sigma,
-            reason: `deviation ${breach.deviation.toFixed(2)}σ`,
-            ...(breach.note !== undefined ? { detail: breach.note } : {}),
-          })
-        }
-
-        const created: string[] = []
-        if (args.apply === true) {
-          for (const breach of breaches.filter((entry) => entry.tier === 'propose')) {
-            const id = `band-${breach.metric.toLowerCase()}-${stamp.slice(0, 10)}`
-            if (all.some((proposal) => proposal.id === id)) continue
-            await createProposal(
-              {
-                proposals,
-                archive,
-                registry,
-                openspecRoot: resolved.openspecRoot,
-                projectRoot: resolved.projectRoot,
-                qualitySyncEnabled: resolved.qualitySyncEnabled,
-                claudeAssetsEnabled: resolved.claudeAssetsEnabled,
-              },
-              {
-                id,
-                title: `指标越界：${breach.metric} 偏离基线 ${breach.deviation.toFixed(1)}σ`,
-                source: 'metric-regression',
-                sourceRef: `bands:${breach.metric}`,
-                provenance: { capturedAt: stamp },
-                notes: [
-                  `控制带越界（${breach.tier}）：metric=${breach.metric} direction=${breach.direction}`,
-                  `current=${breach.current} baseline=${breach.baseline} sigma=${breach.sigma} samples=${breach.samples}`,
-                  breach.note ?? '',
-                ]
-                  .filter((line) => line !== '')
-                  .join('\n'),
-              },
-            )
-            created.push(id)
-          }
-        }
-
-        return asJson({
-          bandsFile,
-          windowDays: config.windowDays,
-          evaluations,
-          breachCount: breaches.length,
-          created,
-          skippedLines,
-        })
+        const result = await runBandsCheck(
+          {
+            proposals,
+            events: deps.events,
+            bandsFile: join(proposals.rootDir(), 'bands.json'),
+            createProposal: async (input) => {
+              const created = await createProposal(
+                {
+                  proposals,
+                  archive,
+                  registry,
+                  openspecRoot: resolved.openspecRoot,
+                  projectRoot: resolved.projectRoot,
+                  qualitySyncEnabled: resolved.qualitySyncEnabled,
+                  claudeAssetsEnabled: resolved.claudeAssetsEnabled,
+                },
+                input,
+              )
+              return { id: created.proposal.id }
+            },
+          },
+          {
+            ...(args.apply !== undefined ? { apply: args.apply } : {}),
+            ...(args.windowDays !== undefined ? { windowDays: args.windowDays } : {}),
+          },
+        )
+        return asJson(result)
       },
     }),
   )

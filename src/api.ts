@@ -13,6 +13,7 @@ import { Router, readJsonBody } from './http.ts'
 import { aggregateMetrics, proposalMetrics } from './features/proposal/metrics.ts'
 import type { EventLog } from './features/proposal/events.ts'
 import { evaluateBands, loadBands } from './features/metrics/bands.ts'
+import { runBandsCheck } from './features/metrics/check.ts'
 import { CONFIG_DEFAULTS } from './config.ts'
 import type { ProposalSource, Provenance } from './features/proposal/store.ts'
 import type { ProposalService } from './features/proposal/service.ts'
@@ -164,15 +165,58 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     return { proposal: result.proposal, ...(result.orchestration !== undefined ? { orchestration: result.orchestration } : {}) }
   })
 
-  router.get('/api/bands', async (r) => {
+  const bandsRunner = async (r: { query: URLSearchParams }, apply: boolean): Promise<unknown> => {
     // The proposal store already resolved the DSH home for us.
-    const config = await loadBands(deps.bandsFile ?? join(deps.proposals.rootDir(), 'bands.json'))
+    const bandsFile = deps.bandsFile ?? join(deps.proposals.rootDir(), 'bands.json')
+    const windowDays = r.query.get('windowDays')
+    if (deps.events === undefined) {
+      // Read-only fallback for embeddings without an event log.
+      const config = await loadBands(bandsFile)
+      const evaluations = evaluateBands(await deps.proposals.list(), [], {
+        config,
+        ...(windowDays !== null && windowDays !== '' ? { windowDays: Number(windowDays) } : {}),
+      })
+      return { evaluations, rules: config.rules, windowDays: config.windowDays }
+    }
+    const result = await runBandsCheck(
+      {
+        proposals: deps.proposals,
+        events: deps.events,
+        bandsFile,
+        createProposal: async (input) => {
+          const created = await createProposal(deps, input)
+          return { id: created.proposal.id }
+        },
+      },
+      {
+        apply,
+        ...(windowDays !== null && windowDays !== '' ? { windowDays: Number(windowDays) } : {}),
+      },
+    )
+    const config = await loadBands(bandsFile)
+    return { ...result, rules: config.rules }
+  }
+
+  // GET stays read-only: no band-breach events, no proposals (design D2).
+  router.get('/api/bands', async (r) => {
+    const bandsFile = deps.bandsFile ?? join(deps.proposals.rootDir(), 'bands.json')
+    const config = await loadBands(bandsFile)
     const windowDays = r.query.get('windowDays')
     const evaluations = evaluateBands(await deps.proposals.list(), (await deps.events?.read())?.events ?? [], {
       config,
       ...(windowDays !== null && windowDays !== '' ? { windowDays: Number(windowDays) } : {}),
     })
     return { evaluations, rules: config.rules, windowDays: config.windowDays }
+  })
+
+  router.post('/api/bands', async (r) => {
+    const body = await readJsonBody<{ apply?: boolean; windowDays?: number }>(r.req).catch(
+      (): { apply?: boolean; windowDays?: number } => ({}),
+    )
+    if (body.windowDays !== undefined) {
+      r.query.set('windowDays', String(body.windowDays))
+    }
+    return bandsRunner(r, body.apply === true)
   })
 
   router.get('/api/metrics', async (r) => {
