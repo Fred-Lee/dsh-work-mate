@@ -43,6 +43,7 @@ const PATCHABLE = new Set([
   'wikiLinks',
   'archiveManifest',
   'swarmTasks',
+  'risk',
 ])
 
 export interface UpsertProposalInput {

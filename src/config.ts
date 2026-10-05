@@ -99,6 +99,12 @@ export interface Config {
   decisionActThreshold?: number
   /** certainty needed to raise a review instead of acting. @default 0.6 */
   decisionReviewThreshold?: number
+  /** States a high-risk proposal must also get human approval for. @default ['implementing'] */
+  highRiskExtraGates?: string[]
+  /** Block archiving on a judged-unsatisfied task (default: record only). @default false */
+  taskJudgementGate?: boolean
+  /** How many untagged review findings one archive run may grade. @default 5 */
+  reviewGradeMax?: number
 }
 
 /** Runtime schema the host collects (validation + config-UI projection). */
@@ -148,6 +154,12 @@ export const Config: z<Config> = z.object({
   decisionTimeoutMs: z.number().default(4000).description('Per-judgement timeout in milliseconds.'),
   decisionActThreshold: z.number().default(0.8).description('Certainty needed to act on a judgement.'),
   decisionReviewThreshold: z.number().default(0.6).description('Certainty needed to raise a review instead of acting.'),
+  highRiskExtraGates: z
+    .array(z.string())
+    .default(['implementing'])
+    .description('States a high-risk proposal must also get human approval for.'),
+  taskJudgementGate: z.boolean().default(false).description('Block archiving on a judged-unsatisfied task.'),
+  reviewGradeMax: z.number().default(5).description('How many untagged review findings one archive run may grade.'),
 })
 
 export type ResolvedConfig = Required<Config>
@@ -180,6 +192,9 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   decisionTimeoutMs: 4000,
   decisionActThreshold: 0.8,
   decisionReviewThreshold: 0.6,
+  highRiskExtraGates: ['implementing'],
+  taskJudgementGate: false,
+  reviewGradeMax: 5,
 }
 
 /**

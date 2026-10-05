@@ -147,6 +147,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     approvalsRequired: resolved.approvalsRequired,
     allowAgentApproval: resolved.allowAgentApproval,
     planDriftGate: resolved.planDriftGate,
+    highRiskExtraGates: resolved.highRiskExtraGates,
     orchestrate(proposal, targets, opts) {
       return orchestrateArchive(proposal, targets, {
         openspecRoot: opts.openspecRoot,
@@ -686,6 +687,76 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
             ? { id: args.id, note: 'no [proposal:<id>] commits found — nothing to compare yet' }
             : { id: args.id, projectRoot: root, drift },
         )
+      },
+    }),
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_assess_risk',
+      description:
+        'Judge a proposal\'s change risk (low | medium | high) from its declared scopes, the files its [proposal:<id>] commits touched and its spec artifacts, then persist it. A high-risk proposal additionally requires a HUMAN approval to reach Config.highRiskExtraGates (default implementing), on top of approvalsRequired. Does nothing when the judgement layer is disabled.',
+      parameters: {
+        id: { type: 'string', required: true, description: 'Proposal id.' },
+        projectRoot: { type: 'string', description: 'Absolute project root; defaults to Config.projectRoot or the first registered project.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      async execute(args, exec) {
+        const proposal = await proposals.get(args.id)
+        if (proposal === undefined) throw new Error(`proposal not found: ${args.id}`)
+        if (!deps.decision.enabled) {
+          return asJson({ id: args.id, note: 'judgement layer disabled (Config.decisionEnabled=false)', risk: proposal.risk ?? null })
+        }
+        const root = await swarmRoot(proposal, args.projectRoot)
+        const drift = await collectProjectDrift(
+          proposal,
+          { project: proposal.projects[0] ?? '(explicit)', root },
+          { openspecRoot: resolved.openspecRoot },
+        )
+        const state = [
+          `提案：${proposal.title}`,
+          `项目：${proposal.projects.join(', ') || '(未关联)'}`,
+          `声明范围：${(drift?.declared ?? []).join(', ') || '(未声明)'}`,
+          `实际改动（前 20 个）：${(drift?.actual ?? []).slice(0, 20).join(', ') || '(无标记提交)'}`,
+          `标记提交数：${(drift?.actual.length ?? 0) > 0 ? proposal.commits.length : 0}`,
+        ].join('\n')
+        const outcome = await deps.decision.decide(
+          {
+            node: 'risk-tier',
+            state,
+            question: '这次变更的风险等级是？',
+            options: ['low', 'medium', 'high'],
+          },
+          exec.signal,
+        )
+        if (outcome !== undefined) {
+          await deps.events.append({
+            at: new Date().toISOString(),
+            proposalId: args.id,
+            kind: 'decision',
+            actor: 'system',
+            node: outcome.node,
+            action: outcome.action,
+            ...(outcome.choice !== undefined ? { choice: outcome.choice } : {}),
+            certainty: outcome.certainty,
+            provider: outcome.provider,
+            ...(outcome.samples !== undefined ? { samples: outcome.samples } : {}),
+            threshold: outcome.threshold,
+            latencyMs: outcome.latencyMs,
+            degraded: outcome.degraded,
+            ...(outcome.reason !== undefined ? { reason: outcome.reason } : {}),
+          })
+        }
+        // Only a confident judgement becomes a fact (design D2).
+        if (outcome?.action === 'act' && outcome.choice !== undefined) {
+          await proposals.patchFields(args.id, { risk: outcome.choice as 'low' | 'medium' | 'high' })
+        }
+        return asJson({
+          id: args.id,
+          risk: outcome?.action === 'act' ? outcome.choice : (proposal.risk ?? null),
+          judgement: outcome ?? null,
+          extraGates: resolved.highRiskExtraGates,
+        })
       },
     }),
   )

@@ -83,6 +83,8 @@ export interface LifecycleDeps {
   allowAgentApproval?: boolean
   /** Fail archiving on undeclared changes (`Config.planDriftGate`). */
   planDriftGate?: boolean
+  /** Extra states a HIGH-risk proposal needs a human approval for (`Config.highRiskExtraGates`). */
+  highRiskExtraGates?: string[]
   now?: () => Date
 }
 
@@ -158,7 +160,7 @@ export class LifecycleServiceImpl {
         throw error
       }
       const worktree = await this.applySideEffects(proposal, to, options)
-      if (this.isGated(to)) await this.recordApproval(proposal, to, options)
+      if (this.gateReason(to, proposal) !== undefined) await this.recordApproval(proposal, to, options)
       const updated = await this.deps.proposals.setStatus(id, to, { actor: options.actor ?? 'system' })
       return { proposal: updated, ...(worktree !== undefined ? { worktree } : {}) }
     }
@@ -182,11 +184,19 @@ export class LifecycleServiceImpl {
    * about to receive) and rethrow unchanged, so control flow and error types are
    * exactly as before (design D4).
    */
-  /** Is entering `state` gated on a human approval? */
-  private isGated(state: ProposalState): boolean {
+  /**
+   * Why entering `state` needs a human approval, or undefined when it does not.
+   * `approvalsRequired` and the high-risk extras are a UNION: turning on the risk
+   * gate must never relax the configured one (design D4).
+   */
+  private gateReason(state: ProposalState, proposal: Proposal): 'approvalsRequired' | 'high-risk' | undefined {
     // Omitting the config must not silently disable the gate: fall back to the
     // product default, and let tests opt out explicitly with `[]`.
-    return (this.deps.approvalsRequired ?? CONFIG_DEFAULTS.approvalsRequired).includes(state)
+    if ((this.deps.approvalsRequired ?? CONFIG_DEFAULTS.approvalsRequired).includes(state)) return 'approvalsRequired'
+    if (proposal.risk === 'high' && (this.deps.highRiskExtraGates ?? CONFIG_DEFAULTS.highRiskExtraGates).includes(state)) {
+      return 'high-risk'
+    }
+    return undefined
   }
 
   /**
@@ -200,12 +210,16 @@ export class LifecycleServiceImpl {
     to: ProposalState,
     options: TransitionOptions,
   ): Promise<void> {
-    if (!this.isGated(to) || this.deps.allowAgentApproval === true) return
+    const reason = this.gateReason(to, proposal)
+    if (reason === undefined || this.deps.allowAgentApproval === true) return
     if ((options.actor ?? 'system') !== 'agent') return
     const error = new InvalidTransitionError(
-      `${to} 需要人工批准（写码者不得批准）：请在 WorkMate 面板点「推进到 ${to}」` +
-        `，或把 Config.approvalsRequired 里的 '${to}' 去掉` +
-        `（设 allowAgentApproval=true 亦可，但那会放弃这条分离）`,
+      reason === 'high-risk'
+        ? `${to} 需要人工批准：该提案被判为高风险（由 Config.highRiskExtraGates 追加）——请在面板点「推进到 ${to}` +
+            `」，或调整 highRiskExtraGates / 把风险等级改回 medium 以下`
+        : `${to} 需要人工批准（写码者不得批准）：请在 WorkMate 面板点「推进到 ${to}」` +
+            `，或把 Config.approvalsRequired 里的 '${to}' 去掉` +
+            `（设 allowAgentApproval=true 亦可，但那会放弃这条分离）`,
     )
     await this.recordGateFailure(proposal, to, error, options.actor, 'approval')
     throw error

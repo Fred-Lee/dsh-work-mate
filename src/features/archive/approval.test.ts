@@ -120,6 +120,38 @@ describe('approval gate (separation of duties)', () => {
     expect(log.some((event) => event.kind === 'approval' && event.actor === 'system')).toBe(true)
   })
 
+  it('adds a human gate for a high-risk proposal without relaxing the configured one', async () => {
+    const lifecycle = lifecycleFor({ approvalsRequired: [], highRiskExtraGates: ['implementing'] })
+    // Not high risk yet: the configured list is empty, so the agent may advance.
+    await proposals.setStatus('p1', 'ready', { actor: 'agent' })
+    await expect(lifecycle.transition('p1', 'implementing', { actor: 'agent' })).rejects.toThrow(
+      /无关联项目根|no resolvable project|project root/i,
+    )
+
+    const stored = await store.load()
+    const record = stored.find((entry) => entry.id === 'p1')
+    if (record !== undefined) {
+      record.risk = 'high'
+      record.status = 'ready'
+    }
+    await store.save(stored)
+
+    await expect(lifecycle.transition('p1', 'implementing', { actor: 'agent' })).rejects.toThrow(/高风险/)
+  })
+
+  it('leaves low-risk proposals on the configured gate only', async () => {
+    const lifecycle = lifecycleFor({ approvalsRequired: [], highRiskExtraGates: ['implementing'] })
+    const stored = await store.load()
+    const record = stored.find((entry) => entry.id === 'p1')
+    if (record !== undefined) {
+      record.risk = 'low'
+      record.status = 'ready'
+    }
+    await store.save(stored)
+
+    await expect(lifecycle.transition('p1', 'implementing', { actor: 'agent' })).rejects.not.toThrow(/高风险/)
+  })
+
   it('honours the allowAgentApproval escape hatch and an empty list', async () => {
     const permissive = lifecycleFor({ allowAgentApproval: true })
     await permissive.transition('p1', 'merging', { actor: 'agent' }).catch((error: unknown) => {

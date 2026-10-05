@@ -112,6 +112,8 @@ export interface Proposal {
   archiveManifest?: ArchiveManifest
   /** Per-task parallel carriers (change `add-swarm-parallel`). */
   swarmTasks?: SwarmTaskRecord[]
+  /** Judged change risk (change `add-decision-nodes`); high tightens the approval gate. */
+  risk?: 'low' | 'medium' | 'high'
   createdAt: string
   updatedAt: string
 }
