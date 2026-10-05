@@ -173,6 +173,8 @@ pnpm dsh web                                            # 启动，默认 http:/
 | `highRiskExtraGates` | `['implementing']` | `risk: high` 的提案在这些状态也**必须人工批准**（与 `approvalsRequired` 并集） |
 | `taskJudgementGate` | `false` | `true` 时"判断层认为 diff 未满足某条已勾选任务"会阻断归档（`force` 可跳过） |
 | `reviewGradeMax` | `5` | 一次归档最多让判断层给多少条未打标签的审查发现归级 |
+| `decisionCacheEnabled` | `true` | 判断缓存：同题（state/选项/provider/model/采样数全等）复用上次结论，命中标记 `cached: true` |
+| `decisionCacheMax` | `500` | 缓存条目上限（按时间淘汰）；文件损坏 fail-open，绝不挡住门禁 |
 
 无效组合启动时响亮提示（如 `weknoraWikiRequired=true` 但 `weknoraKbId` 为空）。
 
@@ -345,6 +347,11 @@ node scripts/bands-watch.mjs --fail-on propose --apply
 一次强制工具调用**（单一 tool、`enum` 选项）——答案只能是枚举里的一个，解析失败即视为
 "答不出"，不会被当成默认选项。多采样（`decisionSamples: 3`）时一致率充当 certainty 代理，
 且采样次数写进留痕，避免把"一次采样"误读成"高置信"。
+
+**成本工程**：`agent` 每次判断都是一次真实模型调用，而判断题目高度重复（同一条发现、
+同一份 diff、同一对决策会被归档重试/面板刷新反复问到）。所以判断层自带**缓存**
+（`~/.dsh/workmate/decision-cache.json`，原子写 + 上限淘汰 + fail-open），命中时不再调用模型
+并把 `cached: true` 写进事件——这是把"DeepSeek 当判官"变得和专用判断模型一样便宜的关键一步。
 
 三条写死的纪律：
 

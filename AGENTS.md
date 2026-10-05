@@ -102,6 +102,7 @@ node $DSH web                                                # http://127.0.0.1:
 | `workmate/proposals.json` | 提案聚合（单 JSON，可 grep） |
 | `workmate/events.jsonl` | 过程事件流（append-only：状态迁移 / 门禁失败 / 控制带越界） |
 | `workmate/bands.json` | 控制带配置（缺失用内建默认，损坏 fail-closed 报错） |
+| `workmate/decision-cache.json` | 判断缓存（同题复用；损坏 fail-open，仅性能层） |
 
 `proposals.json` 写入必须 **tmp + rename 原子写**；文件损坏 fail-closed——启动期报告、
 永不覆盖（board warmUp 教训）。`events.jsonl` 是**只追加**的 JSONL：只增不改，读取端
@@ -129,6 +130,7 @@ node $DSH web                                                # http://127.0.0.1:
 | M15 | 工件账本与计划漂移（声明 vs 实际 + sha256 + 可选漂移门） | ✅ 已归档 `2026-10-05-add-artifact-ledger` |
 | M16 | 判断层（agent/rules provider + 阈值动作 + decision 事件；Jev 接口占位） | ✅ 已归档 `2026-10-05-add-decision-layer` |
 | M17 | 判断层四个消费节点（风险分级 / 审查归级 / 注入判定 / 任务判定） | ✅ 已归档 `2026-10-05-add-decision-nodes` |
+| M18 | 判断缓存（同题复用 + `cached` 留痕 + 上限淘汰 + fail-open） | ✅ 已归档 `2026-10-06-add-decision-cache` |
 
 待办（依赖外部条件）：@快捷指令（`@hucj/dsh-file-mention` 未装）、WeKnora 真机契约核验、
 `dsh-mcp-client` 的 profile patch 行（库已装但惰性）。swarm 的任务级载体已落地（M14）：

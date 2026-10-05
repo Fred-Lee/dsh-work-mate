@@ -30,6 +30,8 @@ describe('resolveConfig', () => {
       highRiskExtraGates: ['implementing'],
       taskJudgementGate: false,
       reviewGradeMax: 5,
+      decisionCacheEnabled: true,
+      decisionCacheMax: 500,
       packageManager: 'pnpm',
       weknoraEnabled: true,
       weknoraKbId: '',

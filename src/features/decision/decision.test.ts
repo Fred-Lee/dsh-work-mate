@@ -1,4 +1,8 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { DecisionCache } from './cache.ts'
 import { AgentProvider, type HostLlmFace } from './agent.ts'
 import { RulesProvider } from './rules.ts'
 import { DecisionService } from './service.ts'
@@ -146,5 +150,81 @@ describe('DecisionService', () => {
 
     expect(outcome?.choice).toBeUndefined()
     expect(outcome?.reason).toContain('off-enum')
+  })
+})
+
+describe('DecisionCache (add-decision-cache)', () => {
+  const provider = (name: string, choice: string, certainty = 0.9) => {
+    const ask = vi.fn(async () => ({ choice, certainty, provider: name, samples: 1 }))
+    return { name, available: () => true, ask }
+  }
+
+  it('reuses a cached answer for an identical question and flags it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wm-dcache-'))
+    const cacheFile = join(dir, 'decision-cache.json')
+    const agent = provider('agent', 'contradicts')
+    const service = new DecisionService({ config: { enabled: true, provider: 'agent' }, providers: [agent], cacheFile })
+
+    const first = await service.decide(question)
+    const second = await service.decide(question)
+
+    expect(first?.cached).toBeUndefined()
+    expect(second).toMatchObject({ action: 'act', choice: 'contradicts', cached: true })
+    expect(agent.ask).toHaveBeenCalledTimes(1)
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('re-judges when the state changes and when the cache is off', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wm-dcache2-'))
+    const cacheFile = join(dir, 'decision-cache.json')
+    const agent = provider('agent', 'consistent')
+    const service = new DecisionService({ config: { enabled: true, provider: 'agent' }, providers: [agent], cacheFile })
+
+    await service.decide(question)
+    await service.decide({ ...question, state: `${question.state}\n新的补充` })
+    expect(agent.ask).toHaveBeenCalledTimes(2)
+
+    const uncached = new DecisionService({
+      config: { enabled: true, provider: 'agent', cacheEnabled: false },
+      providers: [agent],
+      cacheFile,
+    })
+    await uncached.decide(question)
+    await uncached.decide(question)
+    expect(agent.ask).toHaveBeenCalledTimes(4)
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('fails open on a corrupt cache file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wm-dcache3-'))
+    const cacheFile = join(dir, 'decision-cache.json')
+    await writeFile(cacheFile, '{ not json at all', 'utf8')
+    const agent = provider('agent', 'contradicts')
+    const service = new DecisionService({ config: { enabled: true, provider: 'agent' }, providers: [agent], cacheFile })
+
+    await expect(service.decide(question)).resolves.toMatchObject({ action: 'act', choice: 'contradicts' })
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('never caches the deterministic rules provider and evicts beyond the cap', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wm-dcache4-'))
+    const cacheFile = join(dir, 'decision-cache.json')
+    const rules = provider('rules', 'LOW', 0.6)
+    const service = new DecisionService({
+      config: { enabled: true, provider: 'rules' },
+      providers: [rules],
+      cacheFile,
+    })
+    await service.decide(question)
+    const cache = new DecisionCache(cacheFile, 500)
+    expect(await cache.size()).toBe(0)
+
+    const capped = new DecisionCache(cacheFile, 2)
+    for (const key of ['a', 'b', 'c']) {
+      await capped.put(key, { choice: 'x', certainty: 0.9, provider: 'agent', at: `2026-10-05T00:00:0${key.charCodeAt(0) - 96}Z` })
+    }
+    expect(await capped.size()).toBe(2)
+    expect(await capped.get('a')).toBeUndefined()
+    await rm(dir, { recursive: true, force: true })
   })
 })

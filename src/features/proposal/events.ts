@@ -62,6 +62,8 @@ export interface ProposalEvent {
   threshold?: number
   latencyMs?: number
   degraded?: boolean
+  /** `decision`: the answer came from the cache instead of a fresh call. */
+  cached?: boolean
 }
 
 export interface EventReadResult {

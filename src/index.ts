@@ -111,6 +111,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     llmRef = scope.llm as unknown as HostLlmFace
   })
   const decision = new DecisionService({
+    cacheFile: join(proposals.rootDir(), 'decision-cache.json'),
     config: {
       enabled: resolved.decisionEnabled,
       provider: (resolved.decisionProvider === 'rules' || resolved.decisionProvider === 'jev' ? resolved.decisionProvider : 'agent'),
@@ -380,6 +381,8 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
               threshold: outcome.threshold,
               latencyMs: outcome.latencyMs,
               degraded: outcome.degraded,
+              ...(outcome.cached === true ? { cached: true } : {}),
+            ...(outcome.cached === true ? { cached: true } : {}),
               ...(outcome.reason !== undefined ? { reason: outcome.reason } : {}),
             })
             if (outcome.action === 'act' && outcome.choice === 'contradicts' && args.supersedes === undefined) {

@@ -49,6 +49,8 @@ export interface DecisionOutcome {
   latencyMs: number
   /** True when the configured provider did not answer and a fallback did. */
   degraded: boolean
+  /** True when this judgement was answered from the cache, not by a fresh call. */
+  cached?: boolean
   reason?: string
 }
 
@@ -73,4 +75,8 @@ export interface DecisionConfig {
   timeoutMs?: number
   /** Action thresholds: `act` = confident, `review` = needs a human look. */
   thresholds?: { act: number; review: number }
+  /** Reuse answers for identical questions (design of `add-decision-cache`). @default true */
+  cacheEnabled?: boolean
+  /** Cached entries to keep; the oldest are evicted first. @default 500 */
+  cacheMax?: number
 }

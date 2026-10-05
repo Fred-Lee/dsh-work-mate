@@ -335,6 +335,7 @@ export async function createProposal(
         threshold: outcome.threshold,
         latencyMs: outcome.latencyMs,
         degraded: outcome.degraded,
+        ...(outcome.cached === true ? { cached: true } : {}),
         ...(outcome.reason !== undefined ? { reason: outcome.reason } : {}),
       })
     }

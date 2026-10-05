@@ -105,6 +105,10 @@ export interface Config {
   taskJudgementGate?: boolean
   /** How many untagged review findings one archive run may grade. @default 5 */
   reviewGradeMax?: number
+  /** Cache judgement answers so repeated questions cost nothing. @default true */
+  decisionCacheEnabled?: boolean
+  /** Cached judgement entries to keep (oldest evicted first). @default 500 */
+  decisionCacheMax?: number
 }
 
 /** Runtime schema the host collects (validation + config-UI projection). */
@@ -160,6 +164,8 @@ export const Config: z<Config> = z.object({
     .description('States a high-risk proposal must also get human approval for.'),
   taskJudgementGate: z.boolean().default(false).description('Block archiving on a judged-unsatisfied task.'),
   reviewGradeMax: z.number().default(5).description('How many untagged review findings one archive run may grade.'),
+  decisionCacheEnabled: z.boolean().default(true).description('Cache judgement answers (repeated questions cost nothing).'),
+  decisionCacheMax: z.number().default(500).description('Cached judgement entries to keep.'),
 })
 
 export type ResolvedConfig = Required<Config>
@@ -195,6 +201,8 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   highRiskExtraGates: ['implementing'],
   taskJudgementGate: false,
   reviewGradeMax: 5,
+  decisionCacheEnabled: true,
+  decisionCacheMax: 500,
 }
 
 /**
