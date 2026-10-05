@@ -303,10 +303,14 @@ Agent 会话中可直接调用（DSH 工具面注册，名字以 `workmate_` 前
 | 分发面 | 内容 |
 |---|---|
 | skill `workmate-proposal-flow` | 八态流程、工具地图、三条硬纪律（决策日志 / 卡点 / 提交标记）、归档与回退 |
-| skill `workmate-proposal-audit` | 提案审查规程与 `review.md` 的机器可读形状（归档门读取） |
+| skill `workmate-proposal-audit` | 提案审查规程与 `review.md` 的机器可读形状（分级 tally、审查者头、影子期） |
+| skill `workmate-archive-checklist` | 归档前验收清单：tasks 勾选纪律、`[proposal:<id>]` 标记、「完成标记 ≠ 成功证明」、交付物摘要读法 |
+| skill `workmate-knowledge-usage` | GitNexus query/context/impact 的选择指南、WeKnora 边界与取证纪律 |
 | systemPrompt 段落 `tool:workmate` | 一段话的流程指引，从第一轮就可见（工具描述只留"怎么做"） |
 
-两个 skill 随插件注册（`ctx.skills.register`，fiber 卸载即注销），**不写用户项目**。
+四个 skill 全部随插件以 **runtime skill** 注册（`ctx.skills.register`，fiber 卸载即注销），
+**不写用户目录、也不写用户项目**——早期设计里的 `$DSH_HOME/skills/**` 文件同步已作废
+（原生注册面更小、更干净，见变更 `adopt-workdsh-lessons` 的 design 修订）。
 DSH 侧据此执行：提交信息带 `[proposal:<id>]`、方向性选择必须 `decide`、同一方向卡两轮
 必须 `block`、代码事实先经 `workmate_knowledge_query` 核实。
 若配置 `claudeAssetsEnabled: true`（默认），同一套纪律还会以 Claude Code 的
@@ -338,7 +342,12 @@ rules/agent/hook 形式分发到目标项目，供在同一个仓库里跑 Claud
 
 ## 8. 质量保障机制
 
-- **审查门**：归档编排第一步检查每个关联项目的
+- **验收谓词**：归档编排第一步检查**所有**关联项目的 `tasks.md` 是否全部勾选；
+  任一项目有未完成项即失败并列出逐项目 `done/total`（`force` 可显式跳过）。
+- **交付物摘要**：归档成功后提案记录写入 `archiveManifest`（逐项目：标记提交、
+  `git diff --stat`、spec 是否更新、GitNexus 是否重建），面板「已归档」卡片详情区
+  渲染「📦 交付物」小节。
+- **审查门**：归档编排第二步检查每个关联项目的
   `openspec/changes/<id>/review.md`——缺失或存在未勾选的 CRITICAL 条目即失败
   （step 列出原因，`force` 可只跳过这一道门）；报告由 skill `workmate-proposal-audit`
   描述的规程生成

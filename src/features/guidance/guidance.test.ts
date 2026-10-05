@@ -58,6 +58,8 @@ describe('registerGuidance', () => {
     expect(skills.register.mock.calls.map((call) => call[0].name)).toEqual([
       'workmate-proposal-flow',
       'workmate-proposal-audit',
+      'workmate-archive-checklist',
+      'workmate-knowledge-usage',
     ])
     const flow = skills.register.mock.calls[0]?.[0] as RuntimeSkill
     expect(flow.description).toContain('WorkMate')
@@ -91,7 +93,7 @@ describe('registerGuidance', () => {
     const skills = fakeSkills()
     const first = fakeCtx({ skills })
     registerGuidance(first.ctx)
-    expect(skills.register).toHaveBeenCalledTimes(2)
+    expect(skills.register).toHaveBeenCalledTimes(4)
 
     const prompt = fakePrompt(2600)
     const second = fakeCtx({ systemPrompt: prompt })

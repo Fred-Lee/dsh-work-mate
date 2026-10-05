@@ -6,10 +6,11 @@
       paths 过滤改为 toolchain.json / package.json / workflow 自身）
       - 真仓校验通过；check-toolchain.test.mjs 5 用例（node --test）全绿；
         CI 残留问题解除
-- [ ] 2. `skills/archive-checklist/SKILL.md`、`skills/knowledge-usage/SKILL.md` +
-      `src/skills.ts` 幂等同步 + `Config.skillSyncEnabled`
-- [ ] 3. 编排验收谓词：tasks 全勾前置检查（force 可跳过）+ 失败 step 逐项目进度
-- [ ] 4. `ArchiveManifest`：编排采集（commits/diffStat/specsUpdated/reindexed）
+- [x] 2. ~~`skills/*/SKILL.md` + `src/skills.ts` 同步 + `Config.skillSyncEnabled`~~
+      **改为原生 runtime skill**（见 design D2 修订）：`workmate-archive-checklist` 与
+      `workmate-knowledge-usage` 随插件注册，不写用户目录
+- [x] 3. 编排验收谓词：tasks 全勾前置检查（force 可跳过）+ 失败 step 逐项目进度
+- [x] 4. `ArchiveManifest`：编排采集（commits/diffStat/specsUpdated/reindexed）
       → 提案持久化 → client 归档卡片渲染
-- [ ] 5. 测试（门禁对账、同步幂等、谓词阻断/force、manifest 采集与渲染）
-- [ ] 6. 全量验证 + 真机验收（含 skills 目录同步与归档 manifest 端到端）
+- [x] 5. 测试（谓词阻断/force/逐项目进度、manifest 采集与落盘、两个新 runtime skill）
+- [x] 6. 全量验证 + 真机验收（typecheck / test / build / 四条门禁 / `--dump-config`）

@@ -35,7 +35,14 @@ export interface AddApprovalInput {
 }
 
 /** Fields the lifecycle layer may patch directly (manager outputs, branches, wiki refs). */
-const PATCHABLE = new Set(['worktreePath', 'portRange', 'proposalBranch', 'featureBranch', 'wikiLinks'])
+const PATCHABLE = new Set([
+  'worktreePath',
+  'portRange',
+  'proposalBranch',
+  'featureBranch',
+  'wikiLinks',
+  'archiveManifest',
+])
 
 export interface UpsertProposalInput {
   id: string

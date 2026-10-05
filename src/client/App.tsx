@@ -297,6 +297,30 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                   ))}
                                 </div>
                               )}
+                              {detail.proposal.archiveManifest !== undefined && (
+                                <div className="wm-section">
+                                  <b>📦 交付物</b>
+                                  <div className="wm-kpi-note">
+                                    归档于 {detail.proposal.archiveManifest.at}
+                                  </div>
+                                  {detail.proposal.archiveManifest.projects.map((entry) => (
+                                    <div key={entry.project} style={{ marginTop: 4 }}>
+                                      <code>{entry.project}</code>
+                                      <div className="wm-meta">
+                                        <span>{entry.commits.length} 个标记提交</span>
+                                        <span>{entry.specsUpdated === true ? 'spec 已更新' : '无 spec 更新'}</span>
+                                        <span>{entry.reindexed ? '知识图谱已重建' : '未重建知识图谱'}</span>
+                                      </div>
+                                      {entry.commits.length > 0 && (
+                                        <div className="wm-kpi-note">{entry.commits.slice(0, 6).join(' · ')}</div>
+                                      )}
+                                      {entry.diffStat !== undefined && <div className="wm-kpi-note">{entry.diffStat}</div>}
+                                      {entry.note !== undefined && <div className="wm-kpi-note">{entry.note}</div>}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
                               {(detail.projects ?? []).some((p) => p.reviewReport !== undefined) && (
                                 <div className="wm-section">
                                   <b>

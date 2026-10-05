@@ -70,6 +70,8 @@ export interface ApprovalRecord {
   commit?: string
 }
 
+import type { ArchiveManifest } from '../archive/manifest.ts'
+
 export interface Proposal {
   /** Slug-style identifier, e.g. "batch-grading-v2". */
   id: string
@@ -105,6 +107,8 @@ export interface Proposal {
   provenance?: Provenance
   /** Gate approvals (change `add-approval-records`). */
   approvals?: ApprovalRecord[]
+  /** Delivery summary written by a successful archive run (change `adopt-workdsh-lessons`). */
+  archiveManifest?: ArchiveManifest
   createdAt: string
   updatedAt: string
 }

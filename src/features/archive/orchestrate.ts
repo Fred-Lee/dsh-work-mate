@@ -14,6 +14,7 @@ import { readChangeState, validateProjectRoot } from '../proposal/openspec.ts'
 import { gitnexusAnalyze } from '../knowledge-bridge/gitnexus.ts'
 import { formatTally, parseReviewMd, reviewTally } from '../quality/review-parser.ts'
 import type { Proposal } from '../proposal/store.ts'
+import type { ArchiveManifest, ArchiveManifestEntry } from './manifest.ts'
 
 export interface OrchestrationStep {
   step: 'review-gate' | 'tasks' | 'swarm' | 'openspec-archive' | 'gitnexus-analyze' | 'reopen-dir' | 'worktree-cleanup' | 'status'
@@ -30,6 +31,8 @@ export interface OrchestrationResult {
   ok: boolean
   steps: OrchestrationStep[]
   tasks?: { done: number; total: number; lines: string[] }
+  /** Delivery summary, present when the archive run succeeded. */
+  manifest?: ArchiveManifest
   proposal?: Proposal
 }
 
@@ -125,6 +128,12 @@ export interface OrchestrateOptions {
   gitnexusAnalyzeEnabled?: boolean
   reviewGate?: boolean
   /**
+   * Acceptance predicate (change `adopt-workdsh-lessons`, design D3): every
+   * associated project's tasks.md must be fully checked. `force` passes false.
+   * @default true
+   */
+  tasksGate?: boolean
+  /**
    * Severities whose open findings block archiving (`Config.reviewBlockingSeverities`).
    * @default ['CRIT']
    */
@@ -147,21 +156,52 @@ export async function orchestrateArchive(
   }
   const firstRoot = validateProjectRoot(targets[0]!.root)
 
-  // 1. tasks snapshot (first resolvable target)
-  let tasks: TaskSnapshot | undefined
-  try {
-    const content = await readFile(
-      join(firstRoot, options.openspecRoot, 'changes', proposal.openspecChangeId, 'tasks.md'),
-      'utf8',
+  // 1. tasks snapshot across EVERY resolvable target, then the acceptance
+  // predicate (design D3): one project still holding unchecked tasks stops the
+  // run, and the step says which project and how far along it is. `force`
+  // passes `tasksGate: false` — an explicit decision, not a silent skip.
+  const snapshots: Array<{ project: string; snapshot?: TaskSnapshot }> = []
+  for (const target of targets) {
+    try {
+      const content = await readFile(
+        join(validateProjectRoot(target.root), options.openspecRoot, 'changes', proposal.openspecChangeId, 'tasks.md'),
+        'utf8',
+      )
+      snapshots.push({ project: target.project, snapshot: parseTasksMd(content) })
+    } catch {
+      snapshots.push({ project: target.project })
+    }
+  }
+  const withTasks = snapshots.filter((entry) => entry.snapshot !== undefined)
+  let tasks = withTasks[0]?.snapshot
+  const progress = snapshots
+    .map((entry) =>
+      entry.snapshot === undefined ? `[${entry.project}] 无 tasks.md` : `[${entry.project}] ${entry.snapshot.done}/${entry.snapshot.total}`,
     )
-    tasks = parseTasksMd(content)
+    .join('，')
+  const incomplete = withTasks.filter((entry) => {
+    const snapshot = entry.snapshot as TaskSnapshot
+    return snapshot.total > 0 && snapshot.done < snapshot.total
+  })
+  if (incomplete.length > 0 && options.tasksGate !== false) {
+    steps.push({
+      step: 'tasks',
+      status: 'failed',
+      summary: `验收未通过：${incomplete
+        .map((entry) => `[${entry.project}] ${(entry.snapshot as TaskSnapshot).done}/${(entry.snapshot as TaskSnapshot).total}`)
+        .join('，')} 仍有未勾选任务（force 可跳过）——全部进度：${progress}`,
+    })
+    return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }
+  }
+  if (withTasks.length === 0) {
+    steps.push({ step: 'tasks', status: 'skipped', summary: 'tasks.md not readable — no acceptance evidence' })
+  } else {
     steps.push({
       step: 'tasks',
       status: 'ok',
-      summary: `${tasks.done}/${tasks.total} tasks done at snapshot`,
+      summary: `${incomplete.length > 0 ? '验收谓词被 force 跳过；' : 'tasks 全部完成；'}${progress}`,
     })
-  } catch {
-    steps.push({ step: 'tasks', status: 'skipped', summary: 'tasks.md not readable — no snapshot' })
+    if (tasks === undefined) tasks = withTasks[0]?.snapshot
   }
 
   // 2. swarm parallel execution (recorded skip until the swarm plugin ships)
@@ -290,9 +330,91 @@ export async function orchestrateArchive(
   }
   if (!allArchived) return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }
 
-  // 5. status
+  // 6. delivery manifest (design D4) — every probe is best-effort: a project
+  // that is not a git repo still archives, it just has less to say.
+  const manifest = await collectManifest(proposal, targets, options, steps)
+
+  // 7. status
   steps.push({ step: 'status', status: 'ok', summary: `proposal ${proposal.id} → archived` })
-  return { ok: true, steps, ...(tasks !== undefined ? { tasks } : {}) }
+  return {
+    ok: true,
+    steps,
+    manifest,
+    ...(tasks !== undefined ? { tasks } : {}),
+  }
+}
+
+/** Short hashes carrying the proposal marker (`$ git log --grep '[proposal:<id>]'`). */
+async function markedCommits(root: string, proposalId: string, signal?: AbortSignal): Promise<string[]> {
+  const output = await execCli(
+    'git',
+    ['log', '--fixed-strings', '--grep', `[proposal:${proposalId}]`, '--format=%h', '-n', '50'],
+    root,
+    20_000,
+    signal,
+  )
+  return output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+}
+
+/** `git diff --stat` between the oldest and newest marked commit (single → `git show`). */
+async function diffStatFor(root: string, commits: readonly string[], signal?: AbortSignal): Promise<string> {
+  if (commits.length === 0) throw new Error('no marked commits')
+  const newest = commits[0] as string
+  const oldest = commits[commits.length - 1] as string
+  const args =
+    commits.length >= 2 ? ['diff', '--stat', `${oldest}..${newest}`] : ['show', '--stat', '--format=', newest]
+  const output = await execCli('git', args, root, 20_000, signal)
+  const trimmed = output.trim()
+  return trimmed.split('\n').slice(-1)[0] ?? trimmed
+}
+
+/** The archived change directory for this proposal, when it can be located. */
+async function findArchivedDir(root: string, openspecRoot: string, changeId: string): Promise<string | undefined> {
+  const archiveRoot = join(validateProjectRoot(root), openspecRoot, 'changes', 'archive')
+  try {
+    const entries = await readdir(archiveRoot)
+    const match = entries.find((entry) => entry === changeId || entry.endsWith(`-${changeId}`))
+    return match === undefined ? undefined : join(archiveRoot, match)
+  } catch {
+    return undefined
+  }
+}
+
+/** Best-effort per-project delivery summary (design D4). */
+async function collectManifest(
+  proposal: Proposal,
+  targets: readonly OrchestrationTarget[],
+  options: OrchestrateOptions,
+  steps: readonly OrchestrationStep[],
+): Promise<ArchiveManifest> {
+  const projects: ArchiveManifestEntry[] = []
+  for (const target of targets) {
+    const entry: ArchiveManifestEntry = { project: target.project, root: target.root, commits: [], reindexed: false }
+    try {
+      const commits = await markedCommits(target.root, proposal.id, options.signal)
+      entry.commits = commits
+      if (commits.length > 0) entry.diffStat = await diffStatFor(target.root, commits, options.signal)
+    } catch (error) {
+      entry.note = `git probes unavailable: ${error instanceof Error ? error.message : String(error)}`
+    }
+    const archivedDir = await findArchivedDir(target.root, options.openspecRoot, proposal.openspecChangeId)
+    if (archivedDir !== undefined) {
+      entry.archivedChangeDir = archivedDir
+      try {
+        entry.specsUpdated = (await readdir(join(archivedDir, 'specs'))).length > 0
+      } catch {
+        entry.specsUpdated = false
+      }
+    }
+    entry.reindexed = steps.some(
+      (step) => step.step === 'gitnexus-analyze' && step.status === 'ok' && step.summary.startsWith(`[${target.project}]`),
+    ) || steps.some((step) => step.step === 'gitnexus-analyze' && step.status === 'ok' && targets.length === 1)
+    projects.push(entry)
+  }
+  return { at: new Date().toISOString(), projects }
 }
 
 /**

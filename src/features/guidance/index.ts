@@ -9,8 +9,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { TOOL_WORKFLOW_ORDER, type SystemPromptFace } from './faces.ts'
 import {
+  ARCHIVE_CHECKLIST_SKILL,
   FLOW_SECTION_NAME,
   FLOW_SECTION_TEXT,
+  KNOWLEDGE_USAGE_SKILL,
   PROPOSAL_AUDIT_SKILL,
   PROPOSAL_FLOW_SKILL,
 } from './content.ts'
@@ -19,6 +21,8 @@ export function registerGuidance(ctx: Context): void {
   ctx.inject(['skills'], (scope) => {
     scope.effect(() => scope.skills.register(PROPOSAL_FLOW_SKILL), 'workmate:flow-skill')
     scope.effect(() => scope.skills.register(PROPOSAL_AUDIT_SKILL), 'workmate:audit-skill')
+    scope.effect(() => scope.skills.register(ARCHIVE_CHECKLIST_SKILL), 'workmate:archive-checklist-skill')
+    scope.effect(() => scope.skills.register(KNOWLEDGE_USAGE_SKILL), 'workmate:knowledge-usage-skill')
   })
 
   ctx.inject(['systemPrompt'], (scope) => {

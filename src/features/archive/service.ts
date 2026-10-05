@@ -56,7 +56,7 @@ export interface LifecycleDeps {
   orchestrate(
     proposal: Proposal,
     targets: OrchestrationTarget[],
-    options: { openspecRoot: string; reviewGate?: boolean; signal?: AbortSignal },
+    options: { openspecRoot: string; reviewGate?: boolean; tasksGate?: boolean; signal?: AbortSignal },
   ): Promise<OrchestrationResult>
   /** Reverse orchestration behind archived→archiving (change dirs moved back). */
   reopen?(
@@ -373,6 +373,7 @@ export class LifecycleServiceImpl {
     const orchestration = await this.deps.orchestrate(proposal, targets, {
       openspecRoot: this.openspecRoot,
       reviewGate: options.force !== true,
+      tasksGate: options.force !== true,
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
     if (!orchestration.ok) {
@@ -403,6 +404,9 @@ export class LifecycleServiceImpl {
       }
     }
 
+    if (orchestration.manifest !== undefined) {
+      await this.deps.proposals.patchFields(id, { archiveManifest: orchestration.manifest })
+    }
     const updated = await this.deps.proposals.setStatus(id, 'archived', {
       actor: options.actor ?? 'system',
       detail: cleanup ?? undefined,

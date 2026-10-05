@@ -152,7 +152,7 @@ describe('host entry dependency shape', () => {
     const { ctx } = fakeCtx({ skills, systemPrompt: prompt })
     apply(ctx)
 
-    expect(skills.register).toHaveBeenCalledTimes(2)
+    expect(skills.register).toHaveBeenCalledTimes(4)
     expect(prompt.section).toHaveBeenCalledTimes(1)
   })
 

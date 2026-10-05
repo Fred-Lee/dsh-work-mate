@@ -55,6 +55,20 @@ Helmsman presets：目标目录已存在且含 SKILL.md → 跳过（`synced 0` 
 写纪律不变）。client 在归档卡片详情区渲染（新增「交付物」小节）；无 manifest 的旧
 归档提案显示「无归档摘要」。
 
+## D2 修订（2026-10-05，实现期）：改为原生 runtime skill，取消文件同步
+
+原设计把两个技能写成 `$DSH_HOME/skills/<name>/SKILL.md` 供 `dsh-skill-manager` 读取。
+实现期改了主意，理由是**能力面已经变了**：插件现在通过 `ctx.skills.register()` 注册
+runtime skill（`adopt-dsh-native-config-and-guidance` 引入，现有两个技能就是这么做的），
+它随 fiber 卸载自动注销、不写用户目录、不受第三方技能管理器是否安装影响。
+
+- **放弃**：`skills/*/SKILL.md` 资产、`src/skills.ts` 同步器、`Config.skillSyncEnabled`
+  （一个默认 true 的开关若永远打开，就是没有开关）。
+- **改为**：`workmate-archive-checklist` 与 `workmate-knowledge-usage` 作为 runtime skill
+  与既有两个一起注册（`src/features/guidance/content.ts` + `index.ts`）。
+- **代价**：不再出现在 `$DSH_HOME/skills/` 目录里，因此不装本插件的人看不到它们——
+  这本来也是插件自带的技能，应当如此。
+
 ## D5 不做的事
 
 - 不接 SkillHub / dsh-market；不做桌面载体（§9.4 / §9.6 结论）。

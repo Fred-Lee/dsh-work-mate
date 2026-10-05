@@ -140,6 +140,81 @@ export const PROPOSAL_AUDIT_SKILL: RuntimeSkill = {
 `,
 }
 
+export const ARCHIVE_CHECKLIST_SKILL: RuntimeSkill = {
+  name: 'workmate-archive-checklist',
+  description:
+    'WorkMate 归档前验收清单：tasks 勾选纪律、[proposal:<id>] 提交标记、交付物摘要（manifest）读法，以及"完成标记不等于成功证明"的取证要求。',
+  content: `# WorkMate 归档前验收清单
+
+## 硬前置（编排会自动检查，别靠记忆）
+
+- **tasks.md 全部勾选**：任一关联项目还有 \`- [ ]\`，归档编排第一步就失败并列出逐项目
+  \`done/total\`。要么真做完并勾上，要么让用户显式决定 \`force\`（跳过这道验收）。
+- **review.md 通过审查门**：见 skill \`workmate-proposal-audit\`；未解决阻断级发现会拦归档。
+- **人工批准**：\`merging\` / \`archiving\` 需要人在面板批准（写码者不得批准）。
+
+## 提交标记
+
+- 本提案相关提交写 \`[proposal:<id>]\`（放在提交信息里）。
+- 归档 manifest 的 \`commits\` 就是按这个标记扫出来的——没标记就等于"没做过"。
+
+## 完成标记不等于成功证明
+
+- \`[x]\` 只表示"这一步被认为完成了"，不表示验收通过。写 review.md 时必须写清：
+  **验了什么、用什么方式（单测 / 真机 / 读源码推断）、明确没验什么**。
+- 构建成功、退出码 0、文件里出现某字符串，都不算验收；要跑用户路径或单测并给出结论。
+- 声明要可证伪：宁可写"未验证：X"，也不要写满。
+
+## 归档后看交付物摘要
+
+- 归档成功后提案记录会带 \`archiveManifest\`（逐项目：标记提交、\`diff --stat\`、
+  spec 是否有更新、GitNexus 是否重建）。面板「已归档」卡片详情区有「交付物」小节。
+- 回退（\`archived → archiving\`）后该摘要不再代表当前状态，重新归档会覆盖它。
+
+## 归档排障顺序
+
+1. 读 \`orchestration.steps\`，找 \`status: "failed"\` 的那一步与它的逐项目摘要；
+2. 按摘要修复（补 tasks 勾选 / 补 review.md / 补 Wiki 引用 / 关联项目根）；
+3. 重跑（幂等：已归档的项目记 \`skipped\`），**不要**手跑 \`openspec archive\` 绕过编排。`,
+}
+
+export const KNOWLEDGE_USAGE_SKILL: RuntimeSkill = {
+  name: 'workmate-knowledge-usage',
+  description:
+    'WorkMate 知识面的选择指南：GitNexus query/context/impact 三态何时用、WeKnora 文档检索与 Wiki 登记的边界，以及"先核实再断言"的取证纪律。',
+  content: `# 知识面使用指南
+
+## GitNexus（代码事实）
+
+先用 \`workmate_knowledge_query\` 选对动作，再下结论：
+
+| 问法 | action | 备注 |
+|---|---|---|
+| "这个流程/概念怎么走的" | \`query\` | 目标仓库需先 \`gitnexus analyze\`；返回执行流 |
+| "这个符号周围有什么" | \`context\` | 360° 视图：定义、调用、引用 |
+| "改这个会炸什么" | \`impact\` | \`direction=upstream\`（谁依赖我）/ \`downstream\`（我依赖谁） |
+
+纪律：
+
+- 目标仓库未索引时返回 \`note\` 表示不可用——**降级为静态阅读并如实标注**，不要臆造关联。
+- 工具返回的是**主张**，不是判决：把 \`context\`/\`impact\` 的结果与源码对照后再写进结论。
+- 改动涉及公共符号时，先 \`impact(direction=upstream)\`，把消费方列进 review.md。
+
+## WeKnora（文档与规范）
+
+- 检索用 \`workmate_knowledge_search\`（未配置会返回禁用说明——此时不要假装查过）。
+- 归档前，凡在 tasks.md 里声明了 \`<!-- wiki: true -->\` 的任务，必须已用
+  \`workmate_wiki_link\` 登记页面引用（\`concept\` / \`synthesis\` / \`entity\`），
+  否则 \`merging\` 前置会拦住。
+- 登记的页面引用会随提案持久化，是本变更与知识库之间的**唯一**正式边。
+
+## 证据纪律（写进 review.md 与最终答复）
+
+- 代码事实来自 GitNexus 或直接读源码，二者都要标明出处（文件:行）。
+- 外部资料（文档站、网页）只能作**参考**，不得当成代码事实；引用时给链接。
+- 查不到就写"查不到"，不要用相邻事实补齐。`,
+}
+
 /** Name + body of the single WorkMate system-prompt section. */
 export const FLOW_SECTION_NAME = 'tool:workmate'
 export const FLOW_SECTION_TEXT = [

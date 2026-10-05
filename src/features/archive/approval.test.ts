@@ -33,6 +33,45 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true })
 })
 
+describe('archive manifest persistence', () => {
+  it('writes the delivery summary onto the proposal after a successful archive', async () => {
+    const manifest = { at: '2026-10-05T10:00:00.000Z', projects: [{ project: 'demo', root: '/tmp/demo', commits: ['abc1234'], reindexed: true }] }
+    const lifecycle = new LifecycleServiceImpl({
+      proposals,
+      worktree: worktree(),
+      orchestrate: async () => ({
+        ok: true,
+        steps: [{ step: 'status' as const, status: 'ok' as const, summary: 'archived' }],
+        manifest,
+      }),
+      approvalsRequired: [],
+    })
+    await proposals.setStatus('p1', 'archiving', { actor: 'human' })
+
+    const outcome = await lifecycle.runArchive('p1')
+
+    expect(outcome.proposal.status).toBe('archived')
+    expect((await proposals.get('p1'))?.archiveManifest).toEqual(manifest)
+  })
+
+  it('leaves the manifest untouched when the run fails', async () => {
+    const lifecycle = new LifecycleServiceImpl({
+      proposals,
+      worktree: worktree(),
+      orchestrate: async () => ({
+        ok: false,
+        steps: [{ step: 'review-gate' as const, status: 'failed' as const, summary: 'missing review.md' }],
+      }),
+      approvalsRequired: [],
+    })
+    await proposals.setStatus('p1', 'archiving', { actor: 'human' })
+
+    await lifecycle.runArchive('p1')
+
+    expect((await proposals.get('p1'))?.archiveManifest).toBeUndefined()
+  })
+})
+
 describe('approval gate (separation of duties)', () => {
   it('refuses the agent actor at a gated state and says how to approve', async () => {
     const lifecycle = lifecycleFor()

@@ -65,7 +65,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
     const project = join(home, 'proj')
     await import('node:fs/promises').then(async (fs) => {
       await fs.mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
-      await fs.writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. a\n- [ ] 2. b\n', 'utf8')
+      await fs.writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. a\n- [x] 2. b\n', 'utf8')
       await fs.writeFile(
         join(project, 'openspec', 'changes', 'p1', 'review.md'),
         '## CRITICAL 问题\n\n- [x] CRIT-1 已解决\n',
@@ -105,7 +105,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
       )
 
       expect(result.ok).toBe(true)
-      expect(result.tasks).toEqual({ done: 1, total: 2, lines: ['- [x] 1. a', '- [ ] 2. b'] })
+      expect(result.tasks).toEqual({ done: 2, total: 2, lines: ['- [x] 1. a', '- [x] 2. b'] })
       expect(result.steps.map((s) => [s.step, s.status])).toEqual([
         ['tasks', 'ok'],
         ['swarm', 'skipped'],
@@ -237,6 +237,76 @@ describe('orchestrateArchive (fake CLIs)', () => {
     await rm(strictProject, { recursive: true, force: true })
   })
 
+  it('stops on unchecked tasks and reports per-project progress', async () => {
+    const projectA = await mkdtemp(join(tmpdir(), 'wm-tasks-a-'))
+    const projectB = await mkdtemp(join(tmpdir(), 'wm-tasks-b-'))
+    for (const [project, body] of [
+      [projectA, '- [x] 1. a\n- [ ] 2. b\n'],
+      [projectB, '- [x] 1. c\n'],
+    ] as const) {
+      await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+      await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), body, 'utf8')
+    }
+
+    const result = await orchestrateArchive(
+      archivingProposal(),
+      [
+        { project: 'alpha', root: projectA },
+        { project: 'beta', root: projectB },
+      ],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false },
+    )
+
+    expect(result.ok).toBe(false)
+    const gate = result.steps.find((step) => step.step === 'tasks')
+    expect(gate?.status).toBe('failed')
+    expect(gate?.summary).toContain('[alpha] 1/2')
+    expect(gate?.summary).toContain('force 可跳过')
+    expect(result.steps.find((step) => step.step === 'openspec-archive')).toBeUndefined()
+
+    await rm(projectA, { recursive: true, force: true })
+    await rm(projectB, { recursive: true, force: true })
+  })
+
+  it('lets force pass the acceptance predicate', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'wm-tasks-force-'))
+    await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+    await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [ ] 1. a\n', 'utf8')
+    await writeFile(join(project, 'openspec', 'changes', 'p1', 'review.md'), '## CRITICAL 问题\n\n- [x] 无\n', 'utf8')
+
+    const result = await orchestrateArchive(
+      archivingProposal(),
+      [{ project: 'demo', root: project }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false, tasksGate: false, reviewGate: false },
+    )
+
+    expect(result.steps.find((step) => step.step === 'tasks')?.summary).toContain('验收谓词被 force 跳过')
+    await rm(project, { recursive: true, force: true })
+  })
+
+  it('collects a delivery manifest for the archived project', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'wm-manifest-'))
+    await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+    await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. a\n', 'utf8')
+    await writeFile(join(project, 'openspec', 'changes', 'p1', 'review.md'), '## CRITICAL 问题\n\n- [x] 无\n', 'utf8')
+
+    const result = await orchestrateArchive(
+      archivingProposal(),
+      [{ project: 'demo', root: project }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false },
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.manifest?.projects).toHaveLength(1)
+    const entry = result.manifest?.projects[0]
+    expect(entry?.project).toBe('demo')
+    // Not a git repo: the probes degrade to a note instead of failing the run.
+    expect(entry?.commits).toEqual([])
+    expect(entry?.note).toContain('git probes unavailable')
+    expect(entry?.reindexed).toBe(false)
+    await rm(project, { recursive: true, force: true })
+  })
+
   it('force skips the review gate only — missing review.md otherwise blocks', async () => {
     const project = join(home, 'proj-noreview')
     await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
@@ -248,7 +318,9 @@ describe('orchestrateArchive (fake CLIs)', () => {
     const executing = await proposals.setStatus('p1', 'implementing')
     const targets = [{ project: 'demo', root: project }]
 
-    const gated = await orchestrateArchive(executing, targets, { openspecRoot: 'openspec' })
+    // Without force the acceptance predicate fires first (the fixture's tasks
+    // are unchecked on purpose here); pass it explicitly to reach the review gate.
+    const gated = await orchestrateArchive(executing, targets, { openspecRoot: 'openspec', tasksGate: false })
     expect(gated.ok).toBe(false)
     expect(gated.steps.find((s) => s.step === 'review-gate')?.status).toBe('failed')
 
@@ -256,7 +328,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
     const forced = await orchestrateArchive(
       executing,
       targets,
-      { openspecRoot: 'openspec', reviewGate: false, gitnexusAnalyzeEnabled: false },
+      { openspecRoot: 'openspec', reviewGate: false, tasksGate: false, gitnexusAnalyzeEnabled: false },
       { openspecBin: join(binDir, 'openspec') },
     )
     expect(forced.steps.find((s) => s.step === 'review-gate')).toMatchObject({ status: 'skipped' })

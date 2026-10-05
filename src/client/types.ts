@@ -37,6 +37,22 @@ export interface WikiLinkEntry {
   registeredAt: string
 }
 
+export interface ArchiveManifestEntry {
+  project: string
+  root: string
+  commits: string[]
+  diffStat?: string
+  specsUpdated?: boolean
+  reindexed: boolean
+  archivedChangeDir?: string
+  note?: string
+}
+
+export interface ArchiveManifest {
+  at: string
+  projects: ArchiveManifestEntry[]
+}
+
 export interface ApprovalRecord {
   gate: ProposalState
   actor: 'human' | 'system'
@@ -62,6 +78,8 @@ export interface Proposal {
   proposalBranch?: string
   createdAt: string
   updatedAt: string
+  /** Delivery summary of a successful archive run. */
+  archiveManifest?: ArchiveManifest
 }
 
 export interface AssociatedCommit {
