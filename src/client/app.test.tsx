@@ -251,7 +251,8 @@ describe('control room (workbench panel)', () => {
   beforeEach(() => {
     fetchMock.mockImplementation((input: unknown) => {
       const url = String(input)
-      if (url.includes('/api/metrics')) return Promise.resolve(ok(metricsBody))
+      // The real endpoint wraps the aggregate in `{metrics}` — mock the real shape.
+      if (url.includes('/api/metrics')) return Promise.resolve(ok({ metrics: metricsBody, skippedLines: 0 }))
       if (url.includes('/api/bands')) return Promise.resolve(ok(bandsBody))
       return Promise.resolve(ok({ proposals: [] }))
     })
@@ -281,5 +282,53 @@ describe('control room (workbench panel)', () => {
     render(<ProposalPanel />)
 
     expect(screen.getByText('控制台')).toBeTruthy()
+  })
+})
+
+describe('console view tolerance (regression)', () => {
+  it('renders instead of blanking when the payload lacks perProposal', async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input)
+      if (url.includes('/api/metrics')) {
+        // An older/partial host answer: aggregate present, per-proposal missing.
+        return Promise.resolve(ok({ metrics: { proposals: 1, cycleTimeMedianMs: 3600_000, archived7d: 0, archived30d: 0, reworkRate: 0, firstPassRate: 0, events: 0, skippedLines: 0 } }))
+      }
+      return Promise.resolve(ok({ windowDays: 30, evaluations: [] }))
+    })
+
+    render(<ConsoleView onError={() => {}} />)
+
+    expect(await screen.findByText('提案总数')).toBeTruthy()
+    expect(screen.getByText('还没有提案')).toBeTruthy()
+  })
+
+  it('accepts a flat legacy payload as well', async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input)
+      if (url.includes('/api/metrics')) {
+        return Promise.resolve(ok({ proposals: 0, perProposal: [], gateFailureRanking: [], actorShare: { agent: 0, human: 0, system: 0 }, events: 0, skippedLines: 0 }))
+      }
+      return Promise.resolve(ok({ windowDays: 30, evaluations: [] }))
+    })
+
+    render(<ConsoleView onError={() => {}} />)
+
+    expect(await screen.findByText('提案总数')).toBeTruthy()
+  })
+})
+
+  it('still shows the metrics when only the bands endpoint fails', async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input)
+      if (url.includes('/api/metrics')) {
+        return Promise.resolve(ok({ metrics: { proposals: 2, perProposal: [], gateFailureRanking: [], actorShare: { agent: 0, human: 0, system: 0 }, reworkRate: 0, firstPassRate: 0, archived7d: 0, archived30d: 0, events: 0, skippedLines: 0 } }))
+      }
+      return Promise.reject(new Error('bands.json is corrupt'))
+    })
+
+    render(<ConsoleView onError={() => {}} />)
+
+    expect(await screen.findByText('提案总数')).toBeTruthy()
+    expect(screen.getByText(/窗口 0 天/)).toBeTruthy()
   })
 })

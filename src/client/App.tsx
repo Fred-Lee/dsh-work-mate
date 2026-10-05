@@ -652,26 +652,52 @@ const percent = (value: number): string => `${Math.round(value * 100)}%`
 export function ConsoleView({ onError }: { onError: (message: string) => void }): JSX.Element {
   const [metrics, setMetrics] = useState<AggregateMetrics | null>(null)
   const [bands, setBands] = useState<BandsPayload | null>(null)
+  const [failure, setFailure] = useState('')
 
   useEffect(() => {
     let alive = true
-    Promise.all([getMetrics(), getBands()])
-      .then(([nextMetrics, nextBands]) => {
-        if (!alive) return
-        setMetrics(nextMetrics)
-        setBands(nextBands)
+    // Independent fetches: one failing endpoint must not hide the other's data
+    // (a corrupt bands.json would otherwise keep the whole console in "loading").
+    void getMetrics()
+      .then((nextMetrics) => {
+        if (alive) setMetrics(nextMetrics)
       })
       .catch((cause: unknown) => {
-        if (alive) onError(cause instanceof Error ? cause.message : String(cause))
+        if (!alive) return
+        const message = cause instanceof Error ? cause.message : String(cause)
+        setFailure(message)
+        onError(message)
+      })
+    void getBands()
+      .then((nextBands) => {
+        if (alive) setBands(nextBands)
+      })
+      .catch((cause: unknown) => {
+        if (alive) setBands({ windowDays: 0, evaluations: [] })
+        void cause
       })
     return () => {
       alive = false
     }
   }, [onError])
 
-  if (metrics === null) return <div className="wm-empty">加载过程度量…</div>
+  if (metrics === null) {
+    return (
+      <div className="wm-empty">
+        {failure === ''
+          ? '加载过程度量…（若长时间停在这里，多半是 /workmate/api/metrics 没通）'
+          : `过程度量加载失败：${failure}`}
+      </div>
+    )
+  }
 
-  const rows = [...metrics.perProposal].sort((left, right) => left.id.localeCompare(right.id))
+  // Defensive: a partial or older payload renders as empty data. A crash here would
+  // blank the whole view, which is exactly what the panel must never do.
+  const byState = metrics.byState ?? {}
+  void byState // reserved for the next console revision (per-state column)
+  const ranking = metrics.gateFailureRanking ?? []
+  const actors = metrics.actorShare ?? { agent: 0, human: 0, system: 0 }
+  const rows = [...(metrics.perProposal ?? [])].sort((left, right) => left.id.localeCompare(right.id))
   return (
     <div className="wm-console">
       <section className="wm-section">
@@ -700,7 +726,7 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
           </div>
           <div className="wm-kpi">
             <div className="wm-kpi-value">
-              {metrics.actorShare.agent} / {metrics.actorShare.human}
+              {actors.agent} / {actors.human}
             </div>
             <div className="wm-kpi-label">agent / 人 触发</div>
           </div>
@@ -708,8 +734,8 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
         <div className="wm-kpi-note">
           共 {metrics.events} 条事件
           {metrics.skippedLines > 0 ? `，${metrics.skippedLines} 行无法解析（已忽略）` : ''}
-          {metrics.gateFailureRanking.length > 0
-            ? `；门禁失败最多：${metrics.gateFailureRanking
+          {ranking.length > 0
+            ? `；门禁失败最多：${ranking
                 .slice(0, 3)
                 .map((entry) => `${entry.gate}×${entry.count}`)
                 .join('、')}`
@@ -771,7 +797,7 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
               </tr>
             </thead>
             <tbody>
-              {bands.evaluations.map((entry: BandEvaluation) => (
+              {(bands.evaluations ?? []).map((entry: BandEvaluation) => (
                 <tr key={entry.metric}>
                   <td>
                     {entry.metric}

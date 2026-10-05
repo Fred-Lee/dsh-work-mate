@@ -24,8 +24,15 @@ export function listProposals(): Promise<{ proposals: Proposal[] }> {
   return request('/workmate/api/proposals')
 }
 
-export function getMetrics(): Promise<AggregateMetrics> {
-  return request('/workmate/api/metrics')
+/**
+ * `GET /metrics` answers `{metrics, skippedLines}` for a single proposal and
+ * `{metrics}` for the aggregate; older hosts may answer the aggregate flat. Unwrap
+ * defensively so a shape drift renders as empty data instead of a crash.
+ */
+export async function getMetrics(): Promise<AggregateMetrics> {
+  const body = await request<AggregateMetrics | { metrics?: AggregateMetrics }>('/workmate/api/metrics')
+  const metrics = (body as { metrics?: AggregateMetrics }).metrics
+  return metrics ?? (body as AggregateMetrics)
 }
 
 export function getBands(): Promise<BandsPayload> {
