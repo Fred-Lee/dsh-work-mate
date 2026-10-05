@@ -94,3 +94,73 @@ describe('plan drift', () => {
     expect(forced.ok).toBe(true)
   })
 })
+
+describe('review grading (decision nodes)', () => {
+  /** A review with one untagged question and nothing else. */
+  const seedReview = async (): Promise<string> => {
+    const project = await mkdtemp(join(tmpdir(), 'wm-grade-'))
+    await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+    await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n', 'utf8')
+    await writeFile(
+      join(project, 'openspec', 'changes', 'p1', 'review.md'),
+      ['## 疑问项', '', '- [ ] 消费方是否需要同步改鉴权？'].join('\n'),
+      'utf8',
+    )
+    return project
+  }
+
+  const decideReturning = (action: 'act' | 'abstain', choice = 'CRIT') =>
+    async (): Promise<{ node: 'review-severity'; action: 'act' | 'abstain'; choice: string; certainty: number; threshold: number; provider: string; latencyMs: number; degraded: boolean }> => ({
+      node: 'review-severity',
+      action,
+      choice,
+      certainty: action === 'act' ? 0.9 : 0.4,
+      threshold: 0.8,
+      provider: 'stub',
+      latencyMs: 1,
+      degraded: false,
+    })
+
+  it('grades an untagged finding and lets it block archiving', async () => {
+    const project = await seedReview()
+    const result = await orchestrateArchive(
+      proposal(),
+      [{ project: 'demo', root: project }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false },
+      { decide: decideReturning('act', 'CRIT') as never },
+    )
+
+    expect(result.ok).toBe(false)
+    const gate = result.steps.find((step) => step.step === 'review-gate')
+    expect(gate?.status).toBe('failed')
+    expect(gate?.summary).toContain('判断层归级 1 条')
+    expect(gate?.summary).toContain('CRIT 1/1')
+    await rm(project, { recursive: true, force: true })
+  })
+
+  it('ignores an abstaining judgement and keeps the previous outcome', async () => {
+    const project = await seedReview()
+    const result = await orchestrateArchive(
+      proposal(),
+      [{ project: 'demo', root: project }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false },
+      { decide: decideReturning('abstain') as never },
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.steps.find((step) => step.step === 'review-gate')?.summary).not.toContain('判断层归级')
+    await rm(project, { recursive: true, force: true })
+  })
+
+  it('is a no-op when the hook is absent', async () => {
+    const project = await seedReview()
+    const result = await orchestrateArchive(
+      proposal(),
+      [{ project: 'demo', root: project }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false },
+    )
+
+    expect(result.ok).toBe(true)
+    await rm(project, { recursive: true, force: true })
+  })
+})

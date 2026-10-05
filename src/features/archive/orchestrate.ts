@@ -16,6 +16,7 @@ import { formatTally, parseReviewMd, reviewTally } from '../quality/review-parse
 import type { Proposal } from '../proposal/store.ts'
 import type { ArchiveManifest, ArchiveManifestEntry } from './manifest.ts'
 import { collectArtifactLedger, computeDrift, declaredScopes } from '../proposal/artifacts.ts'
+import type { DecisionOutcome, DecisionQuestion } from '../decision/types.ts'
 
 export interface OrchestrationStep {
   step: 'review-gate' | 'tasks' | 'plan-drift' | 'swarm' | 'openspec-archive' | 'gitnexus-analyze' | 'reopen-dir' | 'worktree-cleanup' | 'status'
@@ -50,6 +51,42 @@ export function parseTasksMd(content: string): TaskSnapshot {
     .filter((line) => /^- \[.\] /.test(line))
   const done = lines.filter((line) => /^- \[[xX]\] /.test(line)).length
   return { done, total: lines.length, lines }
+}
+
+/**
+ * Grade untagged review findings (change `add-decision-nodes`, design D2): a
+ * question/suggestion in review.md is a discovery whose severity nobody wrote down.
+ * Only an `act` judgement becomes a finding — `review`/`abstain` mean "not decided",
+ * and inventing a severity there would block archiving on a guess.
+ */
+async function gradeUntaggedFindings(
+  report: { questions: string[]; suggestions: string[] },
+  decide: DecideHook,
+  max: number,
+  signal?: AbortSignal,
+): Promise<import('../quality/review-parser.ts').ReviewFinding[]> {
+  const items = [...report.questions, ...report.suggestions].slice(0, Math.max(0, max))
+  const graded: import('../quality/review-parser.ts').ReviewFinding[] = []
+  for (const [index, item] of items.entries()) {
+    const outcome = await decide(
+      {
+        node: 'review-severity',
+        state: item,
+        question: '这条审查发现的严重度是？',
+        options: ['CRIT', 'HIGH', 'MED', 'LOW'],
+      },
+      signal,
+    )
+    if (outcome?.action !== 'act' || outcome.choice === undefined) continue
+    if (!['CRIT', 'HIGH', 'MED', 'LOW'].includes(outcome.choice)) continue
+    graded.push({
+      severity: outcome.choice as 'CRIT' | 'HIGH' | 'MED' | 'LOW',
+      tag: `JUDGED-${index + 1}`,
+      text: item,
+      resolved: false,
+    })
+  }
+  return graded
 }
 
 function execCli(
@@ -118,7 +155,12 @@ export async function revertArchiveDir(
   }
 }
 
+/** Judgement hook (change `add-decision-nodes`); omitted = layer disabled. */
+export type DecideHook = (question: DecisionQuestion, signal?: AbortSignal) => Promise<DecisionOutcome | undefined>
+
 export interface OrchestrateDeps {
+  /** Judgement layer hook; omitted when the layer is disabled. */
+  decide?: DecideHook
   /** `openspec` CLI binary; overridable in tests. */
   openspecBin?: string
   runSwarmTasks?(tasks: TaskSnapshot, projectRoot: string): Promise<string>
@@ -144,6 +186,8 @@ export interface OrchestrateOptions {
    * @default ['CRIT']
    */
   reviewBlockingSeverities?: string[]
+  /** How many untagged findings one run may grade (`Config.reviewGradeMax`). @default 5 */
+  reviewGradeMax?: number
   /** Caller cancellation, forwarded to every spawned CLI. */
   signal?: AbortSignal
 }
@@ -280,9 +324,28 @@ export async function orchestrateArchive(
         continue
       }
       const report = parseReviewMd(content)
-      const tally = reviewTally(report, options.reviewBlockingSeverities ?? ['CRIT'])
+      // Legacy shape: an untagged CRITICAL section has no findings yet, so keep its
+      // entries in the mix before adding graded ones (otherwise the tally's legacy
+      // fallback would be skipped the moment a single finding exists).
+      const legacy =
+        report.findings.length === 0
+          ? report.criticals.map((issue, index) => ({
+              severity: 'CRIT' as const,
+              tag: `CRIT-${index + 1}`,
+              text: issue.text,
+              resolved: issue.resolved,
+            }))
+          : []
+      const graded =
+        deps.decide === undefined
+          ? []
+          : await gradeUntaggedFindings(report, deps.decide, options.reviewGradeMax ?? 5, options.signal)
+      const tally = reviewTally(
+        { ...report, findings: [...legacy, ...report.findings, ...graded] },
+        options.reviewBlockingSeverities ?? ['CRIT'],
+      )
       const counts = formatTally(tally)
-      const head = `${label}${counts === '' ? '无发现' : counts}`
+      const head = `${label}${counts === '' ? '无发现' : counts}${graded.length > 0 ? `（判断层归级 ${graded.length} 条）` : ''}`
       const who = tally.reviewer !== undefined ? `${tally.reviewer}${tally.shadow ? '（影子）' : ''}` : undefined
       if (tally.shadow) {
         // Shadow mode (change add-review-tally, design D2): a reviewer still

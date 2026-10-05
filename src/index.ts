@@ -153,10 +153,15 @@ export function apply(ctx: Context, config: Config = {}): void {
         openspecRoot: opts.openspecRoot,
         gitnexusAnalyzeEnabled: resolved.gitnexusEnabled,
         reviewBlockingSeverities: resolved.reviewBlockingSeverities,
+        reviewGradeMax: resolved.reviewGradeMax,
         ...(opts.reviewGate !== undefined ? { reviewGate: opts.reviewGate } : {}),
         ...(opts.tasksGate !== undefined ? { tasksGate: opts.tasksGate } : {}),
         ...(opts.planDriftGate !== undefined ? { planDriftGate: opts.planDriftGate } : {}),
         ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+      }, {
+        // The judgement layer reaches the archive orchestration as a hook: absent
+        // means disabled, and everything behaves exactly as before.
+        ...(decision.enabled ? { decide: (question, signal) => decision.decide(question, signal) } : {}),
       })
     },
     reopen(proposal, targets, opts) {
