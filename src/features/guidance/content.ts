@@ -55,6 +55,15 @@ export const PROPOSAL_FLOW_SKILL: RuntimeSkill = {
 - 只有用户自己要求"全自动"时，才建议把 \`approvalsRequired\` 设为 \`[]\` 或
   \`allowAgentApproval\` 设为 \`true\`（那会放弃这条分离）。
 
+## 判断层（启用时）
+
+- \`workmate_proposal_decide\` 在判断层启用时会先判"这条决策是否与既有决策矛盾"：
+  被拒（\`act\` 档）说明**你其实在推翻某条旧决策**——补 \`supersedes=<旧 id>\` 或改写决策，
+  不要反复重试。
+- 判断层**只收紧不放松**：它能拦你，不会帮你放行任何门禁。
+- 事件流里的 \`decision\` 事件记着 node / choice / action / certainty / provider / samples：
+  想知道"这次判断靠不靠谱"，看 \`samples\` 与 \`provider\`（\`degraded: true\` = 降级过）。
+
 ## 归档与重开
 
 归档由编排完成：审查门（\`changes/<id>/review.md\` 无未解决 CRITICAL）→

@@ -164,6 +164,12 @@ pnpm dsh web                                            # 启动，默认 http:/
 | `allowAgentApproval` | `false` | `true` 时允许 agent actor 跨过受控状态（放弃"写码者不得批准"的分离） |
 | `reviewBlockingSeverities` | `['CRIT']` | 归档审查门阻断哪些严重度（CRIT/HIGH/MED/LOW）；影子态报告一律只记录不阻断 |
 | `planDriftGate` | `false` | `true` 时归档被"改了但没声明"的文件阻断（`force` 可跳过）；默认只记录不拦 |
+| `decisionEnabled` | `false` | 判断层总开关（门禁里发起模型调用必须显式开启） |
+| `decisionProvider` | `'agent'` | 判断 provider：`agent`（宿主 LLM）/ `rules`（确定性兜底）/ `jev`（占位，待 key） |
+| `decisionLlmProvider` / `decisionModel` | `''` | `agent` 用的路由与模型；留空取第一个已注册路由的默认模型 |
+| `decisionSamples` | `1` | 同一题采样次数；>1 时一致率作为 certainty 代理（留痕里记 samples） |
+| `decisionTimeoutMs` | `4000` | 单次判断超时 |
+| `decisionActThreshold` / `decisionReviewThreshold` | `0.8` / `0.6` | certainty ≥ 前者 → `act`；≥ 后者 → `review`；否则 `abstain` |
 
 无效组合启动时响亮提示（如 `weknoraWikiRequired=true` 但 `weknoraKbId` 为空）。
 
@@ -322,6 +328,38 @@ node scripts/bands-watch.mjs --fail-on propose --apply
   面板「📦 交付物」小节显示漂移与账本条数。这让"审的是哪一版工件"可验证。
 - **可选门**：`planDriftGate: true` 时存在未声明改动即归档失败并列出文件（`force` 可跳过）。
   默认关闭：`writes` 声明是新约定，历史提案没有它。
+
+---
+
+## 5.9 判断层：把"语义卡点"交给模型，但阈值留在我们手里
+
+流程里有一批**高频、封闭、可验证**的判断节点（审查发现分级、决策是否语义矛盾、外部文本
+是否夹带指令、变更风险等级、任务是否真的完成）。它们不适合"让 agent 自由读一遍再写段话"，
+但确实需要语义判断——这正是 Jev（TypeSafe System One）那类**判断模型**的定位：给 state +
+固定选项，返回选项概率，不生成文本。
+
+**没有 TypeSafe key 也能用**：`provider: 'agent'` 用宿主自己的 `ctx.llm`，把题目**约束成
+一次强制工具调用**（单一 tool、`enum` 选项）——答案只能是枚举里的一个，解析失败即视为
+"答不出"，不会被当成默认选项。多采样（`decisionSamples: 3`）时一致率充当 certainty 代理，
+且采样次数写进留痕，避免把"一次采样"误读成"高置信"。
+
+三条写死的纪律：
+
+1. **阈值归 WorkMate**：`certainty ≥ act → act`、`≥ review → review`、否则 `abstain`——
+   动作永远不由 provider 决定（与 TypeSafe 自己的纪律一致：`decision` 由调用方在代码里算）。
+2. **只收紧，不放松**：判断层是**附加门**，可以把一次操作标成"需要复核/拒绝"，
+   但**绝不能**放行确定性门禁本来会拦的操作。
+3. **降级可见**：provider 缺失/超时/答不出 → 依次降级（`agent → rules`），仍无结论即
+   `abstain`；每次判断向事件流写 `decision` 事件（node / choice / action / certainty /
+   provider / samples / threshold / latency / degraded），"这次判断其实没跑成"在账本上看得见。
+
+**当前接入的第一个节点**：`workmate_proposal_decide` 的**语义矛盾检测**——新决策与既有决策
+矛盾且没给 `supersedes` 时，`act` 档直接拒绝并要求补 `supersedes`（原先只机械校验
+"supersedes 指向的 id 存不存在"，判不出"你其实在推翻某条旧决策"）。没开判断层时行为完全不变。
+
+> Jev 接入方式：把 `decisionProvider` 设为 `jev` 并配置 TypeSafe key 后，只需实现一个
+> `DecisionProvider` 适配器（`POST https://api.typesafe.ai/v1/systemone`，`state` +
+> 类型化题目 → 选项概率），调用方与门禁逻辑一行不改。
 
 ---
 

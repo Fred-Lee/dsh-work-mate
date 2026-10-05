@@ -26,6 +26,9 @@ import { readFile } from 'node:fs/promises'
 import { EventLog } from './features/proposal/events.ts'
 import { runBandsCheck } from './features/metrics/check.ts'
 import { parseSwarmTasks } from './features/swarm/plan.ts'
+import { AgentProvider, type HostLlmFace } from './features/decision/agent.ts'
+import { RulesProvider } from './features/decision/rules.ts'
+import { DecisionService } from './features/decision/service.ts'
 import { SwarmManager } from './features/swarm/manager.ts'
 import type { ProposalSource } from './features/proposal/store.ts'
 import { aggregateMetrics, proposalMetrics } from './features/proposal/metrics.ts'
@@ -100,6 +103,34 @@ export function apply(ctx: Context, config: Config = {}): void {
     packageManager: resolved.packageManager,
   })
   const swarm = new SwarmManager({ proposals, worktrees: worktree })
+  // The judgement layer reaches the LLM service through a lazy reference: a profile
+  // without `llm` keeps the plugin ACTIVE and the agent provider simply reports
+  // itself unavailable (the deterministic `rules` provider is then the floor).
+  let llmRef: HostLlmFace | undefined
+  ctx.inject(['llm'], (scope) => {
+    llmRef = scope.llm as unknown as HostLlmFace
+  })
+  const decision = new DecisionService({
+    config: {
+      enabled: resolved.decisionEnabled,
+      provider: (resolved.decisionProvider === 'rules' || resolved.decisionProvider === 'jev' ? resolved.decisionProvider : 'agent'),
+      ...(resolved.decisionLlmProvider !== '' ? { llmProvider: resolved.decisionLlmProvider } : {}),
+      ...(resolved.decisionModel !== '' ? { model: resolved.decisionModel } : {}),
+      samples: resolved.decisionSamples,
+      timeoutMs: resolved.decisionTimeoutMs,
+      thresholds: { act: resolved.decisionActThreshold, review: resolved.decisionReviewThreshold },
+    },
+    providers: [
+      new AgentProvider({
+        llm: () => llmRef,
+        ...(resolved.decisionLlmProvider !== '' ? { provider: resolved.decisionLlmProvider } : {}),
+        ...(resolved.decisionModel !== '' ? { model: resolved.decisionModel } : {}),
+        samples: resolved.decisionSamples,
+        timeoutMs: resolved.decisionTimeoutMs,
+      }),
+      new RulesProvider(),
+    ],
+  })
   const resolveRoots = async (proposal: Proposal): Promise<OrchestrationTarget[]> => {
     const targets: OrchestrationTarget[] = []
     for (const name of proposal.projects) {
@@ -152,7 +183,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.provide('workmate.projects', registry)
   ctx.provide('workmate.worktree', worktree)
 
-  registerTools(ctx, { proposals, archive, registry, worktree, swarm, resolved, events })
+  registerTools(ctx, { proposals, archive, registry, worktree, swarm, decision, resolved, events })
   // Native guidance surfaces: two runtime skills + one flow section. Lazy, so
   // a composition without those services keeps the plugin ACTIVE.
   registerGuidance(ctx)
@@ -179,6 +210,7 @@ interface ToolDeps {
   registry: ProjectRegistry
   worktree: WorktreeManager
   swarm: SwarmManager
+  decision: DecisionService
   resolved: ReturnType<typeof resolveConfig>
 }
 
@@ -297,7 +329,56 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         supersedes: { type: 'string', description: 'Earlier decision id this one overturns.' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
-      async execute(args) {
+      async execute(args, exec) {
+        const proposal = await deps.proposals.get(args.id)
+        if (proposal === undefined) throw new Error(`proposal not found: ${args.id}`)
+
+        // Judgement layer (change `add-decision-layer`): a silent reversal is what
+        // the mechanical check cannot see — `supersedes` must reference an EXISTING
+        // entry, but nothing stops a new decision from contradicting an old one.
+        // The layer may only tighten: `act + contradicts` refuses, everything else
+        // leaves the pre-existing behaviour untouched (design D4).
+        if (deps.decision.enabled) {
+          const history = (proposal.decisions ?? [])
+            .map((entry, index) => `${index + 1}. ${entry.decision} — ${entry.rationale}`)
+            .join('\n')
+          const outcome = await deps.decision.decide(
+            {
+              node: 'decision-consistency',
+              state: `既有决策：\n${history === '' ? '（无）' : history}\n\n新决策：${args.decision}\n理由：${args.rationale}${
+                args.supersedes !== undefined ? `\n（调用方已声明 supersedes=${args.supersedes}）` : ''
+              }`,
+              question: '新决策是否与既有决策矛盾（或应当声明推翻某条旧决策）？',
+              options: ['consistent', 'contradicts'],
+            },
+            exec.signal,
+          )
+          if (outcome !== undefined) {
+            await deps.events.append({
+              at: new Date().toISOString(),
+              proposalId: args.id,
+              kind: 'decision',
+              actor: 'system',
+              node: outcome.node,
+              action: outcome.action,
+              ...(outcome.choice !== undefined ? { choice: outcome.choice } : {}),
+              certainty: outcome.certainty,
+              provider: outcome.provider,
+              ...(outcome.samples !== undefined ? { samples: outcome.samples } : {}),
+              threshold: outcome.threshold,
+              latencyMs: outcome.latencyMs,
+              degraded: outcome.degraded,
+              ...(outcome.reason !== undefined ? { reason: outcome.reason } : {}),
+            })
+            if (outcome.action === 'act' && outcome.choice === 'contradicts' && args.supersedes === undefined) {
+              throw new Error(
+                `判断层认为这条决策与既有决策矛盾（certainty ${outcome.certainty.toFixed(2)}，provider ${outcome.provider}）：` +
+                  '请显式声明 supersedes=<被推翻的决策 id>，或改写决策使其不构成推翻。',
+              )
+            }
+          }
+        }
+
         const entry = await proposals.addDecision(args.id, {
           decision: args.decision,
           rationale: args.rationale,

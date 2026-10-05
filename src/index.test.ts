@@ -39,7 +39,14 @@ function fakeCtx(available: Record<string, unknown>): {
   })
   const ctx = {
     ...available,
-    provide: () => {},
+    // Emulate cordis `ctx.provide('a.b', value)` so tests can reach the service.
+    provide: (name: string, value: unknown) => {
+      const [head, tail] = name.split('.')
+      if (head === undefined || tail === undefined) return
+      const root = ((ctx as unknown as Record<string, unknown>)[head] ?? {}) as Record<string, unknown>
+      root[tail] = value
+      ;(ctx as unknown as Record<string, unknown>)[head] = root
+    },
     tools: {
       register: (definition: unknown) => {
         registered.push(definition)
@@ -68,6 +75,67 @@ afterEach(async () => {
   delete process.env['DSH_HOME']
   await rm(home, { recursive: true, force: true })
   vi.restoreAllMocks()
+})
+
+describe('decision layer wiring (add-decision-layer)', () => {
+  /** Fake host LLM answering the forced tool call with the given choices, in order. */
+  const fakeLlm = (...choices: string[]) => {
+    let index = 0
+    return {
+      listProviders: () => [{ id: 'deepseek', models: [{ id: 'deepseek-v4-pro' }] }],
+      stream: () => {
+        const choice = choices[Math.min(index, choices.length - 1)] ?? 'consistent'
+        index += 1
+        return (async function* generate() {
+          yield { type: 'tool-call-delta', name: 'answer', argumentsDelta: `{"choice":"${choice}"}` }
+        })()
+      },
+    }
+  }
+
+  const decideTool = (registered: unknown[]): { execute: (args: Record<string, unknown>, exec: unknown) => Promise<unknown> } =>
+    registered.find((tool) => (tool as { name: string }).name === 'workmate_proposal_decide') as {
+      execute: (args: Record<string, unknown>, exec: unknown) => Promise<unknown>
+    }
+
+  it('refuses a silent reversal once the layer says the decision contradicts', async () => {
+    const { ctx, registered } = fakeCtx({ llm: fakeLlm('contradicts') })
+    apply(ctx, { decisionEnabled: true, decisionProvider: 'agent' })
+    await (ctx as unknown as { workmate: { proposal: { upsert: (input: { id: string; title: string }) => Promise<unknown> } } }).workmate.proposal.upsert({ id: 'p1', title: 't' })
+
+    await expect(
+      decideTool(registered).execute({ id: 'p1', decision: '改用 SQLite', rationale: '更快' }, { signal: undefined }),
+    ).rejects.toThrow(/supersedes/)
+  })
+
+  it('accepts the same decision when supersedes is declared', async () => {
+    const { ctx, registered } = fakeCtx({ llm: fakeLlm('consistent', 'contradicts') })
+    apply(ctx, { decisionEnabled: true, decisionProvider: 'agent' })
+    const service = (ctx as unknown as { workmate: { proposal: { upsert: (input: { id: string; title: string }) => Promise<unknown>; get: (id: string) => Promise<{ decisions?: unknown[] }> } } }).workmate.proposal
+    await service.upsert({ id: 'p1', title: 't' })
+
+    // The mechanical check needs the referenced id to exist, so seed one first.
+    await decideTool(registered).execute({ id: 'p1', decision: '用 JSON 存提案', rationale: '简单' }, { signal: undefined })
+    const seeded = await service.get('p1')
+    const previousId = (seeded.decisions?.[0] as { id?: string } | undefined)?.id
+    expect(previousId).toBeTruthy()
+    await expect(
+      decideTool(registered).execute(
+        { id: 'p1', decision: '改用 SQLite', rationale: '更快', supersedes: previousId },
+        { signal: undefined },
+      ),
+    ).resolves.toBeDefined()
+  })
+
+  it('keeps the previous behaviour when the layer is disabled', async () => {
+    const { ctx, registered } = fakeCtx({ llm: fakeLlm('contradicts') })
+    apply(ctx)
+    await (ctx as unknown as { workmate: { proposal: { upsert: (input: { id: string; title: string }) => Promise<unknown> } } }).workmate.proposal.upsert({ id: 'p1', title: 't' })
+
+    await expect(
+      decideTool(registered).execute({ id: 'p1', decision: '改用 SQLite', rationale: '更快' }, { signal: undefined }),
+    ).resolves.toBeDefined()
+  })
 })
 
 describe('host entry dependency shape', () => {

@@ -83,6 +83,22 @@ export interface Config {
    * @default false (declarations are new; record and show, do not block)
    */
   planDriftGate?: boolean
+  /** Enable the judgement layer (a model call inside a gate must be opt-in). @default false */
+  decisionEnabled?: boolean
+  /** Preferred judgement provider: agent | rules | jev. @default 'agent' */
+  decisionProvider?: string
+  /** LLM route for the agent provider; empty = first registered route. @default '' */
+  decisionLlmProvider?: string
+  /** Model for the agent provider; empty = the route's default model. @default '' */
+  decisionModel?: string
+  /** Samples per judgement (>1 turns the agreement ratio into the certainty proxy). @default 1 */
+  decisionSamples?: number
+  /** Per-judgement timeout in ms. @default 4000 */
+  decisionTimeoutMs?: number
+  /** certainty needed to act. @default 0.8 */
+  decisionActThreshold?: number
+  /** certainty needed to raise a review instead of acting. @default 0.6 */
+  decisionReviewThreshold?: number
 }
 
 /** Runtime schema the host collects (validation + config-UI projection). */
@@ -124,6 +140,14 @@ export const Config: z<Config> = z.object({
     .boolean()
     .default(false)
     .description('Fail archiving when the diff touches files the plan never declared.'),
+  decisionEnabled: z.boolean().default(false).description('Enable the judgement layer (model-backed gates).'),
+  decisionProvider: z.string().default('agent').description('Judgement provider: agent | rules | jev.'),
+  decisionLlmProvider: z.string().default('').description('LLM route for the agent provider; empty = first registered.'),
+  decisionModel: z.string().default('').description('Model for the agent provider; empty = route default.'),
+  decisionSamples: z.number().default(1).description('Samples per judgement; the agreement ratio becomes certainty.'),
+  decisionTimeoutMs: z.number().default(4000).description('Per-judgement timeout in milliseconds.'),
+  decisionActThreshold: z.number().default(0.8).description('Certainty needed to act on a judgement.'),
+  decisionReviewThreshold: z.number().default(0.6).description('Certainty needed to raise a review instead of acting.'),
 })
 
 export type ResolvedConfig = Required<Config>
@@ -148,6 +172,14 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   allowAgentApproval: false,
   reviewBlockingSeverities: ['CRIT'],
   planDriftGate: false,
+  decisionEnabled: false,
+  decisionProvider: 'agent',
+  decisionLlmProvider: '',
+  decisionModel: '',
+  decisionSamples: 1,
+  decisionTimeoutMs: 4000,
+  decisionActThreshold: 0.8,
+  decisionReviewThreshold: 0.6,
 }
 
 /**
