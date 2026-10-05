@@ -55,7 +55,7 @@ function relativeTime(iso: string): string {
 
 export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const { projectRoot } = props
-  const [view, setView] = useState<'board' | 'graph' | 'console'>('board')
+  const [view, setView] = useState<'board' | 'graph' | 'console'>(() => initialView())
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [details, setDetails] = useState<Record<string, ProposalStatusPayload>>({})
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -629,6 +629,17 @@ function CreateModal(props: {
       </form>
     </div>
   )
+}
+
+/**
+ * Deep-linkable view for the standalone page (`/workmate/?view=console`): the shell
+ * ignores the query, the standalone page honours it, screenshots and docs links
+ * stay reproducible.
+ */
+function initialView(): 'board' | 'graph' | 'console' {
+  if (typeof window === 'undefined') return 'board'
+  const requested = new URLSearchParams(window.location.search).get('view')
+  return requested === 'console' || requested === 'graph' ? requested : 'board'
 }
 
 /** Human-readable dwell/cycle duration; unknown (0) stays unknown, never faked. */

@@ -28,6 +28,7 @@ draft → proposing → reviewing → ready → implementing → merging → arc
 
 ## 目录
 
+0. [使用说明：从装好到第一次归档（配图）](#0-使用说明从装好到第一次归档配图)
 1. [环境要求](#1-环境要求)
 2. [安装](#2-安装)
 3. [配置](#3-配置)
@@ -39,6 +40,174 @@ draft → proposing → reviewing → ready → implementing → merging → arc
 9. [WeKnora Wiki 关联](#9-weknora-wiki-关联)
 10. [可选生态插件](#10-可选生态插件)
 11. [故障排查](#11-故障排查)
+
+---
+
+## 0. 使用说明：从装好到第一次归档（配图）
+
+> **截图证据等级**：下面三张是**面板自身在同一台机器上的真机截图**，用
+> `http://127.0.0.1:3080/workmate/?view=board|console|graph` 抓取——独立页与 DSH 内嵌面板
+> 渲染的是**同一个组件**（`src/client/App.tsx`），差别只是内嵌时外面还套一层 DSH 外壳
+> （左栏图标、右侧 dock 标签）。DSH 主界面本身需要 `dsh web` 打印的带 token URL，无法在
+> 无头浏览器里截取，所以没有放主界面截图；需要的话在浏览器里自己截一张替换即可。
+> 截图对应的数据是两个演示提案（`dl-demo` / `lc-demo`），所以数字很小，属正常。
+
+### 0.1 先确认三件事（30 秒）
+
+```bash
+DSH=/Users/fredlee/Documents/workspace/deepseek-harness/apps/cli/lib/bin.js
+
+# ① 插件在 profile 里（应看到 `# == workmate4dsh` 与 `id: workmate`）
+node $DSH --profile web --dump-config | grep -A 2 workmate
+
+# ② 服务在跑、接口通（应打印 200）
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3080/workmate/api/proposals
+
+# ③ 判断层配置生效（应看到 decisionEnabled: true / decisionSamples: 3）
+node $DSH --profile web --dump-config | sed -n '/id: workmate/,/^- id:/p'
+```
+
+改过配置或升级过插件后：**重启 harness**（`pnpm dsh web`），然后**刷新页面**。
+只改客户端（面板 UI）时不必重启，刷新即可。
+
+### 0.2 第 1 步：进入面板（三个入口随便挑）
+
+| 入口 | 位置 | 适合 |
+|---|---|---|
+| **左栏图标**（原生工作台） | 左栏最下方「设置」上方，WorkMate 图标；点它**中央区域**从对话切成工作台 | 日常：把 DSH 当工作台用 |
+| **右侧 dock 标签** | 右侧栏的「🛠 WorkMate」标签（better-sidebar 提供） | 边聊边看提案 |
+| **独立页** | `http://127.0.0.1:3080/workmate/`，可加 `?view=console` / `?view=graph` | 调试、深链、截图 |
+
+进入后顶部有三个视图切换：**看板 / 控制台 / 知识图谱**，右侧是「＋ 新提案」。
+
+### 0.3 第 2 步：看板视图 —— 提案都在哪
+
+![WorkMate 看板视图](docs/images/workmate-standalone-board.png)
+
+- 三列按阶段聚合：**提案阶段**（draft / proposing / reviewing）、**实现与合并**（ready /
+  implementing / merging / archiving）、**已归档**（archived）；每列标题带数量。
+- 每张卡片显示：标题、id、OpenSpec tasks 进度条、状态、最近更新；有未决人工批准时会出现
+  「⏳ 等待人工批准」徽标。
+- **点卡片**展开详情区（下面 0.6 会细说）：Git 关联 / worktree / 审查报告 / 决策日志 /
+  卡点 / 并行任务 / 交付物，以及「推进到 X ›」「‹ 回退到 Y」按钮。
+- 右上「＋ 新提案」创建：填标题即可（id 可留空自动生成），可勾选关联项目；带正文时判断层会
+  顺带做一次"外部文本是否夹带指令"的判定。
+
+### 0.4 第 3 步：控制台视图 —— 流程到底有没有用
+
+![WorkMate 控制台视图](docs/images/workmate-standalone-console.png)
+
+这一屏回答"这套流程值不值"，三块内容：
+
+1. **KPI**：提案总数、返工率（有过回退的比例）、首次通过率、周期时间中位数、
+   近 7/30 天归档数、agent/人 触发占比。
+2. **提案过程**：每行一个提案——状态、**该状态已停留多久**、周期时间、返工次数、
+   门禁失败次数、未决卡点、审批次数。
+3. **控制带**：每指标一行——档位 / 当前 / 基线 / σ / 偏离 / 样本数。
+
+> **看到「数据不足」是正常的、也是诚实的**：控制带要求至少 8 个历史样本才建基线，
+> 样本不够时它明确说"数据不足"，**不会**显示成绿色的"正常"。上图四个指标都是数据不足
+> （只有 2 个提案），等提案多了才会出现 `log` / `diagnose` / `propose` 档位。
+
+对应命令：`workmate_metrics`（工具）或 `curl $API/metrics`；控制带用 `workmate_bands` 或
+`curl $API/bands`。
+
+### 0.5 第 4 步：知识图谱视图
+
+![WorkMate 知识图谱视图](docs/images/workmate-standalone-graph.png)
+
+按「提案 → 项目 → 提交」分层展示关联关系；点「刷新」重新扫描。
+
+### 0.6 第 5 步：从一个想法到归档（完整 8 步）
+
+> `$API=http://127.0.0.1:3080/workmate/api`。每一步都可以用命令、面板按钮，或直接让 agent
+> 调对应工具（工具名见 §6）。
+
+| # | 做什么 | 命令 / 工具 | 面板等价操作 |
+|---|---|---|---|
+| 1 | 注册项目（一次） | `POST $API/projects` | 新提案弹窗里勾选已注册项目 |
+| 2 | 建提案（带来源） | `POST $API/proposals`；工具 `workmate_proposal_create`（可带 `source`/`sourceRef`/`relatesTo`/`notes`） | ＋ 新提案 |
+| 3 | 写 `design.md` / `tasks.md`（tasks 里可标 `<!-- writes: src/a/** -->`） | 编辑文件 | — |
+| 4 | 审查：产出 `review.md`（带严重度标签或交给判断层归级） | 技能 `workmate-proposal-audit` | 详情区「🔍 审查报告」+ 重新审查 |
+| 5 | 逐态推进到 `ready` | `POST $API/proposals/<id>/advance`；工具 `workmate_proposal_archive(mode=advance)` | 「推进到 X ›」/「‹ 回退到 Y」 |
+| 6 | `implementing`：自动建 worktree（端口注入 / 配置复制 / 依赖安装） | 同上 | 同上 |
+| 7 | `merging` / `archiving`：**需要人工批准** | **面板点按钮**（会问批准理由） | 「推进到 merging ›」→ 再「完成归档」 |
+| 8 | 归档编排：验收谓词 → 审查门 → `openspec archive` → `gitnexus analyze` → worktree 回收 → 写交付物摘要 | `POST $API/proposals/<id>/archive`；工具 `workmate_proposal_archive(mode=archive)` | 「完成归档」（审查门没过时用「强制归档（跳过审查门）」） |
+
+第 7 步是最容易被忽略的一步：**agent 推不动 `merging`/`archiving`**（写码者不得批准），
+它会报错让你去面板点。这是设计如此，不是 bug。
+
+### 0.7 第 6 步：展开一张卡片能看到什么
+
+点任意卡片展开，详情区自上而下可能有：
+
+- **📦 项目**：分支名、关联提交（`[proposal:<id>]` 标记）、`git status` 摘要；
+- **📋 OpenSpec**：`changes/<id>/` 状态与 tasks 完成度；
+- **🔍 审查报告**：分级 tally（`CRIT 1/2` 这类计数）、审查者与 `shadow` 徽标、逐条发现；
+- **🧩 并行任务**（swarm）：每个任务的 id / 状态 / 提交；
+- **📦 交付物**（归档后）：标记提交数、spec 是否更新、知识图谱是否重建、漂移百分比、
+  账本条目数；
+- **决策日志 / 卡点**：`supersedes` 链与未决问题。
+
+### 0.8 第 7 步：判断层（DeepSeek 冒充 Jev）会给你什么
+
+前提：`cordis.patch.yml` 里 workmate 行已开 `decisionEnabled: true`（本机已开）。用起来会看到：
+
+| 场景 | 你会看到 |
+|---|---|
+| 建提案时粘贴了工单/网页正文 | 命中注入判定 → `provenance.untrusted` 自动置位，事件流多一条 `decision` |
+| agent 追加一条与旧决策矛盾的决策且没写 `supersedes` | 被拒，提示补 `supersedes=<旧 id>` |
+| `workmate_assess_risk` 判为 high | 提案进 `implementing` 也要人工批准（错误信息写"高风险管理"） |
+| 归档时 review.md 里有没打标签的疑问/建议 | 审查门摘要出现「判断层归级 N 条」，判为 CRIT 会真的拦住 |
+| 归档时任务已勾选但 diff 不像满足它 | manifest 的 `taskJudgements` 里能看到结论（`taskJudgementGate: true` 时才阻断） |
+
+判断是否真的跑了，看事件流（每行一条 JSON）：
+
+```bash
+tail -n 5 ~/.dsh/workmate/events.jsonl | python3 -c "
+import json,sys
+for line in sys.stdin:
+    e = json.loads(line)
+    if e.get('kind') == 'decision':
+        print(e['node'], e.get('choice'), e.get('action'), 'cert=%.2f' % e.get('certainty', 0),
+              e.get('provider'), 'samples=%s' % e.get('samples'), 'cached=%s' % e.get('cached'),
+              'degraded=%s' % e.get('degraded'), '%dms' % e.get('latencyMs', 0))
+"
+```
+
+同一道题第二次问会命中缓存：`cached=True` 且 `latencyMs` 接近 0——这是把"DeepSeek 当判官"
+变得便宜的关键；`degraded=True` 说明首选 provider 没答上来，结论来自降级链。
+
+### 0.9 第 8 步：并行执行（swarm）
+
+```bash
+# 1) 计划：从 tasks.md 派生任务，同批内 writes 不相交
+#    在 tasks.md 里写：- [ ] 2. 拆分计费模块 <!-- writes: src/billing/**, docs/billing.md -->
+#    工具：workmate_swarm_plan {id, maxParallel?}
+# 2) 起载体：每任务一个 worktree（.workmates/<提案>--<任务>）+ 分支 feature/<提案>--<任务>
+#    工具：workmate_swarm_task {id, action: "start", taskId: "t1"}
+# 3) 在任务 worktree 里干活并提交（带 [proposal:<id>] 标记）
+# 4) 合回 implementation 分支（提案 worktree 内 --no-ff merge）
+#    工具：workmate_swarm_task {id, action: "merge", taskId: "t1"}
+```
+
+合并冲突时插件会 `merge --abort` 回到干净态并把冲突文件交回；**裁决姿势**：在任务 worktree 里
+`git merge feature/<提案>` → 解冲突 → 提交 → 重跑第 4 步。未合并的任务会挡住归档
+（`force` 可跳过）。
+
+### 0.10 常见问题速查
+
+| 现象 | 原因 / 处理 |
+|---|---|
+| 点「控制台」空白 | 已修（REST 返回 `{metrics:{…}}` 包装，客户端曾按扁平解析而崩）；**硬刷新页面**即可；仍空则看浏览器控制台或内联的「过程度量加载失败：…」 |
+| 提示「需要人工批准」 | 设计如此：在**面板**点「推进到 X ›」（可填理由），agent 不能自我批准 |
+| 控制带显示「数据不足」 | 样本不足 8 个，不判越界；提案多了自然出档位 |
+| 归档报「验收未通过：… 仍有未勾选任务」 | 把 `tasks.md` 真正做完并勾上，或让用户显式 `force` |
+| 归档报「计划漂移」 | 开启 `planDriftGate` 后，改了没在 `writes`/`files` 里声明的文件；补声明或 `force` |
+| 归档报「判断层归级 N 条 / CRIT 1/1 未解决」 | review.md 里那条发现被判为阻断级，修掉或勾选解决 |
+| 判断层好像没生效 | 重启 harness；确认 `decisionEnabled: true`；看 `decision` 事件是否 `degraded`（首选 provider 不可用会降级到规则） |
+
+更细的排障见 §11。
 
 ---
 
