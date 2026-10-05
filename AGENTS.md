@@ -128,6 +128,7 @@ node $DSH web                                                # http://127.0.0.1:
 | M14 | 任务级并行载体（swarm：writes 装批 + 合并仲裁 + 归档门） | ✅ 已归档 `2026-10-05-add-swarm-parallel` |
 | M15 | 工件账本与计划漂移（声明 vs 实际 + sha256 + 可选漂移门） | ✅ 已归档 `2026-10-05-add-artifact-ledger` |
 | M16 | 判断层（agent/rules provider + 阈值动作 + decision 事件；Jev 接口占位） | ✅ 已归档 `2026-10-05-add-decision-layer` |
+| M17 | 判断层四个消费节点（风险分级 / 审查归级 / 注入判定 / 任务判定） | ✅ 已归档 `2026-10-05-add-decision-nodes` |
 
 待办（依赖外部条件）：@快捷指令（`@hucj/dsh-file-mention` 未装）、WeKnora 真机契约核验、
 `dsh-mcp-client` 的 profile patch 行（库已装但惰性）。swarm 的任务级载体已落地（M14）：

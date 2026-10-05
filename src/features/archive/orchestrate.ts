@@ -188,6 +188,8 @@ export interface OrchestrateOptions {
   reviewBlockingSeverities?: string[]
   /** How many untagged findings one run may grade (`Config.reviewGradeMax`). @default 5 */
   reviewGradeMax?: number
+  /** Block archiving on a judged-unsatisfied task (`Config.taskJudgementGate`). @default false */
+  taskJudgementGate?: boolean
   /** Caller cancellation, forwarded to every spawned CLI. */
   signal?: AbortSignal
 }
@@ -244,6 +246,23 @@ export async function orchestrateArchive(
     })
     return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }
   }
+  // Task judgement (change `add-decision-nodes`): computed once, then reused by the
+  // manifest so the gate and the delivery record never disagree.
+  const taskJudgements = await judgeTasks(proposal, targets, options, deps.decide)
+  if (options.taskJudgementGate === true) {
+    const unsatisfied = taskJudgements.filter((entry) => entry.verdict === 'unsatisfied')
+    if (unsatisfied.length > 0) {
+      steps.push({
+        step: 'tasks',
+        status: 'failed',
+        summary: `任务判定未通过：${unsatisfied
+          .map((entry) => `[${entry.project}] ${entry.task.slice(0, 40)}`)
+          .join('，')}（判断层认为 diff 未满足该任务；补实现、改任务描述，或 force 跳过）`,
+      })
+      return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }
+    }
+  }
+
   if (options.planDriftGate === true) {
     const undeclared: string[] = []
     for (const target of targets) {
@@ -430,7 +449,7 @@ export async function orchestrateArchive(
 
   // 6. delivery manifest (design D4) — every probe is best-effort: a project
   // that is not a git repo still archives, it just has less to say.
-  const manifest = await collectManifest(proposal, targets, options, steps)
+  const manifest = await collectManifest(proposal, targets, options, steps, taskJudgements)
 
   // 7. status
   steps.push({ step: 'status', status: 'ok', summary: `proposal ${proposal.id} → archived` })
@@ -455,6 +474,57 @@ async function markedCommits(root: string, proposalId: string, signal?: AbortSig
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line !== '')
+}
+
+/**
+ * Judge whether the merged diff actually satisfies each CHECKED task line
+ * (change `add-decision-nodes`, design D3/D5). Capped at three judgements per run:
+ * this is a model call, and an archive must not fan out into dozens of them.
+ * Only an `act` verdict is recorded; anything else is "not decided".
+ */
+async function judgeTasks(
+  proposal: Proposal,
+  targets: readonly OrchestrationTarget[],
+  options: OrchestrateOptions,
+  decide: DecideHook | undefined,
+): Promise<Array<{ project: string; task: string; verdict: string; certainty: number }>> {
+  if (decide === undefined) return []
+  const judgements: Array<{ project: string; task: string; verdict: string; certainty: number }> = []
+  for (const target of targets) {
+    let content = ''
+    try {
+      content = await readFile(
+        join(target.root, options.openspecRoot, 'changes', proposal.openspecChangeId, 'tasks.md'),
+        'utf8',
+      )
+    } catch {
+      const archived = await findArchivedDir(target.root, options.openspecRoot, proposal.openspecChangeId)
+      if (archived !== undefined) {
+        content = await readFile(join(archived, 'tasks.md'), 'utf8').catch(() => '')
+      }
+    }
+    const checked = content
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => /^- \[[xX]\] /.test(line))
+      .slice(0, 3)
+    const drift = await collectProjectDrift(proposal, target, options)
+    const files = (drift?.actual ?? []).slice(0, 20).join(', ') || '(无标记提交)'
+    for (const task of checked) {
+      const outcome = await decide(
+        {
+          node: 'task-satisfied',
+          state: `任务：${task}\n标记提交涉及的文件：${files}`,
+          question: '这份 diff 是否真的满足该任务？',
+          options: ['satisfied', 'unsatisfied'],
+        },
+        options.signal,
+      )
+      if (outcome?.action !== 'act' || outcome.choice === undefined) continue
+      judgements.push({ project: target.project, task, verdict: outcome.choice, certainty: outcome.certainty })
+    }
+  }
+  return judgements
 }
 
 /**
@@ -554,6 +624,7 @@ async function collectManifest(
   targets: readonly OrchestrationTarget[],
   options: OrchestrateOptions,
   steps: readonly OrchestrationStep[],
+  taskJudgements: ReadonlyArray<{ project: string; task: string; verdict: string; certainty: number }> = [],
 ): Promise<ArchiveManifest> {
   const projects: ArchiveManifestEntry[] = []
   for (const target of targets) {
@@ -584,6 +655,8 @@ async function collectManifest(
     entry.reindexed = steps.some(
       (step) => step.step === 'gitnexus-analyze' && step.status === 'ok' && step.summary.startsWith(`[${target.project}]`),
     ) || steps.some((step) => step.step === 'gitnexus-analyze' && step.status === 'ok' && targets.length === 1)
+    const own = taskJudgements.filter((judgement) => judgement.project === target.project)
+    if (own.length > 0) entry.taskJudgements = own.map(({ task, verdict, certainty }) => ({ task, verdict, certainty }))
     projects.push(entry)
   }
   return { at: new Date().toISOString(), projects }

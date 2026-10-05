@@ -154,6 +154,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         gitnexusAnalyzeEnabled: resolved.gitnexusEnabled,
         reviewBlockingSeverities: resolved.reviewBlockingSeverities,
         reviewGradeMax: resolved.reviewGradeMax,
+        taskJudgementGate: resolved.taskJudgementGate,
         ...(opts.reviewGate !== undefined ? { reviewGate: opts.reviewGate } : {}),
         ...(opts.tasksGate !== undefined ? { tasksGate: opts.tasksGate } : {}),
         ...(opts.planDriftGate !== undefined ? { planDriftGate: opts.planDriftGate } : {}),

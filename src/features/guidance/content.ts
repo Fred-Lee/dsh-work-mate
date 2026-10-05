@@ -57,6 +57,11 @@ export const PROPOSAL_FLOW_SKILL: RuntimeSkill = {
 
 ## 判断层（启用时）
 
+- 四个节点：\`workmate_assess_risk\`（风险分级 → 高风险追加人工批准）、归档审查门自动给未打
+  标签的发现**归级**（判为 CRIT 会挡住归档）、创建提案时自动判定外部文本是否夹带指令
+  （risky 即置 \`untrusted\`）、归档时判定"已勾选任务是否真的被 diff 满足"
+  （写进 manifest，\`taskJudgementGate\` 可改成阻断）。
+
 - \`workmate_proposal_decide\` 在判断层启用时会先判"这条决策是否与既有决策矛盾"：
   被拒（\`act\` 档）说明**你其实在推翻某条旧决策**——补 \`supersedes=<旧 id>\` 或改写决策，
   不要反复重试。

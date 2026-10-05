@@ -164,3 +164,81 @@ describe('review grading (decision nodes)', () => {
     await rm(project, { recursive: true, force: true })
   })
 })
+
+describe('task judgement (decision nodes)', () => {
+  const seedCheckedTask = async (): Promise<string> => {
+    const project = await mkdtemp(join(tmpdir(), 'wm-taskjudge-'))
+    await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+    await writeFile(
+      join(project, 'openspec', 'changes', 'p1', 'tasks.md'),
+      '- [x] 1. 给导出加鉴权检查\n- [x] 2. 补文档\n',
+      'utf8',
+    )
+    await writeFile(join(project, 'openspec', 'changes', 'p1', 'review.md'), '## CRITICAL 问题\n\n- [x] 无\n', 'utf8')
+    return project
+  }
+
+  const decide = (verdict: string, action: 'act' | 'abstain') =>
+    async (): Promise<{
+      node: 'task-satisfied'
+      action: 'act' | 'abstain'
+      choice: string
+      certainty: number
+      threshold: number
+      provider: string
+      latencyMs: number
+      degraded: boolean
+    }> => ({
+      node: 'task-satisfied',
+      action,
+      choice: verdict,
+      certainty: action === 'act' ? 0.85 : 0.4,
+      threshold: 0.8,
+      provider: 'stub',
+      latencyMs: 1,
+      degraded: false,
+    })
+
+  it('records the judgement in the manifest without blocking by default', async () => {
+    const project = await seedCheckedTask()
+    const result = await orchestrateArchive(
+      proposal(),
+      [{ project: 'demo', root: project }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false, reviewGate: false },
+      { decide: decide('unsatisfied', 'act') as never },
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.manifest?.projects[0]?.taskJudgements?.[0]).toEqual({
+      task: '- [x] 1. 给导出加鉴权检查',
+      verdict: 'unsatisfied',
+      certainty: 0.85,
+    })
+    await rm(project, { recursive: true, force: true })
+  })
+
+  it('blocks when the gate is on, and abstaining never blocks', async () => {
+    const gatedProject = await seedCheckedTask()
+    const gated = await orchestrateArchive(
+      proposal(),
+      [{ project: 'demo', root: gatedProject }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false, reviewGate: false, taskJudgementGate: true },
+      { decide: decide('unsatisfied', 'act') as never },
+    )
+    expect(gated.ok).toBe(false)
+    expect(gated.steps.find((step) => step.step === 'tasks')?.summary).toContain('任务判定未通过')
+
+    const abstainProject = await seedCheckedTask()
+    const abstained = await orchestrateArchive(
+      proposal(),
+      [{ project: 'demo', root: abstainProject }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false, reviewGate: false, taskJudgementGate: true },
+      { decide: decide('unsatisfied', 'abstain') as never },
+    )
+    expect(abstained.ok).toBe(true)
+    expect(abstained.manifest?.projects[0]?.taskJudgements).toBeUndefined()
+
+    await rm(gatedProject, { recursive: true, force: true })
+    await rm(abstainProject, { recursive: true, force: true })
+  })
+})

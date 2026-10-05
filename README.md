@@ -170,6 +170,9 @@ pnpm dsh web                                            # 启动，默认 http:/
 | `decisionSamples` | `1` | 同一题采样次数；>1 时一致率作为 certainty 代理（留痕里记 samples） |
 | `decisionTimeoutMs` | `4000` | 单次判断超时 |
 | `decisionActThreshold` / `decisionReviewThreshold` | `0.8` / `0.6` | certainty ≥ 前者 → `act`；≥ 后者 → `review`；否则 `abstain` |
+| `highRiskExtraGates` | `['implementing']` | `risk: high` 的提案在这些状态也**必须人工批准**（与 `approvalsRequired` 并集） |
+| `taskJudgementGate` | `false` | `true` 时"判断层认为 diff 未满足某条已勾选任务"会阻断归档（`force` 可跳过） |
+| `reviewGradeMax` | `5` | 一次归档最多让判断层给多少条未打标签的审查发现归级 |
 
 无效组合启动时响亮提示（如 `weknoraWikiRequired=true` 但 `weknoraKbId` 为空）。
 
@@ -353,7 +356,17 @@ node scripts/bands-watch.mjs --fail-on propose --apply
    `abstain`；每次判断向事件流写 `decision` 事件（node / choice / action / certainty /
    provider / samples / threshold / latency / degraded），"这次判断其实没跑成"在账本上看得见。
 
-**当前接入的第一个节点**：`workmate_proposal_decide` 的**语义矛盾检测**——新决策与既有决策
+**四个已接入的节点**：
+
+| 节点 | 什么时候跑 | 结论怎么用 |
+|---|---|---|
+| `decision-consistency` | `workmate_proposal_decide` 追加决策前 | `act` + 矛盾且无 `supersedes` → **拒绝**，要求补 `supersedes` |
+| `risk-tier` | 工具 `workmate_assess_risk` | `act` 档写回 `Proposal.risk`；`risk: high` → 进 `highRiskExtraGates` 也**必须人工批准**（叠加，不替换） |
+| `review-severity` | 归档审查门（每次最多 `reviewGradeMax` 条） | `act` 档把未打标签的疑问/建议合成分级发现，进分级 tally → 判为 CRIT 会真的挡住归档 |
+| `injection-risk` | 创建提案时（有 notes/provenance） | `act + risky` → **自动置** `provenance.untrusted = true`（benign 绝不撤销调用方的声明） |
+| `task-satisfied` | 归档时（最多 3 条已勾选任务） | 写进 manifest 的 `taskJudgements`；`taskJudgementGate: true` 时未满足即阻断 |
+
+**语义矛盾检测**（上面第一个节点）——新决策与既有决策
 矛盾且没给 `supersedes` 时，`act` 档直接拒绝并要求补 `supersedes`（原先只机械校验
 "supersedes 指向的 id 存不存在"，判不出"你其实在推翻某条旧决策"）。没开判断层时行为完全不变。
 

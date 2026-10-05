@@ -14,6 +14,7 @@ export type DecisionNode =
   | 'review-severity'
   | 'injection-risk'
   | 'risk-tier'
+  | 'task-satisfied'
 
 export interface DecisionQuestion {
   node: DecisionNode

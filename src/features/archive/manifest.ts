@@ -29,6 +29,8 @@ export interface ArchiveManifestEntry {
   drift?: import('../proposal/artifacts.ts').DriftReport
   /** Content hashes of the archived artifacts. */
   artifacts?: import('../proposal/artifacts.ts').ArtifactRecord[]
+  /** Judged task satisfaction (change `add-decision-nodes`). */
+  taskJudgements?: Array<{ task: string; verdict: string; certainty: number }>
 }
 
 export interface ArchiveManifest {
