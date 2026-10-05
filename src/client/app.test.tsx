@@ -315,7 +315,6 @@ describe('console view tolerance (regression)', () => {
 
     expect(await screen.findByText('提案总数')).toBeTruthy()
   })
-})
 
   it('still shows the metrics when only the bands endpoint fails', async () => {
     fetchMock.mockImplementation((input: unknown) => {
