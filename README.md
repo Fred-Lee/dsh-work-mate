@@ -160,6 +160,8 @@ pnpm dsh web                                            # 启动，默认 http:/
 | `weknoraEnabled` | `true` | WeKnora Wiki 关联流程开关 |
 | `weknoraKbId` | `''` | 默认知识库 id（强制 Wiki 时必填） |
 | `weknoraWikiRequired` | `false` | `true` 时实现→合并被缺失 Wiki 引用阻断 |
+| `approvalsRequired` | `['merging','archiving']` | 需要**人工批准**才能进入的状态；`[]` 关闭这道门 |
+| `allowAgentApproval` | `false` | `true` 时允许 agent actor 跨过受控状态（放弃"写码者不得批准"的分离） |
 
 无效组合启动时响亮提示（如 `weknoraWikiRequired=true` 但 `weknoraKbId` 为空）。
 
@@ -207,6 +209,13 @@ curl -X POST $API/proposals/batch-grading-v2/archive -H 'content-type: applicati
 `archived` 时会把各项目 `changes/archive/*-<id>/` 搬回 `changes/<id>/`），
 「完成归档」与「强制归档（跳过审查门）」在 archiving 状态出现；卡片展开还可看
 Git 关联、worktree 信息、决策日志、卡点、审查报告与 Wiki 引用。
+
+> **人工批准门（默认开启）**：`merging` 与 `archiving` 只能由**人**进入——agent 调工具推进
+> 会被拒（`force` 也绕不过），面板会问一句批准理由并写入审批记录与事件流；
+> 卡片上会显示「⏳ 等待人工批准」。要恢复全自动，把 `approvalsRequired` 设为 `[]`
+> （或 `allowAgentApproval: true`，但那是明确放弃"写码者不得批准"这条分离）。
+> 上面的 `curl` 示例走的是 REST（actor=human），因此不受影响；`advance` / `transition`
+> 都接受可选的 `{"rationale":"..."}`。
 
 ---
 

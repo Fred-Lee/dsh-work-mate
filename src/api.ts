@@ -13,6 +13,7 @@ import { Router, readJsonBody } from './http.ts'
 import { aggregateMetrics, proposalMetrics } from './features/proposal/metrics.ts'
 import type { EventLog } from './features/proposal/events.ts'
 import { evaluateBands, loadBands } from './features/metrics/bands.ts'
+import { CONFIG_DEFAULTS } from './config.ts'
 import type { ProposalSource, Provenance } from './features/proposal/store.ts'
 import type { ProposalService } from './features/proposal/service.ts'
 import type { LifecycleServiceImpl } from './features/archive/service.ts'
@@ -44,6 +45,10 @@ export interface ApiDeps {
   events?: EventLog
   /** Control-band file; defaults to `<DSH home>/<workmateHome>/bands.json`. */
   bandsFile?: string
+  /** States gated on a human approval (`Config.approvalsRequired`). */
+  approvalsRequired?: string[]
+  /** Set when the agent may cross gated states (`Config.allowAgentApproval`). */
+  allowAgentApproval?: boolean
 }
 
 export interface CreateProjectBody {
@@ -118,21 +123,32 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
       openspecRoot: deps.openspecRoot,
       resolveRoot: async (name) => (await deps.registry.get(name))?.root,
       withReviewReport: true,
+      approvalsRequired: deps.approvalsRequired ?? CONFIG_DEFAULTS.approvalsRequired,
+      allowAgentApproval: deps.allowAgentApproval ?? CONFIG_DEFAULTS.allowAgentApproval,
     })
   })
 
   router.post('/api/proposals/:id/advance', async (r) => {
-    const result = await deps.archive.advance(r.params['id'] ?? '', { actor: 'human' })
+    // The panel/API path is the HUMAN actor: it is the only way across a gated
+    // state (separation of duties, change `add-approval-records`).
+    const body = await readJsonBody<{ rationale?: string }>(r.req).catch(() => ({}) as { rationale?: string })
+    const result = await deps.archive.advance(r.params['id'] ?? '', {
+      actor: 'human',
+      ...(body.rationale !== undefined ? { rationale: body.rationale } : {}),
+    })
     return { proposal: result.proposal, ...(result.worktree !== undefined ? { worktree: result.worktree } : {}) }
   })
 
   router.post('/api/proposals/:id/transition', async (r) => {
-    const body = await readJsonBody<{ to?: string }>(r.req)
+    const body = await readJsonBody<{ to?: string; rationale?: string }>(r.req)
     const to = body.to ?? ''
     if (!isProposalState(to)) {
       throw new Error(`unknown state '${to}' — valid: ${PROPOSAL_STATES.join(', ')}`)
     }
-    const result = await deps.archive.transition(r.params['id'] ?? '', to, { actor: 'human' })
+    const result = await deps.archive.transition(r.params['id'] ?? '', to, {
+      actor: 'human',
+      ...(body.rationale !== undefined ? { rationale: body.rationale } : {}),
+    })
     return { proposal: result.proposal, ...(result.worktree !== undefined ? { worktree: result.worktree } : {}) }
   })
 

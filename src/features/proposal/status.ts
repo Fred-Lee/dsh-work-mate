@@ -6,6 +6,7 @@
  * backwards compatibility. Everything is optional except the record — the
  * status call must succeed on machines without git or without the projects.
  */
+import { CONFIG_DEFAULTS } from '../../config.ts'
 import type { Proposal } from './store.ts'
 import type { AssociatedCommit, GitInfo, GitScanResult } from './git.ts'
 import type { OpenspecChangeState } from './openspec.ts'
@@ -42,6 +43,13 @@ export interface ProposalStatus {
   commits?: AssociatedCommit[]
   gitNote?: string
   projectNote?: string
+  /**
+   * Set when the next state is gated on a human approval and the agent actor
+   * therefore cannot advance (change `add-approval-records`).
+   */
+  pendingApproval?: { gate: Proposal['status']; reason: string }
+  /** Gate approvals recorded so far. */
+  approvals?: Proposal['approvals']
 }
 
 export interface StatusOptions {
@@ -52,6 +60,10 @@ export interface StatusOptions {
   resolveRoot?: (name: string) => Promise<string | undefined>
   /** Also parse `changes/<id>/review.md` per project (panel review report). */
   withReviewReport?: boolean
+  /** States gated on a human approval (`Config.approvalsRequired`). */
+  approvalsRequired?: string[]
+  /** Set when the agent may cross gated states (`Config.allowAgentApproval`). */
+  allowAgentApproval?: boolean
 }
 
 export async function buildProposalStatus(
@@ -62,7 +74,25 @@ export async function buildProposalStatus(
   const proposal = await service.get(id)
   if (!proposal) throw new Error(`proposal not found: ${id}`)
 
-  const status: ProposalStatus = { proposal, projects: [], lifecycle: lifecycleOf(proposal.status) }
+  const lifecycle = lifecycleOf(proposal.status)
+  const gated =
+    lifecycle.next !== undefined &&
+    options.allowAgentApproval !== true &&
+    (options.approvalsRequired ?? CONFIG_DEFAULTS.approvalsRequired).includes(lifecycle.next)
+  const status: ProposalStatus = {
+    proposal,
+    projects: [],
+    lifecycle,
+    ...(gated && lifecycle.next !== undefined
+      ? {
+          pendingApproval: {
+            gate: lifecycle.next,
+            reason: `${lifecycle.next} 需要人工批准（写码者不得批准）：在面板点「推进」，或调整 Config.approvalsRequired`,
+          },
+        }
+      : {}),
+    ...(proposal.approvals !== undefined ? { approvals: proposal.approvals } : {}),
+  }
   const associated = proposal.projects.length > 0 ? proposal.projects : []
 
   // Legacy single-root path: an explicit projectRoot behaves as one virtual

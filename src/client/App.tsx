@@ -97,7 +97,13 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
       setBusy(true)
       try {
         if (action === 'archive') await archiveProposal(id, force)
-        else if (action === 'advance') await advanceProposal(id)
+        else if (action === 'advance') {
+          // Gated states are the HUMAN's call: ask for the rationale here, so a
+          // panel approval is as auditable as an API one.
+          const gate = details[id]?.pendingApproval
+          const rationale = gate === undefined ? undefined : (window.prompt(`${gate.reason}\n\n批准理由（可选）`) ?? undefined)
+          await advanceProposal(id, rationale)
+        }
         else if (to !== undefined) await transitionProposal(id, to)
         else throw new Error('rollback requires an adjacent target state')
         setError('')
@@ -194,6 +200,11 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                         <span>{STATE_META[proposal.status].label}</span>
                         <span>{relativeTime(proposal.updatedAt)}</span>
                         {proposal.projects.length > 0 && <span>{proposal.projects.length} 个关联项目</span>}
+                        {detail?.pendingApproval !== undefined && (
+                          <span className="wm-tier wm-tier-diagnose" title={detail.pendingApproval.reason}>
+                            ⏳ 等待人工批准
+                          </span>
+                        )}
                       </div>
 
                       {expanded === proposal.id && (
@@ -628,6 +639,7 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
                 <th className="wm-num">返工</th>
                 <th className="wm-num">门禁失败</th>
                 <th className="wm-num">未决卡点</th>
+                <th className="wm-num">审批</th>
               </tr>
             </thead>
             <tbody>
@@ -640,6 +652,7 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
                   <td className="wm-num">{row.reworkCount}</td>
                   <td className="wm-num">{row.gateFailureCount}</td>
                   <td className="wm-num">{row.openBlockers}</td>
+                  <td className="wm-num">{row.approvals}</td>
                 </tr>
               ))}
             </tbody>

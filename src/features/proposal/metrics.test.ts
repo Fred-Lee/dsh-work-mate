@@ -104,6 +104,22 @@ describe('proposalMetrics', () => {
     expect(metrics.timeInStateMs['proposing']).toBe(11 * 60 * 60 * 1000)
   })
 
+  it('counts recorded gate approvals per proposal', () => {
+    const metrics = proposalMetrics(
+      proposal({
+        approvals: [
+          { gate: 'merging', actor: 'human', decision: 'approve', at: '2026-10-05T00:00:00.000Z' },
+          { gate: 'archiving', actor: 'human', decision: 'approve', at: '2026-10-05T01:00:00.000Z' },
+        ],
+      }),
+      [],
+      now,
+    )
+
+    expect(metrics.decisions).toBe(0)
+    expect(aggregateMetrics([proposal({ approvals: [{ gate: 'merging', actor: 'human', decision: 'approve', at: '2026-10-05T00:00:00.000Z' }] })], [], { now }).perProposal[0]?.approvals).toBe(1)
+  })
+
   it('reads blockers, open blockers and superseded decisions off the record', () => {
     const metrics = proposalMetrics(
       proposal({

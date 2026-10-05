@@ -197,6 +197,23 @@ describe('proposal REST API', () => {
 })
 
 describe('static serving', () => {
+  it('exposes the pending human approval and lets the human path cross it', async () => {
+    await call('POST', '/api/proposals', { id: 'p1', title: '待合并变更' })
+    await proposals.setStatus('p1', 'implementing', { actor: 'agent' })
+
+    const detail = await call('GET', '/api/proposals/p1')
+    expect(detail.status).toBe(200)
+    const payload = detail.body as { pendingApproval?: { gate: string; reason: string }; approvals?: unknown[] }
+    expect(payload.pendingApproval?.gate).toBe('merging')
+    expect(payload.pendingApproval?.reason).toContain('人工批准')
+    expect(payload.approvals ?? []).toEqual([])
+
+    // The human actor is not stopped by the approval gate (a later precondition
+    // may still refuse in this headless fixture — that is a different message).
+    const advanced = await call('POST', '/api/proposals/p1/advance', { rationale: '审过了' })
+    expect(JSON.stringify(advanced.body)).not.toContain('需要人工批准')
+  })
+
   it('carries intake provenance through create into the proposal record', async () => {
     const created = await call('POST', '/api/proposals', {
       id: 'fix-42',

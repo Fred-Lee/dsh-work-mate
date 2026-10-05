@@ -19,8 +19,8 @@
 
 #### Scenario: force 不影响审批门
 
-- **WHEN** 归档编排带 `force: true` 但 actor 为 agent，且 `archiving` 在受控列表
-- **THEN** 仍然被拒
+- **WHEN** 归档编排带 `force: true` 但 actor 为 agent，且目标状态 `archived` 在受控列表
+- **THEN** 仍然被拒（`force` 只跳过审查门）
 
 ### Requirement: 审批记录与审计留痕
 

@@ -15,6 +15,8 @@ describe('resolveConfig', () => {
       basePort: 3000,
       portStep: 10,
       copyFiles: ['.env', '.env.local'],
+      approvalsRequired: ['merging', 'archiving'],
+      allowAgentApproval: false,
       packageManager: 'pnpm',
       weknoraEnabled: true,
       weknoraKbId: '',

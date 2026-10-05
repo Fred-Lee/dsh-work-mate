@@ -58,6 +58,8 @@ export interface ProposalMetricRow {
   gateFailureCount: number
   openBlockers: number
   decisions: number
+  /** Gate approvals recorded (change `add-approval-records`). */
+  approvals: number
 }
 
 export interface AggregateMetrics {
@@ -208,6 +210,7 @@ export function aggregateMetrics(
       gateFailureCount: metrics.gateFailureCount,
       openBlockers: metrics.openBlockers,
       decisions: metrics.decisions,
+      approvals: (proposal.approvals ?? []).length,
     })
     if (metrics.reworkCount > 0) reworked += 1
     if (metrics.firstPass) firstPassed += 1

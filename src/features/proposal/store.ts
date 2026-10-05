@@ -57,6 +57,19 @@ export interface Provenance {
   untrusted?: boolean
 }
 
+/** One gate crossing by a human/system approver (separation of duties). */
+export interface ApprovalRecord {
+  /** The state this approval authorized entering. */
+  gate: ProposalState
+  /** Who approved: `human` (panel/API), `system` (plugin orchestration). */
+  actor: 'human' | 'system'
+  decision: 'approve' | 'reject'
+  rationale?: string
+  at: string
+  /** Implementation-branch HEAD the approval covers, when git was available. */
+  commit?: string
+}
+
 export interface Proposal {
   /** Slug-style identifier, e.g. "batch-grading-v2". */
   id: string
@@ -90,6 +103,8 @@ export interface Proposal {
   relatesTo?: string[]
   /** Capture facts for externally derived input. */
   provenance?: Provenance
+  /** Gate approvals (change `add-approval-records`). */
+  approvals?: ApprovalRecord[]
   createdAt: string
   updatedAt: string
 }

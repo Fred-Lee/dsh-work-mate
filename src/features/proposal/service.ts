@@ -9,10 +9,12 @@ import {
   type BlockerEntry,
   type DecisionEntry,
   type Proposal,
+  type ApprovalRecord,
   type ProposalSource,
   type Provenance,
 } from './store.ts'
 import { EventLog, type EventActor, type ProposalEvent } from './events.ts'
+import type { ProposalState } from './state-machine.ts'
 
 /** Attribution for one status write (change `add-proposal-metrics`). */
 export interface StatusMeta {
@@ -22,6 +24,14 @@ export interface StatusMeta {
   reason?: string
   /** Step-level detail (e.g. the archive failure summary). */
   detail?: string
+}
+
+export interface AddApprovalInput {
+  gate: ProposalState
+  actor: 'human' | 'system'
+  decision?: 'approve' | 'reject'
+  rationale?: string
+  commit?: string
 }
 
 /** Fields the lifecycle layer may patch directly (manager outputs, branches, wiki refs). */
@@ -67,6 +77,8 @@ export interface ProposalService {
   setStatus(id: string, status: Proposal['status'], meta?: StatusMeta): Promise<Proposal>
   /** Append one raw process event (gate refusals, orchestration outcomes). */
   recordEvent(event: ProposalEvent): Promise<void>
+  /** Append a gate approval (human/system only — the gate refuses agents). */
+  addApproval(id: string, input: AddApprovalInput): Promise<ApprovalRecord>
   /** Append a materialized decision; `supersedes` must reference an existing entry. */
   addDecision(id: string, input: AddDecisionInput): Promise<DecisionEntry>
   /** Escalate a blocker (open) — the finite human round-trip replaces endless thinking. */
@@ -223,6 +235,24 @@ export class ProposalServiceImpl implements ProposalService {
 
   async recordEvent(event: ProposalEvent): Promise<void> {
     await this.events?.append(event)
+  }
+
+  async addApproval(id: string, input: AddApprovalInput): Promise<ApprovalRecord> {
+    const proposals = await this.store.load()
+    const existing = proposals.find((proposal) => proposal.id === id)
+    if (!existing) throw new Error(`proposal not found: ${id}`)
+    const record: ApprovalRecord = {
+      gate: input.gate,
+      actor: input.actor,
+      decision: input.decision ?? 'approve',
+      ...(input.rationale !== undefined && input.rationale !== '' ? { rationale: input.rationale } : {}),
+      at: this.now().toISOString(),
+      ...(input.commit !== undefined && input.commit !== '' ? { commit: input.commit } : {}),
+    }
+    existing.approvals = [...(existing.approvals ?? []), record]
+    existing.updatedAt = record.at
+    await this.store.save(proposals)
+    return record
   }
 
   async setStatus(id: string, status: Proposal['status'], meta: StatusMeta = {}): Promise<Proposal> {

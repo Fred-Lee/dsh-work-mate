@@ -109,6 +109,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     worktree,
     resolveProjectRoots: resolveRoots,
     openspecRoot: resolved.openspecRoot,
+    approvalsRequired: resolved.approvalsRequired,
+    allowAgentApproval: resolved.allowAgentApproval,
     orchestrate(proposal, targets, opts) {
       return orchestrateArchive(proposal, targets, {
         openspecRoot: opts.openspecRoot,
@@ -237,6 +239,8 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
           await buildProposalStatus(proposals, args.id, {
             projectRoot: args.projectRoot ?? (resolved.projectRoot || undefined),
             openspecRoot: resolved.openspecRoot,
+            approvalsRequired: resolved.approvalsRequired,
+            allowAgentApproval: resolved.allowAgentApproval,
           }),
         )
       },

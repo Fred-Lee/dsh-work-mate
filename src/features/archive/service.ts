@@ -27,6 +27,7 @@ import {
 } from '../wiki/links.ts'
 import type { OrchestrationResult, OrchestrationTarget } from './orchestrate.ts'
 import type { EventActor } from '../proposal/events.ts'
+import { CONFIG_DEFAULTS } from '../../config.ts'
 
 /** Target state → the gate whose refusal blocks it (event-log `gate` value). */
 const GATE_BY_STATE: Record<ProposalState, string> = {
@@ -67,6 +68,13 @@ export interface LifecycleDeps {
   resolveProjectRoots?(proposal: Proposal): Promise<OrchestrationTarget[]>
   /** OpenSpec root relative to the target project (`Config.openspecRoot`). @default 'openspec' */
   openspecRoot?: string
+  /**
+   * States that require a human approval to enter (change `add-approval-records`).
+   * `Config.approvalsRequired`; empty disables the gate.
+   */
+  approvalsRequired?: string[]
+  /** Let the agent actor cross gated states (`Config.allowAgentApproval`). */
+  allowAgentApproval?: boolean
   now?: () => Date
 }
 
@@ -83,6 +91,8 @@ export interface TransitionOptions {
   signal?: AbortSignal
   /** Who drove the transition (agent tool / human panel / internal), recorded in the event log. */
   actor?: EventActor
+  /** Why the approver crossed the gate; stored on the approval record. */
+  rationale?: string
 }
 
 export interface ArchiveOptions extends TransitionOptions {
@@ -132,6 +142,7 @@ export class LifecycleServiceImpl {
     if (!check.ok) throw new InvalidTransitionError(check.reason ?? 'invalid transition')
 
     if (check.direction === 'forward') {
+      await this.assertApproval(proposal, to, options)
       try {
         await this.checkPreconditions(proposal, to)
       } catch (error) {
@@ -139,6 +150,7 @@ export class LifecycleServiceImpl {
         throw error
       }
       const worktree = await this.applySideEffects(proposal, to, options)
+      if (this.isGated(to)) await this.recordApproval(proposal, to, options)
       const updated = await this.deps.proposals.setStatus(id, to, { actor: options.actor ?? 'system' })
       return { proposal: updated, ...(worktree !== undefined ? { worktree } : {}) }
     }
@@ -162,14 +174,72 @@ export class LifecycleServiceImpl {
    * about to receive) and rethrow unchanged, so control flow and error types are
    * exactly as before (design D4).
    */
+  /** Is entering `state` gated on a human approval? */
+  private isGated(state: ProposalState): boolean {
+    // Omitting the config must not silently disable the gate: fall back to the
+    // product default, and let tests opt out explicitly with `[]`.
+    return (this.deps.approvalsRequired ?? CONFIG_DEFAULTS.approvalsRequired).includes(state)
+  }
+
+  /**
+   * Separation of duties (change `add-approval-records`): the agent that produced
+   * the change has no way to approve the states listed in `approvalsRequired`.
+   * A human (panel/API) or the plugin's own orchestration passes; `force` never
+   * bypasses this gate (design D3).
+   */
+  private async assertApproval(
+    proposal: Proposal,
+    to: ProposalState,
+    options: TransitionOptions,
+  ): Promise<void> {
+    if (!this.isGated(to) || this.deps.allowAgentApproval === true) return
+    if ((options.actor ?? 'system') !== 'agent') return
+    const error = new InvalidTransitionError(
+      `${to} 需要人工批准（写码者不得批准）：请在 WorkMate 面板点「推进到 ${to}」` +
+        `，或把 Config.approvalsRequired 里的 '${to}' 去掉` +
+        `（设 allowAgentApproval=true 亦可，但那会放弃这条分离）`,
+    )
+    await this.recordGateFailure(proposal, to, error, options.actor, 'approval')
+    throw error
+  }
+
+  /** Record a gate crossing on the proposal and in the event stream. */
+  private async recordApproval(
+    proposal: Proposal,
+    to: ProposalState,
+    options: TransitionOptions,
+  ): Promise<void> {
+    const actor: 'human' | 'system' = options.actor === 'human' ? 'human' : 'system'
+    const commit = proposal.commits.at(-1)
+    const at = this.deps.now?.().toISOString() ?? new Date().toISOString()
+    await this.deps.proposals.addApproval(proposal.id, {
+      gate: to,
+      actor,
+      decision: 'approve',
+      ...(options.rationale !== undefined ? { rationale: options.rationale } : {}),
+      ...(commit !== undefined ? { commit } : {}),
+    })
+    await this.deps.proposals.recordEvent({
+      at,
+      proposalId: proposal.id,
+      kind: 'approval',
+      to,
+      actor,
+      decision: 'approve',
+      ...(options.rationale !== undefined && options.rationale !== '' ? { reason: options.rationale } : {}),
+    })
+  }
+
   private async recordGateFailure(
     proposal: Proposal,
     to: ProposalState,
     error: unknown,
     actor: EventActor | undefined,
+    gateOverride?: string,
   ): Promise<void> {
     const gate =
-      error instanceof InvalidTransitionError ? (GATE_BY_STATE[to] ?? String(to)) : 'archive-orchestration'
+      gateOverride ??
+      (error instanceof InvalidTransitionError ? (GATE_BY_STATE[to] ?? String(to)) : 'archive-orchestration')
     await this.deps.proposals.recordEvent({
       at: this.deps.now?.().toISOString() ?? new Date().toISOString(),
       proposalId: proposal.id,
@@ -299,6 +369,7 @@ export class LifecycleServiceImpl {
       )
     }
     const targets = (await this.deps.resolveProjectRoots?.(proposal)) ?? []
+    await this.assertApproval(proposal, 'archived', options)
     const orchestration = await this.deps.orchestrate(proposal, targets, {
       openspecRoot: this.openspecRoot,
       reviewGate: options.force !== true,

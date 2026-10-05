@@ -44,6 +44,17 @@ export const PROPOSAL_FLOW_SKILL: RuntimeSkill = {
   卡点会出现在面板；拿到答复后用 \`workmate_proposal_unblock\` 解除。
 - **提交信息带标记**：本提案相关提交写 \`[proposal:<id>]\`，WorkMate 以此关联提交。
 
+## 人工批准门（写码者不得批准）
+
+- \`merging\` / \`archiving\`（\`Config.approvalsRequired\`，默认两者）**只能由人跨过**：
+  agent 调 \`workmate_proposal_archive\` / 工具推进到这两个状态会被拒，\`force\` 也绕不过。
+- 被拒时的正确动作是**明确请用户在 WorkMate 面板点「推进到 …」**（面板会问批准理由），
+  拿到结果后继续；**不要**改配置、不要重试、不要绕过编排。
+- 审批会留痕：\`workmate_proposal_status\` 返回的 \`approvals\` 与 \`pendingApproval\`
+  可以看到"谁在什么时候批准了哪一道门、理由、覆盖的提交"。
+- 只有用户自己要求"全自动"时，才建议把 \`approvalsRequired\` 设为 \`[]\` 或
+  \`allowAgentApproval\` 设为 \`true\`（那会放弃这条分离）。
+
 ## 归档与重开
 
 归档由编排完成：审查门（\`changes/<id>/review.md\` 无未解决 CRITICAL）→
@@ -130,5 +141,6 @@ export const FLOW_SECTION_TEXT = [
   '先 workmate_proposal_create（或复用已有提案），再用 workmate_proposal_archive(mode=advance) 逐步推进，',
   '每一步的硬前置按返回提示补齐；方向性选择必须 workmate_proposal_decide（推翻要带 supersedes），',
   '同一方向卡两轮必须 workmate_proposal_block；代码事实先经 workmate_knowledge_query 核实，不要凭记忆断言。',
+  'merging / archiving 需要人工批准：被拒时请用户在面板点推进，不要尝试绕过。',
   '完整规程见技能 workmate-proposal-flow，审查规程见 workmate-proposal-audit。',
 ].join('')

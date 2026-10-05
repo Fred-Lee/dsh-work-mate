@@ -66,6 +66,13 @@ export interface Config {
   weknoraKbId?: string
   /** Fail implementing→merging when declared wiki pages are missing. @default false */
   weknoraWikiRequired?: boolean
+  /**
+   * States that require a human approval to enter (separation of duties:
+   * the agent that produced the change cannot approve it). @default ['merging','archiving']
+   */
+  approvalsRequired?: string[]
+  /** Allow the agent actor to cross gated states; weakens separation of duties. @default false */
+  allowAgentApproval?: boolean
 }
 
 /** Runtime schema the host collects (validation + config-UI projection). */
@@ -91,6 +98,14 @@ export const Config: z<Config> = z.object({
   weknoraEnabled: z.boolean().default(true).description('Enable the WeKnora Wiki association flow.'),
   weknoraKbId: z.string().default('').description('Default WeKnora knowledge base id; empty = unconfigured.'),
   weknoraWikiRequired: z.boolean().default(false).description('Fail implementing→merging when declared wiki pages are missing.'),
+  approvalsRequired: z
+    .array(z.string())
+    .default(['merging', 'archiving'])
+    .description('States that require a human approval to enter; empty disables the gate.'),
+  allowAgentApproval: z
+    .boolean()
+    .default(false)
+    .description('Let the agent actor cross gated states (weakens separation of duties).'),
 })
 
 export type ResolvedConfig = Required<Config>
@@ -111,6 +126,8 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   weknoraEnabled: true,
   weknoraKbId: '',
   weknoraWikiRequired: false,
+  approvalsRequired: ['merging', 'archiving'],
+  allowAgentApproval: false,
 }
 
 /**

@@ -37,6 +37,15 @@ export interface WikiLinkEntry {
   registeredAt: string
 }
 
+export interface ApprovalRecord {
+  gate: ProposalState
+  actor: 'human' | 'system'
+  decision: 'approve' | 'reject'
+  rationale?: string
+  at: string
+  commit?: string
+}
+
 export interface Proposal {
   id: string
   title: string
@@ -99,10 +108,18 @@ export interface LifecycleInfo {
   next?: ProposalState
 }
 
+/** Set when the next state waits for a human approval (separation of duties). */
+export interface PendingApproval {
+  gate: ProposalState
+  reason: string
+}
+
 export interface ProposalStatusPayload {
   proposal: Proposal
   projects?: ProjectDetail[]
   lifecycle?: LifecycleInfo
+  pendingApproval?: PendingApproval
+  approvals?: ApprovalRecord[]
   openspec?: { state: 'active' | 'archived' | 'missing'; tasks?: { done: number; total: number } }
   commits?: AssociatedCommit[]
   gitNote?: string
@@ -121,6 +138,7 @@ export interface ProposalMetricRow {
   gateFailureCount: number
   openBlockers: number
   decisions: number
+  approvals: number
 }
 
 export interface AggregateMetrics {

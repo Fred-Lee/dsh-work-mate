@@ -29,9 +29,10 @@ export interface ProposalEvent {
   proposalId: string
   /**
    * `transition` = a state change happened; `gate-failed` = one was refused;
-   * `band-breach` = a control band was left (change `add-feedback-loop`).
+   * `band-breach` = a control band was left; `approval` = a human/system crossed
+   * a gated state (change `add-approval-records`).
    */
-  kind: 'transition' | 'gate-failed' | 'band-breach'
+  kind: 'transition' | 'gate-failed' | 'band-breach' | 'approval'
   from?: ProposalState
   to?: ProposalState
   actor: EventActor
@@ -49,6 +50,8 @@ export interface ProposalEvent {
   current?: number
   baseline?: number
   sigma?: number
+  /** `approval`: which gate was crossed and how. */
+  decision?: 'approve' | 'reject'
 }
 
 export interface EventReadResult {
@@ -70,7 +73,10 @@ const isEvent = (value: unknown): value is ProposalEvent => {
   return (
     typeof record['at'] === 'string' &&
     typeof record['proposalId'] === 'string' &&
-    (record['kind'] === 'transition' || record['kind'] === 'gate-failed' || record['kind'] === 'band-breach')
+    (record['kind'] === 'transition' ||
+      record['kind'] === 'gate-failed' ||
+      record['kind'] === 'band-breach' ||
+      record['kind'] === 'approval')
   )
 }
 

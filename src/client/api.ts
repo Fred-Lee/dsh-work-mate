@@ -41,15 +41,15 @@ export function createProposal(body: CreateProposalBody): Promise<{ proposal: Pr
   return request('/workmate/api/proposals', { method: 'POST', body: JSON.stringify(body) })
 }
 
-export function advanceProposal(id: string): Promise<{ proposal: Proposal }> {
+export function advanceProposal(id: string, rationale?: string): Promise<{ proposal: Proposal }> {
   return request(`/workmate/api/proposals/${encodeURIComponent(id)}/advance`, {
     method: 'POST',
-    body: JSON.stringify({}),
+    body: JSON.stringify(rationale !== undefined && rationale !== '' ? { rationale } : {}),
   })
 }
 
 /** Adjacent-state move (forward checks preconditions, backward is free). */
-export function transitionProposal(id: string, to: ProposalState): Promise<{ proposal: Proposal }> {
+export function transitionProposal(id: string, to: ProposalState, rationale?: string): Promise<{ proposal: Proposal }> {
   return request(`/workmate/api/proposals/${encodeURIComponent(id)}/transition`, {
     method: 'POST',
     body: JSON.stringify({ to }),
