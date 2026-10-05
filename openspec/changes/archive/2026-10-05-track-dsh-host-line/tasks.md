@@ -16,4 +16,7 @@
 - [x] 7. 真机核验（沙箱 profile `wm-smoke`）：`plugin add` 成功 →
       `--dump-config` 出现 `# == workmate4dsh` 层 → `--dump-config-schema` 退出码 0、
       `complete: true`、0 diagnostics、workmate 条目 `status: schema`、15 字段全投影
-- [ ] 8. 用户确认后把 workmate 装回 `web` profile（本变更不擅自改主 profile）
+- [x] 8. 用户确认后把 workmate 装回 `web` profile（本变更不擅自改主 profile）——
+      已于用户明确要求后执行：`web` profile 的 `dependencies` 为
+      `workmate4dsh: link:/Users/fredlee/Documents/workspace/dsh-Helmsman`、bundles 含
+      `workmate4dsh`；`--dump-config` 真机核验出现 `# == workmate4dsh` 层（2026-10-05）
