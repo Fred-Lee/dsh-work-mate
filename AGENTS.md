@@ -121,6 +121,10 @@ node $DSH web                                                # http://127.0.0.1:
 | M7 | 反馈回流与控制带（来源/provenance + `workmate_bands` + 3σ 回流） | ✅ 已归档 `2026-10-04-add-feedback-loop` |
 | M8 | 客户端工厂求值门禁（`pnpm verify:client`） | ✅ 已归档 `2026-10-04-add-client-factory-gate` |
 | M9 | 原生工作台面板与控制台视图（`main` + `sidebar.panellist`） | ✅ 已归档 `2026-10-04-add-workbench-panel` |
+| M10 | 审批记录与人工批准门（写码者不得批准） | ✅ 已归档 `2026-10-05-add-approval-records` |
+| M11 | 分级审查 tally 与影子期（`reviewBlockingSeverities`） | ✅ 已归档 `2026-10-05-add-review-tally` |
+| M12 | 控制带的确定性对外入口（`POST /api/bands` + `scripts/bands-watch.mjs`） | ✅ 已归档 `2026-10-05-add-bands-watch` |
+| M13 | 规格库补齐（9 个历史变更归档同步） | ✅ `chore(openspec)` 提交 |
 
 待办（依赖外部条件）：swarm 并行执行（编排内已留记录性跳过位）、@快捷指令
 （`@hucj/dsh-file-mention` 未装）、WeKnora 真机契约核验。
