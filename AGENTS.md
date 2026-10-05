@@ -132,7 +132,8 @@ node $DSH web                                                # http://127.0.0.1:
 待办（依赖外部条件）：@快捷指令（`@hucj/dsh-file-mention` 未装）、WeKnora 真机契约核验、
 `dsh-mcp-client` 的 profile patch 行（库已装但惰性）。swarm 的任务级载体已落地（M14）：
 "谁来执行任务"仍由调用方（子代理 / Agent Teams）决定，插件只负责 git 隔离与合并纪律；
-工件账本与 plan-drift 已落地（M15）。
+工件账本与 plan-drift 已落地（M15）。判断层（M16）默认关闭：`decisionEnabled=true` 才启用，
+`decisionProvider` 可切 `agent` / `rules` / `jev`（`jev` 仅接口占位，需 TypeSafe key 才有适配器）。
 
 已知环境事实（2026-10-05 复核）：本机 harness 与宿主内核线 **`0.2.1-alpha.1`**
 （源码树 `@deepseek-ai/dsh-root 0.2.1-alpha.1`，tag `dsh-v0.2.1-alpha.1`）；
