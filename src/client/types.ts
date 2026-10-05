@@ -37,6 +37,20 @@ export interface WikiLinkEntry {
   registeredAt: string
 }
 
+export interface SwarmTaskRecord {
+  id: string
+  title: string
+  writes: string[]
+  branch?: string
+  worktreePath?: string
+  portRange?: number[]
+  status: 'planned' | 'running' | 'merged' | 'failed'
+  startedAt?: string
+  mergedAt?: string
+  commit?: string
+  note?: string
+}
+
 export interface ArchiveManifestEntry {
   project: string
   root: string
@@ -80,6 +94,8 @@ export interface Proposal {
   updatedAt: string
   /** Delivery summary of a successful archive run. */
   archiveManifest?: ArchiveManifest
+  /** Per-task parallel carriers. */
+  swarmTasks?: SwarmTaskRecord[]
 }
 
 export interface AssociatedCommit {

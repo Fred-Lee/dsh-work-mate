@@ -7,7 +7,7 @@
  * install (skipped when the worktree has no package.json). Removal confirms
  * the branch is merged before releasing anything.
  */
-import { appendFile, copyFile, mkdir, stat } from 'node:fs/promises'
+import { appendFile, copyFile, mkdir, readFile, stat } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import { gitExec, isMergedInto } from './git.ts'
@@ -63,6 +63,22 @@ export interface CreateInput {
 
 const WORKMATES_DIR = '.workmates'
 
+/** Idempotently add entries to `<root>/.git/info/exclude` (best effort). */
+async function ensureExcludes(projectRoot: string, entries: readonly string[]): Promise<void> {
+  const wanted = entries.map((entry) => entry.trim()).filter((entry) => entry !== '')
+  if (wanted.length === 0) return
+  const excludePath = join(projectRoot, '.git', 'info', 'exclude')
+  try {
+    const existing = await readFile(excludePath, 'utf8')
+    const present = new Set(existing.split('\n').map((line) => line.trim()))
+    const missing = wanted.filter((entry) => !present.has(entry))
+    if (missing.length === 0) return
+    await appendFile(excludePath, `\n# workmate: machine-local, never committed\n${missing.join('\n')}\n`, 'utf8')
+  } catch {
+    // Not a plain git directory (bare/linked): nothing to exclude.
+  }
+}
+
 export class WorktreeManager {
   private readonly allocator: PortAllocator
   /** Serialization gate: only one `git worktree add` at a time. */
@@ -112,6 +128,13 @@ export class WorktreeManager {
     } catch {
       // not there — proceed with creation
     }
+
+    // Machine-local files (the generated .env, sibling worktrees) must never be
+    // committed from a worktree: an agent running `git add -A` would otherwise
+    // carry them into a branch, and the next merge would then collide with the
+    // untracked copy in the carrier. `.git/info/exclude` is per-clone and shared
+    // by every worktree — the right place, and nothing user-visible changes.
+    await ensureExcludes(projectRoot, ['.env', ...this.options.copyFiles, `${WORKMATES_DIR}/`])
 
     const allocation = await this.allocator.allocate(proposalId)
 

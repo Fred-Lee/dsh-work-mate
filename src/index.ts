@@ -22,8 +22,11 @@ import type { Proposal } from './features/proposal/store.ts'
 import type { OrchestrationTarget } from './features/archive/orchestrate.ts'
 import { ProposalStore } from './features/proposal/store.ts'
 import { join } from 'node:path'
+import { readFile } from 'node:fs/promises'
 import { EventLog } from './features/proposal/events.ts'
 import { runBandsCheck } from './features/metrics/check.ts'
+import { parseSwarmTasks } from './features/swarm/plan.ts'
+import { SwarmManager } from './features/swarm/manager.ts'
 import type { ProposalSource } from './features/proposal/store.ts'
 import { aggregateMetrics, proposalMetrics } from './features/proposal/metrics.ts'
 import { ProposalServiceImpl, type ProposalService } from './features/proposal/service.ts'
@@ -96,6 +99,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     copyFiles: resolved.copyFiles,
     packageManager: resolved.packageManager,
   })
+  const swarm = new SwarmManager({ proposals, worktrees: worktree })
   const resolveRoots = async (proposal: Proposal): Promise<OrchestrationTarget[]> => {
     const targets: OrchestrationTarget[] = []
     for (const name of proposal.projects) {
@@ -145,7 +149,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.provide('workmate.projects', registry)
   ctx.provide('workmate.worktree', worktree)
 
-  registerTools(ctx, { proposals, archive, registry, worktree, resolved, events })
+  registerTools(ctx, { proposals, archive, registry, worktree, swarm, resolved, events })
   // Native guidance surfaces: two runtime skills + one flow section. Lazy, so
   // a composition without those services keeps the plugin ACTIVE.
   registerGuidance(ctx)
@@ -171,6 +175,7 @@ interface ToolDeps {
   archive: LifecycleServiceImpl
   registry: ProjectRegistry
   worktree: WorktreeManager
+  swarm: SwarmManager
   resolved: ReturnType<typeof resolveConfig>
 }
 
@@ -502,7 +507,77 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     }),
   )
 
+  /** Resolve the project root a swarm task runs against (explicit → config → registry). */
+  const swarmRoot = async (proposal: Proposal, explicit?: string): Promise<string> => {
+    if (explicit !== undefined && explicit !== '') return explicit
+    if (resolved.projectRoot !== '') return resolved.projectRoot
+    for (const name of proposal.projects) {
+      const registered = await registry.get(name)
+      if (registered !== undefined) return registered.root
+    }
+    throw new Error('no project root: pass projectRoot, set Config.projectRoot, or register a project')
+  }
+
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_swarm_plan',
+      description:
+        'Plan parallel task execution for a proposal: derive tasks from its tasks.md (each line may declare <!-- writes: src/a/**, docs/** -->), batch them so no two tasks in a batch share a write scope, and record one worktree/branch carrier per task. Reports conflicting task pairs and undeclared scopes. Call workmate_swarm_task to start or merge one.',
+      parameters: {
+        id: { type: 'string', required: true, description: 'Proposal id.' },
+        maxParallel: { type: 'number', description: 'Tasks per batch (default 3).' },
+        projectRoot: { type: 'string', description: 'Absolute project root; defaults to Config.projectRoot or the first registered project.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      isConcurrencySafe: () => true,
+      async execute(args) {
+        const proposal = await proposals.get(args.id)
+        if (proposal === undefined) throw new Error(`proposal not found: ${args.id}`)
+        const root = await swarmRoot(proposal, args.projectRoot)
+        const tasksFile = join(root, resolved.openspecRoot, 'changes', proposal.openspecChangeId, 'tasks.md')
+        const content = await readFile(tasksFile, 'utf8').catch(() => '')
+        const inputs = parseSwarmTasks(content)
+        if (inputs.length === 0) {
+          return asJson({ note: `no task lines found in ${tasksFile}`, tasks: [] })
+        }
+        const planned = await deps.swarm.plan(args.id, inputs, {
+          ...(args.maxParallel !== undefined ? { maxParallel: args.maxParallel } : {}),
+        })
+        return asJson({ tasksFile, plan: planned.plan, tasks: planned.tasks })
+      },
+    }),
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_swarm_task',
+      description:
+        'Start or merge one planned swarm task. action=start creates the task worktree + branch (feature/<proposal>--<task>) and marks it running; action=merge merges that branch back into the proposal implementation branch inside the proposal worktree. A merge conflict aborts the merge, marks the task failed, and returns the conflicted files for adjudication: merge the implementation branch INTO the task worktree, resolve and commit there, then retry this merge.',
+      parameters: {
+        id: { type: 'string', required: true, description: 'Proposal id.' },
+        action: { type: 'string', required: true, description: 'start | merge.' },
+        taskId: { type: 'string', required: true, description: 'Task id from workmate_swarm_plan (e.g. t1).' },
+        projectRoot: { type: 'string', description: 'Absolute project root; defaults to Config.projectRoot or the first registered project.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      async execute(args, exec) {
+        const proposal = await proposals.get(args.id)
+        if (proposal === undefined) throw new Error(`proposal not found: ${args.id}`)
+        const root = await swarmRoot(proposal, args.projectRoot)
+        if (args.action === 'start') {
+          const record = await deps.swarm.start(args.id, args.taskId, { projectRoot: root, ...(exec.signal !== undefined ? { signal: exec.signal } : {}) })
+          return asJson({ task: record, workspace: record.worktreePath, branch: record.branch })
+        }
+        if (args.action === 'merge') {
+          const result = await deps.swarm.merge(args.id, args.taskId, { projectRoot: root, ...(exec.signal !== undefined ? { signal: exec.signal } : {}) })
+          return asJson(result)
+        }
+        throw new Error(`unknown action '${args.action}' — valid: start, merge`)
+      },
+    }),
+  )
+
   console.log(
-    '[workmate] tools registered (proposal lifecycle + decide/block/unblock + wiki_link(s) + knowledge_query/search + metrics + bands)',
+    '[workmate] tools registered (lifecycle + decide/block/unblock + wiki + knowledge + metrics + bands + swarm)',
   )
 }

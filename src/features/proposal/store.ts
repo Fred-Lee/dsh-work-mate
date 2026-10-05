@@ -71,6 +71,7 @@ export interface ApprovalRecord {
 }
 
 import type { ArchiveManifest } from '../archive/manifest.ts'
+import type { SwarmTaskRecord } from '../swarm/manager.ts'
 
 export interface Proposal {
   /** Slug-style identifier, e.g. "batch-grading-v2". */
@@ -109,6 +110,8 @@ export interface Proposal {
   approvals?: ApprovalRecord[]
   /** Delivery summary written by a successful archive run (change `adopt-workdsh-lessons`). */
   archiveManifest?: ArchiveManifest
+  /** Per-task parallel carriers (change `add-swarm-parallel`). */
+  swarmTasks?: SwarmTaskRecord[]
   createdAt: string
   updatedAt: string
 }

@@ -183,6 +183,17 @@ export async function orchestrateArchive(
     const snapshot = entry.snapshot as TaskSnapshot
     return snapshot.total > 0 && snapshot.done < snapshot.total
   })
+  const unmerged = (proposal.swarmTasks ?? []).filter((task) => task.status !== 'merged')
+  if (unmerged.length > 0 && options.tasksGate !== false) {
+    steps.push({
+      step: 'tasks',
+      status: 'failed',
+      summary: `验收未通过：swarm 任务未合并 —— ${unmerged
+        .map((task) => `[${task.id}] ${task.status}`)
+        .join('，')}（workmate_swarm_task action=merge，或 force 跳过）`,
+    })
+    return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }
+  }
   if (incomplete.length > 0 && options.tasksGate !== false) {
     steps.push({
       step: 'tasks',

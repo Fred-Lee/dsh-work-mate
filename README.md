@@ -280,6 +280,35 @@ node scripts/bands-watch.mjs --fail-on propose --apply
 
 ---
 
+## 5.7 并行执行（swarm）：每任务一个 worktree
+
+提案内部的多个任务可以真并行——**每个任务一个 worktree + 独立分支**，冲突靠声明与装批避免：
+
+```bash
+# 1. 计划（从 tasks.md 派生任务，writes 声明写在行内注释里）
+#    - [ ] 2. 拆分计费模块 <!-- writes: src/billing/**, docs/billing.md -->
+# 工具：workmate_swarm_plan {id, maxParallel?} → 装批结果 + 冲突对 + 未声明清单
+# 2. 起任务载体（worktree: .workmates/<提案>--<任务>，分支: feature/<提案>--<任务>）
+# 工具：workmate_swarm_task {id, action: "start", taskId: "t1"}
+# 3. 在任务 worktree 里干活、提交（记得带 [proposal:<id>]）
+# 4. 合回提案的 implementation 分支（在提案 worktree 内 --no-ff merge）
+# 工具：workmate_swarm_task {id, action: "merge", taskId: "t1"}
+```
+
+- **防踩踏**：同一批内任意两任务的 `writes` 不得相交（相交则分到不同批，严格串行）；未声明
+  `writes` 的任务不阻塞并行，但会在计划里标出来。
+- **合并冲突是裁决，不是机械操作**：冲突时插件 `merge --abort` 回到干净态、把冲突文件交给
+  你，任务标 `failed`；**裁决方式**——在任务 worktree 里 `git merge feature/<提案>`，
+  解完提交，再重跑 merge。
+- **归档门**：存在未 `merged` 的 swarm 任务时归档编排第一步失败并列出 `[taskId] status`
+  （`force` 可显式跳过）。
+- 任务状态随提案记录返回，面板详情区有「🧩 并行任务」小节。
+- 附带纪律：worktree 创建时会把 `.env` 与 `.workmates/` 写进仓库的
+  `.git/info/exclude`（**本地文件、不进版本库**），这样 `git add -A` 不会把机器本地文件
+  带进分支、也不会在合并时与载体里的未跟踪副本打架。
+
+---
+
 ## 6. Agent 工具参考
 
 Agent 会话中可直接调用（DSH 工具面注册，名字以 `workmate_` 前缀隔离）：

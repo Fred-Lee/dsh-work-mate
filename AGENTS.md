@@ -125,9 +125,11 @@ node $DSH web                                                # http://127.0.0.1:
 | M11 | 分级审查 tally 与影子期（`reviewBlockingSeverities`） | ✅ 已归档 `2026-10-05-add-review-tally` |
 | M12 | 控制带的确定性对外入口（`POST /api/bands` + `scripts/bands-watch.mjs`） | ✅ 已归档 `2026-10-05-add-bands-watch` |
 | M13 | 规格库补齐（9 个历史变更归档同步） | ✅ `chore(openspec)` 提交 |
+| M14 | 任务级并行载体（swarm：writes 装批 + 合并仲裁 + 归档门） | ✅ 已归档 `2026-10-05-add-swarm-parallel` |
 
-待办（依赖外部条件）：swarm 并行执行（编排内已留记录性跳过位）、@快捷指令
-（`@hucj/dsh-file-mention` 未装）、WeKnora 真机契约核验。
+待办（依赖外部条件）：@快捷指令（`@hucj/dsh-file-mention` 未装）、WeKnora 真机契约核验、
+工件账本与 plan-drift（R7）。swarm 的任务级载体已落地（M14）；"谁来执行任务"仍由调用方
+（子代理 / Agent Teams）决定，插件只负责 git 隔离与合并纪律。
 
 已知环境事实（2026-10-05 复核）：本机 harness 与宿主内核线 **`0.2.1-alpha.1`**
 （源码树 `@deepseek-ai/dsh-root 0.2.1-alpha.1`，tag `dsh-v0.2.1-alpha.1`）；

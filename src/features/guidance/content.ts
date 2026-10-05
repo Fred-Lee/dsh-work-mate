@@ -73,6 +73,16 @@ openspec archive**。\`force\` 只跳过审查门，其余步骤照跑——默�
 - 归档前每个声明 wiki 的任务必须已登记页面引用（\`workmate_wiki_link\`，pageType 为
   concept / synthesis / entity 之一）。
 
+## 并行执行（swarm）
+
+- 提案内多任务要并行时：先 \`workmate_swarm_plan\`（从 tasks.md 派生任务，行内
+  \`<!-- writes: src/a/** -->\` 声明文件范围），同一批内 writes 不相交；然后逐个
+  \`workmate_swarm_task {action:"start"}\` 起任务 worktree/分支，在那里改代码并提交。
+- 干完用 \`workmate_swarm_task {action:"merge"}\` 合回 implementation 分支。冲突时插件会
+  中止合并并把冲突文件交回：**在任务 worktree 里 \`git merge feature/<提案>\`、解完提交、
+  再重跑 merge**——不要手工改主工作区。
+- 归档门会拦未合并的任务（\`force\` 可跳过，但那等于带着未合代码归档）。
+
 ## 入口溯源
 
 - 从事故/工单/回归指标起提案时，用 \`workmate_proposal_create\` 的 \`source\`（incident /

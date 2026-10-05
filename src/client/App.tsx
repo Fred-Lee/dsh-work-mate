@@ -297,6 +297,36 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                   ))}
                                 </div>
                               )}
+                              {(detail.proposal.swarmTasks ?? []).length > 0 && (
+                                <div className="wm-section">
+                                  <b>🧩 并行任务</b>
+                                  {(detail.proposal.swarmTasks ?? []).map((task) => (
+                                    <div key={task.id} className="wm-meta" title={task.writes.join(', ') || '未声明 writes'}>
+                                      <span>
+                                        [{task.id}] {task.title}
+                                      </span>
+                                      <span
+                                        className={`wm-tier ${
+                                          task.status === 'merged'
+                                            ? 'wm-tier-normal'
+                                            : task.status === 'failed'
+                                              ? 'wm-tier-propose'
+                                              : task.status === 'running'
+                                                ? 'wm-tier-diagnose'
+                                                : 'wm-tier-log'
+                                        }`}
+                                      >
+                                        {task.status}
+                                      </span>
+                                      {task.commit !== undefined && <code>{task.commit}</code>}
+                                    </div>
+                                  ))}
+                                  <div className="wm-kpi-note">
+                                    每任务一个 worktree + 分支；未 merged 的任务会阻断归档（force 可跳过）。
+                                  </div>
+                                </div>
+                              )}
+
                               {detail.proposal.archiveManifest !== undefined && (
                                 <div className="wm-section">
                                   <b>📦 交付物</b>

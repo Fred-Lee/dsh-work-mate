@@ -40,7 +40,9 @@ describe('parseTasksMd', () => {
 })
 
 /** Minimal archiving proposal: the review gate runs before any CLI. */
-const archivingProposal = (): {
+const archivingProposal = (
+  swarmTasks?: Array<{ id: string; status: 'planned' | 'running' | 'merged' | 'failed' }>,
+): {
   id: string
   title: string
   status: 'archiving'
@@ -49,6 +51,7 @@ const archivingProposal = (): {
   openspecChangeId: string
   createdAt: string
   updatedAt: string
+  swarmTasks?: Array<{ id: string; status: 'planned' | 'running' | 'merged' | 'failed' }>
 } => ({
   id: 'p1',
   title: 't',
@@ -58,6 +61,7 @@ const archivingProposal = (): {
   openspecChangeId: 'p1',
   createdAt: '2026-10-05T00:00:00.000Z',
   updatedAt: '2026-10-05T00:00:00.000Z',
+  ...(swarmTasks !== undefined ? { swarmTasks } : {}),
 })
 
 describe('orchestrateArchive (fake CLIs)', () => {
@@ -235,6 +239,32 @@ describe('orchestrateArchive (fake CLIs)', () => {
 
     await rm(permissiveProject, { recursive: true, force: true })
     await rm(strictProject, { recursive: true, force: true })
+  })
+
+  it('blocks archiving while a swarm task is unmerged', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'wm-swarm-gate-'))
+    await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+    await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n', 'utf8')
+
+    const result = await orchestrateArchive(
+      archivingProposal([{ id: 't1', status: 'running' }, { id: 't2', status: 'merged' }]),
+      [{ project: 'demo', root: project }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false },
+    )
+
+    expect(result.ok).toBe(false)
+    const gate = result.steps.find((step) => step.step === 'tasks')
+    expect(gate?.status).toBe('failed')
+    expect(gate?.summary).toContain('[t1] running')
+    expect(gate?.summary).not.toContain('[t2]')
+
+    const forced = await orchestrateArchive(
+      archivingProposal([{ id: 't1', status: 'running' }]),
+      [{ project: 'demo', root: project }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false, tasksGate: false, reviewGate: false },
+    )
+    expect(forced.steps.find((step) => step.step === 'tasks')?.status).toBe('ok')
+    await rm(project, { recursive: true, force: true })
   })
 
   it('stops on unchecked tasks and reports per-project progress', async () => {
