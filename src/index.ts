@@ -204,6 +204,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       projectRoot: resolved.projectRoot,
       qualitySyncEnabled: resolved.qualitySyncEnabled,
       claudeAssetsEnabled: resolved.claudeAssetsEnabled,
+      approvalsRequired: resolved.approvalsRequired,
+      allowAgentApproval: resolved.allowAgentApproval,
+      reviewBlockingSeverities: resolved.reviewBlockingSeverities,
+      decision,
+      events,
     })
   })
 }
@@ -581,6 +586,8 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
                   projectRoot: resolved.projectRoot,
                   qualitySyncEnabled: resolved.qualitySyncEnabled,
                   claudeAssetsEnabled: resolved.claudeAssetsEnabled,
+                  decision: deps.decision,
+                  events: deps.events,
                 },
                 input,
               )
