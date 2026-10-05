@@ -18,6 +18,7 @@ describe('resolveConfig', () => {
       approvalsRequired: ['merging', 'archiving'],
       allowAgentApproval: false,
       reviewBlockingSeverities: ['CRIT'],
+      planDriftGate: false,
       packageManager: 'pnpm',
       weknoraEnabled: true,
       weknoraKbId: '',

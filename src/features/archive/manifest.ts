@@ -25,6 +25,10 @@ export interface ArchiveManifestEntry {
   archivedChangeDir?: string
   /** Set when a probe could not run (not a git repo, unreadable dirs). */
   note?: string
+  /** Declared-vs-actual plan drift (change `add-artifact-ledger`). */
+  drift?: import('../proposal/artifacts.ts').DriftReport
+  /** Content hashes of the archived artifacts. */
+  artifacts?: import('../proposal/artifacts.ts').ArtifactRecord[]
 }
 
 export interface ArchiveManifest {

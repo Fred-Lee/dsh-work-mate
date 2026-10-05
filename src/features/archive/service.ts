@@ -56,7 +56,13 @@ export interface LifecycleDeps {
   orchestrate(
     proposal: Proposal,
     targets: OrchestrationTarget[],
-    options: { openspecRoot: string; reviewGate?: boolean; tasksGate?: boolean; signal?: AbortSignal },
+    options: {
+      openspecRoot: string
+      reviewGate?: boolean
+      tasksGate?: boolean
+      planDriftGate?: boolean
+      signal?: AbortSignal
+    },
   ): Promise<OrchestrationResult>
   /** Reverse orchestration behind archived→archiving (change dirs moved back). */
   reopen?(
@@ -75,6 +81,8 @@ export interface LifecycleDeps {
   approvalsRequired?: string[]
   /** Let the agent actor cross gated states (`Config.allowAgentApproval`). */
   allowAgentApproval?: boolean
+  /** Fail archiving on undeclared changes (`Config.planDriftGate`). */
+  planDriftGate?: boolean
   now?: () => Date
 }
 
@@ -374,6 +382,7 @@ export class LifecycleServiceImpl {
       openspecRoot: this.openspecRoot,
       reviewGate: options.force !== true,
       tasksGate: options.force !== true,
+      planDriftGate: this.deps.planDriftGate === true && options.force !== true,
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
     if (!orchestration.ok) {

@@ -126,6 +126,7 @@ node $DSH web                                                # http://127.0.0.1:
 | M12 | 控制带的确定性对外入口（`POST /api/bands` + `scripts/bands-watch.mjs`） | ✅ 已归档 `2026-10-05-add-bands-watch` |
 | M13 | 规格库补齐（9 个历史变更归档同步） | ✅ `chore(openspec)` 提交 |
 | M14 | 任务级并行载体（swarm：writes 装批 + 合并仲裁 + 归档门） | ✅ 已归档 `2026-10-05-add-swarm-parallel` |
+| M15 | 工件账本与计划漂移（声明 vs 实际 + sha256 + 可选漂移门） | ✅ 已归档 `2026-10-05-add-artifact-ledger` |
 
 待办（依赖外部条件）：@快捷指令（`@hucj/dsh-file-mention` 未装）、WeKnora 真机契约核验、
 工件账本与 plan-drift（R7）。swarm 的任务级载体已落地（M14）；"谁来执行任务"仍由调用方

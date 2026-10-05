@@ -163,6 +163,7 @@ pnpm dsh web                                            # 启动，默认 http:/
 | `approvalsRequired` | `['merging','archiving']` | 需要**人工批准**才能进入的状态；`[]` 关闭这道门 |
 | `allowAgentApproval` | `false` | `true` 时允许 agent actor 跨过受控状态（放弃"写码者不得批准"的分离） |
 | `reviewBlockingSeverities` | `['CRIT']` | 归档审查门阻断哪些严重度（CRIT/HIGH/MED/LOW）；影子态报告一律只记录不阻断 |
+| `planDriftGate` | `false` | `true` 时归档被"改了但没声明"的文件阻断（`force` 可跳过）；默认只记录不拦 |
 
 无效组合启动时响亮提示（如 `weknoraWikiRequired=true` 但 `weknoraKbId` 为空）。
 
@@ -306,6 +307,21 @@ node scripts/bands-watch.mjs --fail-on propose --apply
 - 附带纪律：worktree 创建时会把 `.env` 与 `.workmates/` 写进仓库的
   `.git/info/exclude`（**本地文件、不进版本库**），这样 `git add -A` 不会把机器本地文件
   带进分支、也不会在合并时与载体里的未跟踪副本打架。
+
+---
+
+## 5.8 工件账本与计划漂移
+
+- **声明**：`tasks.md` 行内 `<!-- writes: src/a/** -->`、`design.md` 里 `<!-- files: ... -->`
+  就是"计划要动什么"。两处都没有 → 工具会说"无法判定漂移"，**不会**把所有改动都算未声明。
+- **实际**：本提案 `[proposal:<id>]` 标记提交所触及的文件（`git diff-tree` 逐提交并集，
+  根提交也算得出来）。提案自己的 `openspec/changes/**` 不计入——那是计划本身。
+- **查询**：`workmate_plan_drift {id}` 在归档前就能看 `undeclared` / `missing` / `driftRatio`，
+  来得及补声明或改实现。
+- **账本**：归档成功后记录归档目录里各工件的 `sha256` + 字节数 + 覆盖提交，写进 manifest；
+  面板「📦 交付物」小节显示漂移与账本条数。这让"审的是哪一版工件"可验证。
+- **可选门**：`planDriftGate: true` 时存在未声明改动即归档失败并列出文件（`force` 可跳过）。
+  默认关闭：`writes` 声明是新约定，历史提案没有它。
 
 ---
 

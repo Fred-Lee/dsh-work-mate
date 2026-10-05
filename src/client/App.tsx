@@ -346,6 +346,25 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                       )}
                                       {entry.diffStat !== undefined && <div className="wm-kpi-note">{entry.diffStat}</div>}
                                       {entry.note !== undefined && <div className="wm-kpi-note">{entry.note}</div>}
+                                      {entry.drift !== undefined && (
+                                        <div className="wm-meta">
+                                          <span className={`wm-tier ${entry.drift.undeclared.length === 0 ? 'wm-tier-normal' : 'wm-tier-diagnose'}`}>
+                                            漂移 {(entry.drift.driftRatio * 100).toFixed(0)}%
+                                          </span>
+                                          <span>声明 {entry.drift.declared.length} 项</span>
+                                          <span>实际 {entry.drift.actual.length} 个文件</span>
+                                        </div>
+                                      )}
+                                      {entry.drift !== undefined && entry.drift.undeclared.length > 0 && (
+                                        <div className="wm-kpi-note">
+                                          未声明改动：{entry.drift.undeclared.slice(0, 5).join(' · ')}
+                                        </div>
+                                      )}
+                                      {(entry.artifacts ?? []).length > 0 && (
+                                        <div className="wm-kpi-note">
+                                          账本 {entry.artifacts?.length} 个工件（sha256 已记录）
+                                        </div>
+                                      )}
                                     </div>
                                   ))}
                                 </div>

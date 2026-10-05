@@ -36,7 +36,7 @@ import { linkWikiToProposal, listWikiLinks } from './features/wiki/links.ts'
 import { STATE_HINTS, type ProposalState } from './features/proposal/state-machine.ts'
 
 const nextStepHint = (status: string): string => STATE_HINTS[status as keyof typeof STATE_HINTS] ?? ''
-import { orchestrateArchive, orchestrateReopen } from './features/archive/orchestrate.ts'
+import { collectProjectDrift, orchestrateArchive, orchestrateReopen } from './features/archive/orchestrate.ts'
 import { ProjectRegistry } from './features/project/registry.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
 import { gitnexusRun } from './features/knowledge-bridge/gitnexus.ts'
@@ -115,12 +115,15 @@ export function apply(ctx: Context, config: Config = {}): void {
     openspecRoot: resolved.openspecRoot,
     approvalsRequired: resolved.approvalsRequired,
     allowAgentApproval: resolved.allowAgentApproval,
+    planDriftGate: resolved.planDriftGate,
     orchestrate(proposal, targets, opts) {
       return orchestrateArchive(proposal, targets, {
         openspecRoot: opts.openspecRoot,
         gitnexusAnalyzeEnabled: resolved.gitnexusEnabled,
         reviewBlockingSeverities: resolved.reviewBlockingSeverities,
         ...(opts.reviewGate !== undefined ? { reviewGate: opts.reviewGate } : {}),
+        ...(opts.tasksGate !== undefined ? { tasksGate: opts.tasksGate } : {}),
+        ...(opts.planDriftGate !== undefined ? { planDriftGate: opts.planDriftGate } : {}),
         ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
       })
     },
@@ -573,6 +576,35 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
           return asJson(result)
         }
         throw new Error(`unknown action '${args.action}' — valid: start, merge`)
+      },
+    }),
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_plan_drift',
+      description:
+        'Compare the plan against the code: declared scopes come from tasks.md (<!-- writes: ... -->) and design.md (<!-- files: ... -->), the actual set from the files the proposal\'s [proposal:<id>] commits touched. Returns undeclared changes, declared-but-untouched scopes and a drift ratio; with Config.planDriftGate enabled the same comparison blocks archiving. Run it before merging so declarations or the diff can still be fixed.',
+      parameters: {
+        id: { type: 'string', required: true, description: 'Proposal id.' },
+        projectRoot: { type: 'string', description: 'Absolute project root; defaults to Config.projectRoot or the first registered project.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      isConcurrencySafe: () => true,
+      async execute(args) {
+        const proposal = await proposals.get(args.id)
+        if (proposal === undefined) throw new Error(`proposal not found: ${args.id}`)
+        const root = await swarmRoot(proposal, args.projectRoot)
+        const drift = await collectProjectDrift(
+          proposal,
+          { project: proposal.projects[0] ?? '(explicit)', root },
+          { openspecRoot: resolved.openspecRoot },
+        )
+        return asJson(
+          drift === undefined
+            ? { id: args.id, note: 'no [proposal:<id>] commits found — nothing to compare yet' }
+            : { id: args.id, projectRoot: root, drift },
+        )
       },
     }),
   )

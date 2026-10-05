@@ -78,6 +78,11 @@ export interface Config {
    * @default ['CRIT']
    */
   reviewBlockingSeverities?: string[]
+  /**
+   * Fail archiving when the diff touches files the plan never declared.
+   * @default false (declarations are new; record and show, do not block)
+   */
+  planDriftGate?: boolean
 }
 
 /** Runtime schema the host collects (validation + config-UI projection). */
@@ -115,6 +120,10 @@ export const Config: z<Config> = z.object({
     .array(z.string())
     .default(['CRIT'])
     .description('Severities whose unresolved review findings block archiving.'),
+  planDriftGate: z
+    .boolean()
+    .default(false)
+    .description('Fail archiving when the diff touches files the plan never declared.'),
 })
 
 export type ResolvedConfig = Required<Config>
@@ -138,6 +147,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   approvalsRequired: ['merging', 'archiving'],
   allowAgentApproval: false,
   reviewBlockingSeverities: ['CRIT'],
+  planDriftGate: false,
 }
 
 /**

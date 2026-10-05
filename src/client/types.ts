@@ -51,6 +51,23 @@ export interface SwarmTaskRecord {
   note?: string
 }
 
+export interface DriftReport {
+  declared: string[]
+  actual: string[]
+  undeclared: string[]
+  missing: string[]
+  driftRatio: number
+  note?: string
+}
+
+export interface ArtifactRecord {
+  path: string
+  sha256?: string
+  bytes?: number
+  commit?: string
+  note?: string
+}
+
 export interface ArchiveManifestEntry {
   project: string
   root: string
@@ -60,6 +77,8 @@ export interface ArchiveManifestEntry {
   reindexed: boolean
   archivedChangeDir?: string
   note?: string
+  drift?: DriftReport
+  artifacts?: ArtifactRecord[]
 }
 
 export interface ArchiveManifest {

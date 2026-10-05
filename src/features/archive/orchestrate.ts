@@ -15,9 +15,10 @@ import { gitnexusAnalyze } from '../knowledge-bridge/gitnexus.ts'
 import { formatTally, parseReviewMd, reviewTally } from '../quality/review-parser.ts'
 import type { Proposal } from '../proposal/store.ts'
 import type { ArchiveManifest, ArchiveManifestEntry } from './manifest.ts'
+import { collectArtifactLedger, computeDrift, declaredScopes } from '../proposal/artifacts.ts'
 
 export interface OrchestrationStep {
-  step: 'review-gate' | 'tasks' | 'swarm' | 'openspec-archive' | 'gitnexus-analyze' | 'reopen-dir' | 'worktree-cleanup' | 'status'
+  step: 'review-gate' | 'tasks' | 'plan-drift' | 'swarm' | 'openspec-archive' | 'gitnexus-analyze' | 'reopen-dir' | 'worktree-cleanup' | 'status'
   status: 'ok' | 'skipped' | 'failed'
   summary: string
 }
@@ -134,6 +135,11 @@ export interface OrchestrateOptions {
    */
   tasksGate?: boolean
   /**
+   * Fail the archive when the diff contains files the plan never declared
+   * (`Config.planDriftGate`). @default false
+   */
+  planDriftGate?: boolean
+  /**
    * Severities whose open findings block archiving (`Config.reviewBlockingSeverities`).
    * @default ['CRIT']
    */
@@ -194,6 +200,24 @@ export async function orchestrateArchive(
     })
     return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }
   }
+  if (options.planDriftGate === true) {
+    const undeclared: string[] = []
+    for (const target of targets) {
+      const drift = await collectProjectDrift(proposal, target, options)
+      for (const file of drift?.undeclared ?? []) undeclared.push(`[${target.project}] ${file}`)
+    }
+    if (undeclared.length > 0) {
+      steps.push({
+        step: 'plan-drift',
+        status: 'failed',
+        summary: `计划漂移：${undeclared.length} 个改动未在 writes/files 里声明 —— ${undeclared
+          .slice(0, 8)
+          .join('，')}（补声明，或 force 跳过）`,
+      })
+      return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }
+    }
+  }
+
   if (incomplete.length > 0 && options.tasksGate !== false) {
     steps.push({
       step: 'tasks',
@@ -370,6 +394,73 @@ async function markedCommits(root: string, proposalId: string, signal?: AbortSig
     .filter((line) => line !== '')
 }
 
+/**
+ * Declared-vs-actual drift for one project (undefined when nothing is comparable).
+ * Exported for `workmate_plan_drift`: the same comparison the optional gate uses,
+ * available before archiving so the plan or the diff can still be fixed.
+ */
+export async function collectProjectDrift(
+  proposal: Proposal,
+  target: OrchestrationTarget,
+  options: OrchestrateOptions,
+): Promise<ReturnType<typeof computeDrift> | undefined> {
+  try {
+    const commits = await markedCommits(target.root, proposal.id, options.signal)
+    if (commits.length === 0) return undefined
+    // The change's own spec directory is the plan, not a deliverable: drift is
+    // about what the plan failed to declare, not about the plan itself.
+    const changesPrefix = `${options.openspecRoot.replace(/\/+$/, '')}/changes/`
+    const actual = (await changedFiles(target.root, commits, options.signal)).filter(
+      (path) => !path.startsWith(changesPrefix),
+    )
+    // Read the declarations from the active change directory, falling back to the
+    // archived one: the manifest is collected after the archive step moved it.
+    const activeDir = join(target.root, options.openspecRoot, 'changes', proposal.openspecChangeId)
+    const archivedDir = await findArchivedDir(target.root, options.openspecRoot, proposal.openspecChangeId)
+    const readDeclared = async (name: string): Promise<string> => {
+      const active = await readFile(join(activeDir, name), 'utf8').catch(() => undefined)
+      if (active !== undefined) return active
+      if (archivedDir === undefined) return ''
+      return readFile(join(archivedDir, name), 'utf8').catch(() => '')
+    }
+    const declared = declaredScopes({
+      tasksMd: await readDeclared('tasks.md'),
+      designMd: await readDeclared('design.md'),
+    })
+    return computeDrift(declared, actual)
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Files a proposal's marked commits touched: the union of each commit's own file
+ * list. Using `diff-tree` per commit avoids `<hash>^`, which does not exist for a
+ * root commit (a first-commit proposal would otherwise lose its whole diff).
+ */
+async function changedFiles(root: string, commits: readonly string[], signal?: AbortSignal): Promise<string[]> {
+  const files = new Set<string>()
+  for (const commit of commits) {
+    try {
+      const output = await execCli(
+        'git',
+        // `--root` so a root commit (the only one a fresh repo has) still lists its files.
+        ['diff-tree', '--root', '--no-commit-id', '--name-only', '-r', commit],
+        root,
+        20_000,
+        signal,
+      )
+      for (const line of output.split('\n')) {
+        const trimmed = line.trim()
+        if (trimmed !== '') files.add(trimmed)
+      }
+    } catch {
+      // A commit whose objects are gone (rebased away) contributes nothing.
+    }
+  }
+  return [...files].sort()
+}
+
 /** `git diff --stat` between the oldest and newest marked commit (single → `git show`). */
 async function diffStatFor(root: string, commits: readonly string[], signal?: AbortSignal): Promise<string> {
   if (commits.length === 0) throw new Error('no marked commits')
@@ -407,7 +498,11 @@ async function collectManifest(
     try {
       const commits = await markedCommits(target.root, proposal.id, options.signal)
       entry.commits = commits
-      if (commits.length > 0) entry.diffStat = await diffStatFor(target.root, commits, options.signal)
+      if (commits.length > 0) {
+        entry.diffStat = await diffStatFor(target.root, commits, options.signal)
+        const drift = await collectProjectDrift(proposal, target, options)
+        if (drift !== undefined) entry.drift = drift
+      }
     } catch (error) {
       entry.note = `git probes unavailable: ${error instanceof Error ? error.message : String(error)}`
     }
@@ -419,6 +514,9 @@ async function collectManifest(
       } catch {
         entry.specsUpdated = false
       }
+      entry.artifacts = await collectArtifactLedger(archivedDir, {
+        ...(entry.commits[0] !== undefined ? { commit: entry.commits[0] } : {}),
+      })
     }
     entry.reindexed = steps.some(
       (step) => step.step === 'gitnexus-analyze' && step.status === 'ok' && step.summary.startsWith(`[${target.project}]`),
