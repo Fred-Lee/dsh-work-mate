@@ -8,6 +8,18 @@ import { basename, join } from 'node:path'
 import { readdir } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { validateProjectRoot } from '../proposal/openspec.ts'
+import { withGitnexusApiKey } from './gitnexus-credentials.ts'
+
+/**
+ * Env variable WorkMate maps onto GITNEXUS_API_KEY for spawned `gitnexus` calls
+ * (`Config.gitnexusApiKeyFromEnv`). Module-scoped so the single exec chokepoint
+ * — and every caller — stays unaware of credential plumbing.
+ */
+let apiKeyFromEnv = ''
+
+export function setGitnexusApiKeyEnv(name: string): void {
+  apiKeyFromEnv = name
+}
 
 export type GitnexusAction = 'query' | 'context' | 'impact'
 
@@ -22,7 +34,15 @@ function execGitnexus(args: string[], cwd: string, timeoutMs: number, signal?: A
     execFile(
       'gitnexus',
       args,
-      { cwd, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, ...(signal !== undefined ? { signal } : {}) },
+      {
+        cwd,
+        timeout: timeoutMs,
+        maxBuffer: 16 * 1024 * 1024,
+        // GitNexus only reads GITNEXUS_API_KEY/OPENAI_API_KEY; the user's own
+        // variable name is mapped here, per child process, never persisted.
+        env: withGitnexusApiKey(process.env, apiKeyFromEnv),
+        ...(signal !== undefined ? { signal } : {}),
+      },
       (error, stdout, stderr) => {
         if (error) {
           const detail = stderr?.trim() || error.message

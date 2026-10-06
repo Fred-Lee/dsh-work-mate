@@ -134,6 +134,7 @@ node $DSH web                                                # http://127.0.0.1:
 | M19 | 项目 wiki 生成（`gitnexus wiki` 桥接 + 工具/REST + 索引新鲜度探针） | ✅ 已归档 `2026-10-06-add-wiki-generation` |
 | M20 | wiki 产物完整性核验（`pages`/`complete`，半份产物必须被标出） | ✅ 已归档 `2026-10-06-harden-wiki-output` |
 | M21 | SSE 归一代理的按需托管（健康探测 + 复用 + 不一致拒绝，无游离进程） | ✅ 已归档 `2026-10-06-manage-sse-proxy` |
+| M22 | 网关 key 环境变量注入（`ESP_XKW_KEY` → 子进程 `GITNEXUS_API_KEY` + 来源探测不回显） | ✅ 已归档 `2026-10-06-inject-api-key-env` |
 
 待办（依赖外部条件）：@快捷指令（`@hucj/dsh-file-mention` 未装）、WeKnora 真机契约核验、
 `dsh-mcp-client` 的 profile patch 行（库已装但惰性）。swarm 的任务级载体已落地（M14）：

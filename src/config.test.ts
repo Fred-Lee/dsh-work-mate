@@ -37,6 +37,7 @@ describe('resolveConfig', () => {
       gitnexusSseProxyEnabled: false,
       gitnexusSseProxyPort: 8787,
       gitnexusSseProxyUpstream: '',
+      gitnexusApiKeyFromEnv: '',
       packageManager: 'pnpm',
       weknoraEnabled: true,
       weknoraKbId: '',

@@ -119,6 +119,8 @@ export interface Config {
   gitnexusSseProxyPort?: number
   /** Real gateway chat-completions URL the proxy forwards to (e.g. https://gw/ai/v1/chat/completions). @default '' */
   gitnexusSseProxyUpstream?: string
+  /** Env var whose value is mapped onto GITNEXUS_API_KEY for spawned gitnexus calls. @default '' */
+  gitnexusApiKeyFromEnv?: string
 }
 
 /** Runtime schema the host collects (validation + config-UI projection). */
@@ -181,6 +183,7 @@ export const Config: z<Config> = z.object({
   gitnexusSseProxyEnabled: z.boolean().default(false).description('Ensure the SSE-normalizing proxy before wiki generation.'),
   gitnexusSseProxyPort: z.number().default(8787).description('Loopback port for the SSE normalize proxy.'),
   gitnexusSseProxyUpstream: z.string().default('').description('Real gateway chat-completions URL the proxy forwards to.'),
+  gitnexusApiKeyFromEnv: z.string().default('').description('Env var mapped onto GITNEXUS_API_KEY for gitnexus calls.'),
 })
 
 export type ResolvedConfig = Required<Config>
@@ -223,6 +226,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   gitnexusSseProxyEnabled: false,
   gitnexusSseProxyPort: 8787,
   gitnexusSseProxyUpstream: '',
+  gitnexusApiKeyFromEnv: '',
 }
 
 /**

@@ -1,0 +1,6 @@
+{
+  "provider": "custom",
+  "baseUrl": "http://127.0.0.1:8787/v1",
+  "model": "deepseek-v4-flash-vision-exp",
+  "apiKey": "sk-fixture-not-a-real-key"
+}

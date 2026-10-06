@@ -267,6 +267,7 @@ gitnexusSseProxyUpstream: https://<你的网关>/ai/v1/chat/completions
 | 归档报「验收未通过：… 仍有未勾选任务」 | 把 `tasks.md` 真正做完并勾上，或让用户显式 `force` |
 | 归档报「计划漂移」 | 开启 `planDriftGate` 后，改了没在 `writes`/`files` 里声明的文件；补声明或 `force` |
 | 归档报「判断层归级 N 条 / CRIT 1/1 未解决」 | review.md 里那条发现被判为阻断级，修掉或勾选解决 |
+| wiki 报"没有 LLM 配置 / 空响应" | 先看工具返回值里的 `credentials.source`：`none` 表示环境与 `~/.gitnexus/config.json` 都没 key。本机做法：key 在钥匙串（`security add-generic-password -s ESP_XKW_KEY -a "$USER" -w` ），`~/.zshrc` 注入 `ESP_XKW_KEY` 并由 `gitnexusApiKeyFromEnv: ESP_XKW_KEY` 映射 |
 | wiki 生成报"没有 LLM 配置" | 先配 GitNexus 的 provider/key：`~/.gitnexus/config.json`，或跑一次 `gitnexus wiki --provider openai --base-url <url> --model <m> --api-key <k>` 存下来 |
 | wiki 内容是基于旧代码 | 先 `gitnexus analyze`（或调工具时传 `analyze: true`），结果的 `stale` 字段会告诉你索引落后 |
 | 判断层好像没生效 | 重启 harness；确认 `decisionEnabled: true`；看 `decision` 事件是否 `degraded`（首选 provider 不可用会降级到规则） |
@@ -409,6 +410,7 @@ pnpm dsh web                                            # 启动，默认 http:/
 | `decisionCacheEnabled` | `true` | 判断缓存：同题（state/选项/provider/model/采样数全等）复用上次结论，命中标记 `cached: true` |
 | `decisionCacheMax` | `500` | 缓存条目上限（按时间淘汰）；文件损坏 fail-open，绝不挡住门禁 |
 | `gitnexusWikiLang` / `gitnexusWikiTimeoutMs` | `''` / `900000` | wiki 输出语言（本机设为 `chinese`）与生成超时 |
+| `gitnexusApiKeyFromEnv` | `''` | 把该环境变量的值**仅对子进程**映射为 `GITNEXUS_API_KEY`（GitNexus 只认这个名字）；已在环境里的 `GITNEXUS_API_KEY` 不会被覆盖。本机设为 `ESP_XKW_KEY`——key 存 macOS 钥匙串，不在任何配置文件里 |
 | `gitnexusSseProxyEnabled` / `...Port` / `...Upstream` | `false` / `8787` / `''` | 部分网关流式输出 `data:{`（冒号后无空格），而 GitNexus 只认 `data: `；开启后 wiki 生成前会**按需保证**归一代理可用（已在跑且转发目标一致就复用，不重复起进程） |
 
 无效组合启动时响亮提示（如 `weknoraWikiRequired=true` 但 `weknoraKbId` 为空）。

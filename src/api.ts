@@ -18,6 +18,7 @@ import { CONFIG_DEFAULTS } from './config.ts'
 import type { DecisionService } from './features/decision/service.ts'
 import { gitnexusAnalyze, gitnexusStatus, gitnexusWiki } from './features/knowledge-bridge/gitnexus.ts'
 import { ensureSseProxy } from './features/knowledge-bridge/sse-proxy.ts'
+import { describeGitnexusCredentials } from './features/knowledge-bridge/gitnexus-credentials.ts'
 import type { ProposalSource, Provenance } from './features/proposal/store.ts'
 import type { ProposalService } from './features/proposal/service.ts'
 import type { LifecycleServiceImpl } from './features/archive/service.ts'
@@ -65,6 +66,8 @@ export interface ApiDeps {
   gitnexusSseProxyEnabled?: boolean
   gitnexusSseProxyPort?: number
   gitnexusSseProxyUpstream?: string
+  /** Credential plumbing (`Config.gitnexusApiKeyFromEnv`). */
+  gitnexusApiKeyFromEnv?: string
   /** Severities whose open findings block archiving (`Config.reviewBlockingSeverities`). */
   reviewBlockingSeverities?: string[]
 }
@@ -251,6 +254,10 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     const parsed = await readJsonBody<typeof wikiBody>(r.req).catch(() => wikiBody)
     const body = { ...wikiBody, ...parsed }
     if (body.projectRoot === '') throw new Error('projectRoot is required')
+    const credentials = describeGitnexusCredentials({
+      env: process.env,
+      fromEnvName: deps.gitnexusApiKeyFromEnv ?? '',
+    })
     const sseProxy = await ensureSseProxy({
       enabled: deps.gitnexusSseProxyEnabled === true,
       port: deps.gitnexusSseProxyPort ?? 8787,
@@ -276,6 +283,7 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
       pages: result.pages,
       complete: result.complete,
       sseProxy,
+      credentials,
       output: result.output,
       ...(result.note !== undefined ? { note: result.note } : {}),
     }

@@ -21,6 +21,7 @@ import { resolveConfig, type Config } from './config.ts'
 import type { Proposal } from './features/proposal/store.ts'
 import type { OrchestrationTarget } from './features/archive/orchestrate.ts'
 import { ProposalStore } from './features/proposal/store.ts'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { EventLog } from './features/proposal/events.ts'
@@ -42,8 +43,15 @@ const nextStepHint = (status: string): string => STATE_HINTS[status as keyof typ
 import { collectProjectDrift, orchestrateArchive, orchestrateReopen } from './features/archive/orchestrate.ts'
 import { ProjectRegistry } from './features/project/registry.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
-import { gitnexusAnalyze, gitnexusRun, gitnexusStatus, gitnexusWiki } from './features/knowledge-bridge/gitnexus.ts'
+import {
+  gitnexusAnalyze,
+  gitnexusRun,
+  gitnexusStatus,
+  gitnexusWiki,
+  setGitnexusApiKeyEnv,
+} from './features/knowledge-bridge/gitnexus.ts'
 import { ensureSseProxy } from './features/knowledge-bridge/sse-proxy.ts'
+import { describeGitnexusCredentials } from './features/knowledge-bridge/gitnexus-credentials.ts'
 import { createWeknoraClient } from './features/knowledge-bridge/weknora.ts'
 import { mountWorkmateApi, createProposal, type WebServerLike } from './api.ts'
 import { registerGuidance } from './features/guidance/index.ts'
@@ -103,6 +111,9 @@ export function apply(ctx: Context, config: Config = {}): void {
     copyFiles: resolved.copyFiles,
     packageManager: resolved.packageManager,
   })
+  // Every spawned `gitnexus` gets GITNEXUS_API_KEY mapped from the configured
+  // variable (key lives in the Keychain / shell, never in a repo or plugin file).
+  setGitnexusApiKeyEnv(resolved.gitnexusApiKeyFromEnv)
   const swarm = new SwarmManager({ proposals, worktrees: worktree })
   // The judgement layer reaches the LLM service through a lazy reference: a profile
   // without `llm` keeps the plugin ACTIVE and the agent provider simply reports
@@ -218,6 +229,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       gitnexusSseProxyEnabled: resolved.gitnexusSseProxyEnabled,
       gitnexusSseProxyPort: resolved.gitnexusSseProxyPort,
       gitnexusSseProxyUpstream: resolved.gitnexusSseProxyUpstream,
+      gitnexusApiKeyFromEnv: resolved.gitnexusApiKeyFromEnv,
     })
   })
 }
@@ -805,6 +817,11 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         }
         // Gateways that stream `data:{` (no space) need the normalizing proxy first;
         // reuse an existing matching instance rather than spawning another.
+        const credentials = describeGitnexusCredentials({
+          env: process.env,
+          fromEnvName: resolved.gitnexusApiKeyFromEnv,
+          configPath: join(homedir(), '.gitnexus', 'config.json'),
+        })
         const sseProxy = await ensureSseProxy({
           enabled: resolved.gitnexusSseProxyEnabled,
           port: resolved.gitnexusSseProxyPort,
@@ -836,6 +853,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
           pages: result.pages,
           complete: result.complete,
           sseProxy,
+          credentials,
           output: result.output,
           ...(result.note !== undefined ? { note: result.note } : {}),
         })
