@@ -156,6 +156,12 @@ describe('host entry dependency shape', () => {
     expect(registered.map((tool) => (tool as { name: string }).name)).toContain('workmate_plan_drift')
     expect(registered.map((tool) => (tool as { name: string }).name)).toContain('workmate_assess_risk')
     expect(registered.map((tool) => (tool as { name: string }).name)).toContain('workmate_wiki_generate')
+    // Root resolution is implicit (session cwd / sole registered project), so the
+    // schema must not force callers to paste an absolute path.
+    const wikiTool = registered.find((tool) => (tool as { name: string }).name === 'workmate_wiki_generate') as {
+      parameters: Record<string, { required?: boolean }>
+    }
+    expect(wikiTool.parameters['projectRoot']?.required).not.toBe(true)
     expect(routes).toEqual([])
   })
 

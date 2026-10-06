@@ -7,6 +7,7 @@ import { inspectWikiArtifacts, workmateCommandDefinition, type CommandDeps } fro
 
 const deps = (overrides: Partial<CommandDeps> = {}): CommandDeps => ({
   ensureProxy: vi.fn(async () => ({ status: 'reused' })),
+  projects: vi.fn(async () => []),
   status: vi.fn(async () => ({ stale: false, output: '' })),
   analyze: vi.fn(async () => ({})),
   wiki: vi.fn(async () => ({
@@ -48,14 +49,18 @@ describe('/workmate parsing (add-workmate-command)', () => {
     expect(parseWorkmateInput('deploy /repo')).toMatchObject({ error: expect.stringContaining('未知子命令') })
     expect(parseWorkmateInput('wiki /repo --verbose')).toMatchObject({ error: expect.stringContaining('未知旗标') })
     expect(parseWorkmateInput('wiki /a /b')).toMatchObject({ error: expect.stringContaining('多余参数') })
-    expect(parseWorkmateInput('wiki repo')).toMatchObject({ error: expect.stringContaining('绝对路径') })
-    expect(parseWorkmateInput('wiki')).toMatchObject({ error: expect.stringContaining('需要仓库的绝对路径') })
+    // 路径可选：省略是合法输入（= 当前项目），相对路径也交给解析器
+    expect(parseWorkmateInput('wiki')).toEqual({ action: 'wiki', force: false, reanalyze: false })
+    expect(parseWorkmateInput('wiki repo')).toEqual({ action: 'wiki', projectRoot: 'repo', force: false, reanalyze: false })
     expect(parseWorkmateInput('wiki /repo --lang')).toMatchObject({ error: expect.stringContaining('--lang') })
   })
 })
 
 describe('/workmate handler', () => {
-  const invocation = (rawInput: string): { rawInput: string } => ({ rawInput })
+  const invocation = (rawInput: string, cwd?: string): { rawInput: string; agent?: { session: { header: { cwd: string } } } } => ({
+    rawInput,
+    ...(cwd !== undefined ? { agent: { session: { header: { cwd } } } } : {}),
+  })
 
   it('reports usage for help and never touches the bridges', async () => {
     const d = deps()
@@ -154,6 +159,46 @@ describe('inspectWikiArtifacts', () => {
 
     expect(await inspectWikiArtifacts(dir)).toEqual({ pages: 1, complete: true, indexBytes: 13 })
     expect(await inspectWikiArtifacts(join(dir, 'nope'))).toEqual({ pages: 0, complete: false, indexBytes: 0 })
+    await rm(dir, { recursive: true, force: true })
+  })
+})
+describe('implicit project resolution (resolve-project-implicitly)', () => {
+  const invocation = (rawInput: string, cwd?: string) => ({
+    rawInput,
+    ...(cwd !== undefined ? { agent: { session: { header: { cwd } } } } : {}),
+  })
+
+  it('defaults to the session project when no path is given', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wm-command-cwd-'))
+    const d = deps({
+      wiki: vi.fn(async () => ({
+        wikiDir: join(dir, '.gitnexus', 'wiki'),
+        indexHtml: join(dir, '.gitnexus', 'wiki', 'index.html'),
+        pages: 12,
+        complete: true,
+        output: '',
+      })),
+    })
+
+    const result = await workmateCommandDefinition(d).handler(invocation('wiki', dir))
+
+    expect(result.kind).toBe('success')
+    expect(result.text).toContain('当前项目（会话工作目录）')
+    expect(result.text).toContain(dir)
+    expect(d.wiki).toHaveBeenCalledWith(dir, { force: false, lang: 'chinese' })
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('resolves a registered project name and lists candidates when unknown', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wm-command-named-'))
+    const named = deps({ projects: vi.fn(async () => [{ name: 'demo', root: dir }]) })
+    const okResult = await workmateCommandDefinition(named).handler(invocation('status demo', tmpdir()))
+    expect(okResult.kind).toBe('success')
+    expect(okResult.text).toContain('已注册项目 demo')
+
+    const unknown = await workmateCommandDefinition(deps()).handler(invocation('status nowhere', tmpdir()))
+    expect(unknown.kind).toBe('error')
+    expect(unknown.text).toContain('无法解析项目')
     await rm(dir, { recursive: true, force: true })
   })
 })

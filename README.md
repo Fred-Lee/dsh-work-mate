@@ -186,10 +186,27 @@ for line in sys.stdin:
 | 输入 | 行为 |
 |---|---|
 | `/workmate help` | 用法（也可只输入 `/workmate`） |
-| `/workmate status <绝对路径>` | **只读**：索引是否 stale + wiki 产物 `complete` / `pages` / `index.html` 大小，不调 LLM |
-| `/workmate wiki <绝对路径> [--force] [--reanalyze] [--lang chinese]` | 保证归一代理在跑 →（可选）重索引 → 生成 wiki → 按 `complete`/`pages` 汇报产物路径 |
+| `/workmate status [项目]` | **只读**：索引是否 stale + wiki 产物 `complete` / `pages` / `index.html` 大小，不调 LLM |
+| `/workmate wiki [项目] [--force] [--reanalyze] [--lang chinese]` | 保证归一代理在跑 →（可选）重索引 → 生成 wiki → 按 `complete`/`pages` 汇报产物路径 |
 
-例：`/workmate wiki /Users/fredlee/Documents/xkw_workspace/internal-homework`
+**项目怎么给**（按顺序解析，给不出来就列出候选而不是猜）：
+
+| 写法 | 解析为 |
+|---|---|
+| `/workmate wiki`（省略） | **当前会话的项目目录**（`agent.session.header.cwd`，与 `bash` 工具同一来源） |
+| `/workmate wiki .` / `当前项目` / `本项目` / `这个项目` / `这里` / `cwd` | 同上 |
+| `/workmate wiki internal-homework` | 先查 WorkMate 已注册项目名；再试"当前目录下的同名子目录" |
+| `/workmate wiki /abs/path` | 绝对路径（必须存在且是目录） |
+
+例（连当前项目都不用写）：
+```
+/workmate status                    # 只读看当前项目
+/workmate wiki                      # 生成 / 更新当前项目 wiki
+/workmate wiki --reanalyze          # 索引落后时先重建再生成
+```
+
+> 工具 `workmate_wiki_generate` 的 `projectRoot` 同样**可以省略**：会用会话工作目录，
+> 若会话没有工作目录则回退到"唯一已注册项目"。
 半份产物、代理不可用、重索引失败都以 `error` 直接显示原因，不会给你一个"看起来成功"的结论。
 
 > 为什么需要它：在对话里说"整理一下 X 的 wiki"时，**选哪个工具由模型决定**，它可能绕开

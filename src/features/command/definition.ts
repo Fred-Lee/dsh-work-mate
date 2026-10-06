@@ -12,6 +12,12 @@
 import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CommandFace, CommandResultFace } from '../guidance/faces.ts'
+import {
+  resolveProjectRoot,
+  sessionCwdOf,
+  type AgentLike,
+  type KnownProject,
+} from '../project/implicit-root.ts'
 import { parseWorkmateInput, workmateUsage } from './parse.ts'
 
 export interface WikiRunResult {
@@ -26,6 +32,8 @@ export interface WikiRunResult {
 export interface CommandDeps {
   /** Ensure the SSE-normalizing proxy is available (no-op when disabled). */
   ensureProxy(): Promise<{ status: string; note?: string }>
+  /** WorkMate-registered projects, for resolving a project by name. */
+  projects(): Promise<readonly KnownProject[]>
   status(projectRoot: string): Promise<{ stale: boolean; output: string; note?: string }>
   analyze(projectRoot: string): Promise<{ note?: string }>
   wiki(projectRoot: string, options: { force: boolean; lang: string }): Promise<WikiRunResult>
@@ -55,30 +63,31 @@ export function workmateCommandDefinition(deps: CommandDeps): {
   name: string
   description: string
   input: { hint: string }
-  handler: (invocation: { rawInput: string }) => Promise<CommandResultFace>
+  handler: (invocation: { rawInput: string; agent?: AgentLike }) => Promise<CommandResultFace>
 } {
   return {
     name: 'workmate',
     description: 'WorkMate 确定性入口：生成 / 更新项目 wiki，或只读查看索引与 wiki 产物状态。',
-    input: { hint: 'wiki <绝对路径> | status <绝对路径> | help' },
+    input: { hint: 'wiki [项目] | status [项目] | help（项目可省略 = 当前项目）' },
     async handler(invocation) {
       const parsed = parseWorkmateInput(invocation.rawInput)
       if ('error' in parsed) return fail(parsed.error)
       if (parsed.action === 'help') return ok(workmateUsage())
 
-      const projectRoot = parsed.projectRoot as string
-      try {
-        const info = await stat(projectRoot)
-        if (!info.isDirectory()) return fail(`不是目录：${projectRoot}`)
-      } catch {
-        return fail(`路径不存在或不可读：${projectRoot}`)
-      }
+      // "当前项目" first: the session knows its own workspace cwd.
+      const resolved = resolveProjectRoot({
+        ...(parsed.projectRoot !== undefined ? { input: parsed.projectRoot } : {}),
+        cwd: sessionCwdOf(invocation.agent) ?? process.cwd(),
+        projects: await deps.projects(),
+      })
+      if ('error' in resolved) return fail(resolved.error)
+      const projectRoot = resolved.root
 
       if (parsed.action === 'status') {
         const status = await deps.status(projectRoot)
         const artifacts = await inspectWikiArtifacts(projectRoot)
         const lines = [
-          `仓库：${projectRoot}`,
+          `仓库：${projectRoot}（${resolved.how}）`,
           `索引：${status.stale ? '⚠️ stale（落后于当前提交，用 --reanalyze 重建）' : '✅ 与当前提交一致'}`,
           `wiki：complete=${artifacts.complete} | pages=${artifacts.pages}` +
             (artifacts.complete ? ` | index.html ${kb(artifacts.indexBytes)}` : ' | 缺 index.html（未跑完）'),
@@ -97,7 +106,8 @@ export function workmateCommandDefinition(deps: CommandDeps): {
       }
       const lang = parsed.lang ?? deps.configuredLang
       const result = await deps.wiki(projectRoot, { force: parsed.force, lang })
-      const head = `仓库：${projectRoot}\n代理：${proxy.status} | 语言：${lang || '(GitNexus 默认)'}`
+      const head =
+        `仓库：${projectRoot}（${resolved.how}）\n代理：${proxy.status} | 语言：${lang || '(GitNexus 默认)'}`
       if (!result.complete) {
         return fail(
           `${head}\n⚠️ 生成中断：已写出 ${result.pages} 个页面，但缺 index.html。\n` +

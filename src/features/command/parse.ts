@@ -25,9 +25,10 @@ export interface ParseFailure {
 }
 
 const USAGE = [
-  '/workmate wiki <绝对路径> [--force] [--reanalyze] [--lang chinese]  — 生成 / 更新项目 wiki',
-  '/workmate status <绝对路径>                                        — 只读：索引新鲜度 + wiki 产物',
-  '/workmate help                                                     — 显示本帮助',
+  '/workmate wiki [项目] [--force] [--reanalyze] [--lang chinese]  — 生成 / 更新项目 wiki',
+  '/workmate status [项目]                                        — 只读：索引新鲜度 + wiki 产物',
+  '  项目可省略（= 当前项目 / 会话工作目录），也可给项目名、相对路径或绝对路径',
+  '/workmate help                                                 — 显示本帮助',
 ].join('\n')
 
 export function workmateUsage(): string {
@@ -64,15 +65,9 @@ export function parseWorkmateInput(rawInput: string): WorkmateInput | ParseFailu
     else if (projectRoot === undefined) projectRoot = token
     else return { error: `多余参数 '${token}'（路径只能给一个）。\n\n${USAGE}` }
   }
-  if (projectRoot === undefined) {
-    return { error: `${action} 需要仓库的绝对路径。\n\n${USAGE}` }
-  }
-  if (!projectRoot.startsWith('/')) {
-    return { error: `需要绝对路径（收到 '${projectRoot}'）。\n\n${USAGE}` }
-  }
   return {
     action,
-    projectRoot,
+    ...(projectRoot !== undefined ? { projectRoot } : {}),
     force,
     reanalyze,
     ...(lang !== undefined ? { lang } : {}),

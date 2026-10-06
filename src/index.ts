@@ -51,6 +51,7 @@ import {
   setGitnexusApiKeyEnv,
 } from './features/knowledge-bridge/gitnexus.ts'
 import { ensureSseProxy } from './features/knowledge-bridge/sse-proxy.ts'
+import { resolveProjectRoot } from './features/project/implicit-root.ts'
 import { describeGitnexusCredentials } from './features/knowledge-bridge/gitnexus-credentials.ts'
 import { createWeknoraClient } from './features/knowledge-bridge/weknora.ts'
 import { mountWorkmateApi, createProposal, type WebServerLike } from './api.ts'
@@ -213,6 +214,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         port: resolved.gitnexusSseProxyPort,
         upstream: resolved.gitnexusSseProxyUpstream,
       }),
+    projects: () => registry.list(),
     status: (projectRoot) => gitnexusStatus(projectRoot),
     analyze: (projectRoot) => gitnexusAnalyze(projectRoot, { force: false }),
     wiki: (projectRoot, options) =>
@@ -818,7 +820,11 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
       description:
         'Generate a readable project wiki from the GitNexus knowledge graph (per-module documents + an index.html reader under <projectRoot>/.gitnexus/wiki/). Prefer this over running `gitnexus wiki` directly: the SSE-normalizing proxy and the gateway key injection live on this path. Works on any gitnexus-indexed repository — no proposal needed. Reports index staleness first; pass analyze:true to re-index before generating (that is the slow full rebuild). Verdict: complete=true means the reader was written; pages counts the files actually produced.',
       parameters: {
-        projectRoot: { type: 'string', required: true, description: 'Absolute project root of the indexed repository.' },
+        projectRoot: {
+          type: 'string',
+          description:
+            'Repository root. Omit to use the current session project (agent session cwd), or the sole registered project when no cwd applies.',
+        },
         analyze: { type: 'boolean', description: 'Re-index (gitnexus analyze) before generating. Default false — the result then reports stale:true when the index is behind.' },
         force: { type: 'boolean', description: 'Force full wiki regeneration even when GitNexus thinks it is up to date.' },
         lang: { type: 'string', description: 'Output language (e.g. chinese); defaults to Config.gitnexusWikiLang.' },
@@ -831,6 +837,17 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         if (!resolved.gitnexusEnabled) {
           return asJson({ note: 'gitnexus bridge disabled by config (gitnexusEnabled: false)' })
         }
+        const known = await registry.list()
+        const sessionCwd = exec.agent?.session?.header?.cwd
+        const requested =
+          args.projectRoot ?? (sessionCwd === undefined && known.length === 1 ? known[0]?.root : undefined)
+        const resolvedRoot = resolveProjectRoot({
+          ...(requested !== undefined ? { input: requested } : {}),
+          ...(sessionCwd !== undefined ? { cwd: sessionCwd } : {}),
+          projects: known,
+        })
+        if ('error' in resolvedRoot) throw new Error(resolvedRoot.error)
+        const projectRoot = resolvedRoot.root
         // Gateways that stream `data:{` (no space) need the normalizing proxy first;
         // reuse an existing matching instance rather than spawning another.
         const credentials = describeGitnexusCredentials({
@@ -843,14 +860,14 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
           port: resolved.gitnexusSseProxyPort,
           upstream: resolved.gitnexusSseProxyUpstream,
         })
-        const status = args.analyze === true ? undefined : await gitnexusStatus(args.projectRoot, exec.signal)
+        const status = args.analyze === true ? undefined : await gitnexusStatus(projectRoot, exec.signal)
         let analyzed = false
         if (args.analyze === true) {
-          const reindex = await gitnexusAnalyze(args.projectRoot, { force: false }, exec.signal)
+          const reindex = await gitnexusAnalyze(projectRoot, { force: false }, exec.signal)
           analyzed = reindex.note === undefined
         }
         const result = await gitnexusWiki(
-          args.projectRoot,
+          projectRoot,
           {
             ...(args.force === true ? { force: true } : {}),
             ...(args.review === true ? { review: true } : {}),
@@ -860,7 +877,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
           exec.signal,
         )
         return asJson({
-          projectRoot: args.projectRoot,
+          projectRoot: projectRoot,
           analyzed,
           stale: analyzed ? false : (status?.stale ?? true),
           ...(status?.note !== undefined ? { statusNote: status.note } : {}),
