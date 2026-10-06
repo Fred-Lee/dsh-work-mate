@@ -45,6 +45,32 @@ export interface PromptSectionFace {
  * typings we compile against, so the call site falls back to the documented
  * numeric position.
  */
+/**
+ * `@deepseek-ai/dsh-commands` — plugin-owned human-command registry. The handler
+ * runs against the receiving agent WITHOUT sending the command to the model.
+ * Declared minimally: the package is not a dependency of this plugin.
+ */
+export interface CommandResultFace {
+  kind: 'success' | 'error'
+  text?: string
+}
+
+export interface CommandInvocationFace {
+  rawInput: string
+  signal?: AbortSignal
+}
+
+export interface CommandDefinitionFace {
+  name: string
+  description: string
+  input?: { hint: string }
+  handler: (invocation: CommandInvocationFace) => CommandResultFace | Promise<CommandResultFace>
+}
+
+export interface CommandFace {
+  register(definition: CommandDefinitionFace): () => void
+}
+
 export interface SystemPromptFace {
   section(section: PromptSectionFace): () => void
   getSectionOrder?(name: 'TOOL_WORKFLOW'): number

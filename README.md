@@ -77,6 +77,7 @@ node $DSH --profile web --dump-config | sed -n '/id: workmate/,/^- id:/p'
 | **左栏图标**（原生工作台） | 左栏最下方「设置」上方，WorkMate 图标；点它**中央区域**从对话切成工作台 | 日常：把 DSH 当工作台用 |
 | **右侧 dock 标签** | 右侧栏的「🛠 WorkMate」标签（better-sidebar 提供） | 边聊边看提案 |
 | **独立页** | `http://127.0.0.1:3080/workmate/`，可加 `?view=console` / `?view=graph` | 调试、深链、截图 |
+| **斜杠命令** | 对话输入框输入 `/workmate …`（见下） | **确定性**：直接执行，不经过模型选工具 |
 
 进入后顶部有三个视图切换：**看板 / 控制台 / 知识图谱**，右侧是「＋ 新提案」。
 
@@ -177,6 +178,24 @@ for line in sys.stdin:
 
 同一道题第二次问会命中缓存：`cached=True` 且 `latencyMs` 接近 0——这是把"DeepSeek 当判官"
 变得便宜的关键；`degraded=True` 说明首选 provider 没答上来，结论来自降级链。
+
+### 0.8b 斜杠命令 `/workmate`（确定性入口）
+
+对话输入框里直接敲，**不会发送给模型**，由插件执行并把结果直接渲染：
+
+| 输入 | 行为 |
+|---|---|
+| `/workmate help` | 用法（也可只输入 `/workmate`） |
+| `/workmate status <绝对路径>` | **只读**：索引是否 stale + wiki 产物 `complete` / `pages` / `index.html` 大小，不调 LLM |
+| `/workmate wiki <绝对路径> [--force] [--reanalyze] [--lang chinese]` | 保证归一代理在跑 →（可选）重索引 → 生成 wiki → 按 `complete`/`pages` 汇报产物路径 |
+
+例：`/workmate wiki /Users/fredlee/Documents/xkw_workspace/internal-homework`
+半份产物、代理不可用、重索引失败都以 `error` 直接显示原因，不会给你一个"看起来成功"的结论。
+
+> 为什么需要它：在对话里说"整理一下 X 的 wiki"时，**选哪个工具由模型决定**，它可能绕开
+> WorkMate 的工具直接跑 `gitnexus wiki`（那样代理没起、key 没注入）。`/workmate` 走宿主
+> 的命令面（`@deepseek-ai/dsh-commands`），**不经过模型**，所以是确定性的。
+> 该命令需要重启 harness 后生效；CLI/REST 路径（`wkwiki`、`POST /api/wiki`）不受影响。
 
 ### 0.9 快速命令：给一个已有项目生成 wiki
 

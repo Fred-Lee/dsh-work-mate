@@ -16,8 +16,19 @@ import {
   PROPOSAL_AUDIT_SKILL,
   PROPOSAL_FLOW_SKILL,
 } from './content.ts'
+import type { CommandFace } from './faces.ts'
+import { registerWorkmateCommand, type CommandDeps } from '../command/definition.ts'
 
-export function registerGuidance(ctx: Context): void {
+export function registerGuidance(ctx: Context, commandDeps?: CommandDeps): void {
+  // `/workmate …` runs without sending the command to the model (host `commands`
+  // service). Optional dependency: a profile without it simply loses this entry.
+  if (commandDeps !== undefined) {
+    ctx.inject(['commands'], (scope) => {
+      const commands = (scope as unknown as { commands: CommandFace }).commands
+      scope.effect(() => registerWorkmateCommand(commands, commandDeps), 'workmate:command')
+    })
+  }
+
   ctx.inject(['skills'], (scope) => {
     scope.effect(() => scope.skills.register(PROPOSAL_FLOW_SKILL), 'workmate:flow-skill')
     scope.effect(() => scope.skills.register(PROPOSAL_AUDIT_SKILL), 'workmate:audit-skill')

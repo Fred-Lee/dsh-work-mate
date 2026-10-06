@@ -206,7 +206,23 @@ export function apply(ctx: Context, config: Config = {}): void {
   registerTools(ctx, { proposals, archive, registry, worktree, swarm, decision, resolved, events })
   // Native guidance surfaces: two runtime skills + one flow section. Lazy, so
   // a composition without those services keeps the plugin ACTIVE.
-  registerGuidance(ctx)
+  registerGuidance(ctx, {
+    ensureProxy: () =>
+      ensureSseProxy({
+        enabled: resolved.gitnexusSseProxyEnabled,
+        port: resolved.gitnexusSseProxyPort,
+        upstream: resolved.gitnexusSseProxyUpstream,
+      }),
+    status: (projectRoot) => gitnexusStatus(projectRoot),
+    analyze: (projectRoot) => gitnexusAnalyze(projectRoot, { force: false }),
+    wiki: (projectRoot, options) =>
+      gitnexusWiki(projectRoot, {
+        ...(options.force ? { force: true } : {}),
+        lang: options.lang,
+        timeoutMs: resolved.gitnexusWikiTimeoutMs,
+      }),
+    configuredLang: resolved.gitnexusWikiLang,
+  })
   // UI is optional: mounted only once a webServer exists, and torn down with
   // it. In a profile without the web bundle the tools above stay available.
   ctx.inject(['webServer'], (scope) => {
