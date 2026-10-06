@@ -800,7 +800,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     defineTool({
       name: 'workmate_wiki_generate',
       description:
-        'Generate a readable project wiki from the GitNexus knowledge graph (per-module documents + an index.html reader under <projectRoot>/.gitnexus/wiki/). Works on any gitnexus-indexed repository — no proposal needed. Reports index staleness first; pass analyze:true to re-index before generating (that is the slow full rebuild).',
+        'Generate a readable project wiki from the GitNexus knowledge graph (per-module documents + an index.html reader under <projectRoot>/.gitnexus/wiki/). Prefer this over running `gitnexus wiki` directly: the SSE-normalizing proxy and the gateway key injection live on this path. Works on any gitnexus-indexed repository — no proposal needed. Reports index staleness first; pass analyze:true to re-index before generating (that is the slow full rebuild). Verdict: complete=true means the reader was written; pages counts the files actually produced.',
       parameters: {
         projectRoot: { type: 'string', required: true, description: 'Absolute project root of the indexed repository.' },
         analyze: { type: 'boolean', description: 'Re-index (gitnexus analyze) before generating. Default false — the result then reports stale:true when the index is behind.' },

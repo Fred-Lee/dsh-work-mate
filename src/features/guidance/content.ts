@@ -271,4 +271,7 @@ export const FLOW_SECTION_TEXT = [
   '同一方向卡两轮必须 workmate_proposal_block；代码事实先经 workmate_knowledge_query 核实，不要凭记忆断言。',
   'merging / archiving 需要人工批准：被拒时请用户在面板点推进，不要尝试绕过。',
   '完整规程见技能 workmate-proposal-flow，审查规程见 workmate-proposal-audit。',
+  '项目 wiki 的生成 / 更新一律走 workmate_wiki_generate（或 POST /api/wiki），不要直接调 gitnexus wiki：',
+  'SSE 归一代理与网关 key 注入只在这条工具路径里，直接调 CLI 会连不上或拿不到 key；',
+  '判成功认返回的 complete=true（缺 index.html 即半份产物），诊断看 credentials.source 与 sseProxy.status。',
 ].join('')
