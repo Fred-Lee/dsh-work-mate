@@ -178,7 +178,43 @@ for line in sys.stdin:
 同一道题第二次问会命中缓存：`cached=True` 且 `latencyMs` 接近 0——这是把"DeepSeek 当判官"
 变得便宜的关键；`degraded=True` 说明首选 provider 没答上来，结论来自降级链。
 
-### 0.9 第 8 步：并行执行（swarm）
+### 0.9 快速命令：给一个已有项目生成 wiki
+
+不需要建提案。WorkMate 把 GitNexus 的 wiki 生成能力包成了一个工具/接口，产物固定落在
+`<项目>/.gitnexus/wiki/`（逐模块 markdown + 可用浏览器打开的 `index.html`）：
+
+```bash
+API=http://127.0.0.1:3080/workmate/api
+ROOT=/Users/fredlee/Documents/xkw_workspace/internal-homework
+
+# ① 先看索引新不新（只读，不会偷偷重跑重索引）
+gitnexus status            # 在项目目录里跑；显示 stale 就先 analyze
+
+# ② 生成 wiki（LLM 配置读 ~/.gitnexus/config.json；中文加 --lang chinese）
+curl -s -X POST $API/wiki -H 'content-type: application/json' \
+  -d "{\"projectRoot\":\"$ROOT\",\"lang\":\"chinese\"}" | python3 -m json.tool
+
+# ③ 打开阅读器
+open $ROOT/.gitnexus/wiki/index.html
+```
+
+对话里等价于工具 `workmate_wiki_generate`：
+
+| 参数 | 作用 |
+|---|---|
+| `projectRoot` | 已索引仓库的绝对路径（必填） |
+| `analyze: true` | 先 `gitnexus analyze` 重建索引再生成（慢，但保证 wiki 基于最新图谱） |
+| `lang: "chinese"` | 输出语言；也可用配置 `gitnexusWikiLang` 固定 |
+| `force: true` | 即使 GitNexus 认为已是最新也整份重生成 |
+| `review: true` | 只做到模块分组就停，先人工确认结构再生成页面 |
+
+结果里 `stale` 如实反映索引是否落后（不擅自替你重跑重索引）；失败时 `note` 会附上
+"先配 provider/key"的可执行指引。超时默认 15 分钟（wiki 是逐模块 LLM 生成，慢是正常的）。
+
+> 与 `workmate_wiki_link` 的区别：后者登记的是**提案级 WeKnora 页面引用**，
+> 本命令生成的是**项目级 GitNexus 仓库 wiki**，两者互补。
+
+### 0.10 第 8 步：并行执行（swarm）
 
 ```bash
 # 1) 计划：从 tasks.md 派生任务，同批内 writes 不相交
@@ -195,7 +231,7 @@ for line in sys.stdin:
 `git merge feature/<提案>` → 解冲突 → 提交 → 重跑第 4 步。未合并的任务会挡住归档
 （`force` 可跳过）。
 
-### 0.10 常见问题速查
+### 0.11 常见问题速查
 
 | 现象 | 原因 / 处理 |
 |---|---|
@@ -205,6 +241,8 @@ for line in sys.stdin:
 | 归档报「验收未通过：… 仍有未勾选任务」 | 把 `tasks.md` 真正做完并勾上，或让用户显式 `force` |
 | 归档报「计划漂移」 | 开启 `planDriftGate` 后，改了没在 `writes`/`files` 里声明的文件；补声明或 `force` |
 | 归档报「判断层归级 N 条 / CRIT 1/1 未解决」 | review.md 里那条发现被判为阻断级，修掉或勾选解决 |
+| wiki 生成报"没有 LLM 配置" | 先配 GitNexus 的 provider/key：`~/.gitnexus/config.json`，或跑一次 `gitnexus wiki --provider openai --base-url <url> --model <m> --api-key <k>` 存下来 |
+| wiki 内容是基于旧代码 | 先 `gitnexus analyze`（或调工具时传 `analyze: true`），结果的 `stale` 字段会告诉你索引落后 |
 | 判断层好像没生效 | 重启 harness；确认 `decisionEnabled: true`；看 `decision` 事件是否 `degraded`（首选 provider 不可用会降级到规则） |
 
 更细的排障见 §11。
@@ -567,6 +605,7 @@ Agent 会话中可直接调用（DSH 工具面注册，名字以 `workmate_` 前
 | `workmate_wiki_link` / `workmate_wiki_links` | 登记 / 列出 WeKnora Wiki 页面引用 |
 | `workmate_knowledge_query` | GitNexus 查询（query / context / impact） |
 | `workmate_knowledge_search` | WeKnora 文档检索（未配置返回禁用说明） |
+| `workmate_wiki_generate` | 为已索引项目生成 GitNexus wiki（`<项目>/.gitnexus/wiki/`）；`analyze` 先重建索引、`lang` 选语言、`stale` 如实报告索引新旧 |
 | `workmate_metrics` | 过程度量（由提案事件流现算）：各状态停留、周期时间、返工次数、门禁失败排行、吞吐、agent/人 归因；带 `id` 出单提案，缺省出全局 |
 | `workmate_bands` | 控制带评测：每提案一个样本 + rolling 基线（均值/σ）+ 1σ log / 2σ diagnose / 3σ propose；样本不足报 `insufficient-data` 不误报。默认只读，`apply:true` 时 3σ 会开一个 `metric-regression` 草稿提案 |
 

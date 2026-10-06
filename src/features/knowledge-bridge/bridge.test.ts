@@ -1,8 +1,8 @@
-import { mkdtemp, rm, chmod, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, chmod, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { gitnexusRun, gitnexusAnalyze } from './gitnexus.ts'
+import { gitnexusRun, gitnexusAnalyze, gitnexusStatus, gitnexusWiki } from './gitnexus.ts'
 import { createWeknoraClient, extractFragments } from './weknora.ts'
 
 let home: string
@@ -110,5 +110,55 @@ describe('weknora client', () => {
 
   it('extractFragments falls back to array payloads and text fields', () => {
     expect(extractFragments([{ text: 'a' }, { unrelated: 1 }, 'str', null], 5)).toEqual(['a'])
+  })
+})
+
+describe('gitnexus wiki bridge (fake CLI)', () => {
+  it('reports staleness from `status` without re-indexing', async () => {
+    await installFakeGitnexus('echo "Status: stale (re-run gitnexus analyze)"')
+    process.env['PATH'] = `${binDir}:${process.env['PATH'] ?? ''}`
+
+    const result = await gitnexusStatus(home)
+
+    expect(result.stale).toBe(true)
+    expect(result.output).toContain('stale')
+  })
+
+  it('treats a failing probe as stale, never as fresh', async () => {
+    const saved = process.env['PATH']
+    process.env['PATH'] = binDir
+    try {
+      const result = await gitnexusStatus(home)
+      expect(result.stale).toBe(true)
+      expect(result.note).toContain('gitnexus status failed')
+    } finally {
+      if (saved !== undefined) process.env['PATH'] = saved
+    }
+  })
+
+  it('passes force/lang and returns the fixed wiki paths', async () => {
+    await installFakeGitnexus('echo "wiki written"')
+    process.env['PATH'] = `${binDir}:${process.env['PATH'] ?? ''}`
+
+    const result = await gitnexusWiki(home, { force: true, lang: 'chinese' })
+
+    expect(result.wikiDir).toBe(join(home, '.gitnexus', 'wiki'))
+    expect(result.indexHtml).toBe(join(home, '.gitnexus', 'wiki', 'index.html'))
+    expect(result.output).toContain('wiki written')
+    const argv = await readFile(join(home, 'argv.txt'), 'utf8')
+    expect(argv).toContain('wiki')
+    expect(argv).toContain('--force')
+    expect(argv).toContain('--lang chinese')
+  })
+
+  it('surfaces an actionable note when generation fails', async () => {
+    await installFakeGitnexus('echo "no LLM provider configured" >&2; exit 1')
+    process.env['PATH'] = `${binDir}:${process.env['PATH'] ?? ''}`
+
+    const result = await gitnexusWiki(home)
+
+    expect(result.output).toBe('')
+    expect(result.note).toContain('gitnexus wiki failed')
+    expect(result.note).toContain('~/.gitnexus/config.json')
   })
 })

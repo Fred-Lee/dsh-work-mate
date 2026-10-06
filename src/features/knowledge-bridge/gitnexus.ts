@@ -4,7 +4,7 @@
  * while the local `gitnexus` binary natively exposes everything we need.
  * execFile + argv array, cwd = the target project, hard timeout.
  */
-import { basename } from 'node:path'
+import { basename, join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { validateProjectRoot } from '../proposal/openspec.ts'
 
@@ -82,5 +82,73 @@ export async function gitnexusAnalyze(
     return { output: output.trim() || '(no output)' }
   } catch (error) {
     return { output: '', note: `gitnexus analyze failed: ${error instanceof Error ? error.message : String(error)}` }
+  }
+}
+
+export interface GitnexusStatusResult {
+  output: string
+  /** True when the index no longer matches the working branch/commit. */
+  stale: boolean
+  note?: string
+}
+
+/**
+ * Read-only freshness probe (design D1 of `add-wiki-generation`): `analyze` is a
+ * heavy full rebuild, so the wiki entry point reports staleness instead of silently
+ * running it. A probe failure counts as stale — unknown is not "fresh".
+ */
+export async function gitnexusStatus(projectRoot: string, signal?: AbortSignal): Promise<GitnexusStatusResult> {
+  const root = validateProjectRoot(projectRoot)
+  try {
+    const output = await execGitnexus(['status'], root, 30_000, signal)
+    return { output: output.trim(), stale: /stale|re-run gitnexus analyze/i.test(output) }
+  } catch (error) {
+    return {
+      output: '',
+      stale: true,
+      note: `gitnexus status failed: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
+}
+
+export interface GitnexusWikiResult extends GitnexusResult {
+  /** Where GitNexus writes the generated wiki. */
+  wikiDir: string
+  indexHtml: string
+}
+
+/**
+ * Generate the repository wiki from the knowledge graph. The output directory is
+ * fixed by GitNexus (`<repo>/.gitnexus/wiki/`); WorkMate returns the absolute paths
+ * instead of duplicating the content. Generation is per-module LLM work, hence the
+ * long default timeout.
+ */
+export async function gitnexusWiki(
+  projectRoot: string,
+  options: { force?: boolean; lang?: string; review?: boolean; timeoutMs?: number } = {},
+  signal?: AbortSignal,
+): Promise<GitnexusWikiResult> {
+  const root = validateProjectRoot(projectRoot)
+  const wikiDir = join(root, '.gitnexus', 'wiki')
+  const indexHtml = join(wikiDir, 'index.html')
+  const cliArgs: string[] = ['wiki', root]
+  if (options.force === true) cliArgs.push('--force')
+  if (options.lang !== undefined && options.lang !== '') cliArgs.push('--lang', options.lang)
+  if (options.review === true) cliArgs.push('--review')
+
+  try {
+    const output = await execGitnexus(cliArgs, root, options.timeoutMs ?? 900_000, signal)
+    return { output: output.trim() || '(no output)', wikiDir, indexHtml }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return {
+      output: '',
+      wikiDir,
+      indexHtml,
+      note:
+        `gitnexus wiki failed: ${detail} — ` +
+        'wiki 生成需要 LLM 配置（~/.gitnexus/config.json，或先跑一次 ' +
+        '`gitnexus wiki --provider <p> --model <m> --api-key <k>` 把配置存下来）',
+    }
   }
 }

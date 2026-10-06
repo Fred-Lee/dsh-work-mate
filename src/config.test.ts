@@ -32,6 +32,8 @@ describe('resolveConfig', () => {
       reviewGradeMax: 5,
       decisionCacheEnabled: true,
       decisionCacheMax: 500,
+      gitnexusWikiLang: '',
+      gitnexusWikiTimeoutMs: 900000,
       packageManager: 'pnpm',
       weknoraEnabled: true,
       weknoraKbId: '',

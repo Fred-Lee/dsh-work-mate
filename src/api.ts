@@ -16,6 +16,7 @@ import { evaluateBands, loadBands } from './features/metrics/bands.ts'
 import { runBandsCheck } from './features/metrics/check.ts'
 import { CONFIG_DEFAULTS } from './config.ts'
 import type { DecisionService } from './features/decision/service.ts'
+import { gitnexusAnalyze, gitnexusStatus, gitnexusWiki } from './features/knowledge-bridge/gitnexus.ts'
 import type { ProposalSource, Provenance } from './features/proposal/store.ts'
 import type { ProposalService } from './features/proposal/service.ts'
 import type { LifecycleServiceImpl } from './features/archive/service.ts'
@@ -53,6 +54,12 @@ export interface ApiDeps {
   allowAgentApproval?: boolean
   /** Judgement layer; omitted = disabled (change `add-decision-nodes`). */
   decision?: DecisionService
+  /** GitNexus bridge switch (`Config.gitnexusEnabled`); omitted = enabled. */
+  gitnexusEnabled?: boolean
+  /** Wiki output language (`Config.gitnexusWikiLang`). */
+  gitnexusWikiLang?: string
+  /** Wiki generation timeout in ms (`Config.gitnexusWikiTimeoutMs`). */
+  gitnexusWikiTimeoutMs?: number
   /** Severities whose open findings block archiving (`Config.reviewBlockingSeverities`). */
   reviewBlockingSeverities?: string[]
 }
@@ -231,6 +238,34 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
       return { id, metrics: proposalMetrics(proposal, read.events), skippedLines: read.skippedLines }
     }
     return { metrics: aggregateMetrics(await deps.proposals.list(), read.events, { skippedLines: read.skippedLines }) }
+  })
+
+  router.post('/api/wiki', async (r) => {
+    if (deps.gitnexusEnabled === false) return { note: 'gitnexus bridge disabled by config (gitnexusEnabled: false)' }
+    const wikiBody = { projectRoot: '', analyze: false, force: false, lang: '' }
+    const parsed = await readJsonBody<typeof wikiBody>(r.req).catch(() => wikiBody)
+    const body = { ...wikiBody, ...parsed }
+    if (body.projectRoot === '') throw new Error('projectRoot is required')
+    const status = body.analyze === true ? undefined : await gitnexusStatus(body.projectRoot)
+    let analyzed = false
+    if (body.analyze === true) {
+      const reindex = await gitnexusAnalyze(body.projectRoot, { force: false })
+      analyzed = reindex.note === undefined
+    }
+    const result = await gitnexusWiki(body.projectRoot, {
+      ...(body.force === true ? { force: true } : {}),
+      lang: body.lang ?? deps.gitnexusWikiLang ?? '',
+      ...(deps.gitnexusWikiTimeoutMs !== undefined ? { timeoutMs: deps.gitnexusWikiTimeoutMs } : {}),
+    })
+    return {
+      projectRoot: body.projectRoot,
+      analyzed,
+      stale: analyzed ? false : (status?.stale ?? true),
+      wikiDir: result.wikiDir,
+      indexHtml: result.indexHtml,
+      output: result.output,
+      ...(result.note !== undefined ? { note: result.note } : {}),
+    }
   })
 
   router.get('/api/projects', async () => {

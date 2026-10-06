@@ -109,6 +109,10 @@ export interface Config {
   decisionCacheEnabled?: boolean
   /** Cached judgement entries to keep (oldest evicted first). @default 500 */
   decisionCacheMax?: number
+  /** Language for `gitnexus wiki` (e.g. chinese); empty = GitNexus default. @default '' */
+  gitnexusWikiLang?: string
+  /** Timeout for wiki generation in ms — per-module LLM work is slow. @default 900000 */
+  gitnexusWikiTimeoutMs?: number
 }
 
 /** Runtime schema the host collects (validation + config-UI projection). */
@@ -166,6 +170,8 @@ export const Config: z<Config> = z.object({
   reviewGradeMax: z.number().default(5).description('How many untagged review findings one archive run may grade.'),
   decisionCacheEnabled: z.boolean().default(true).description('Cache judgement answers (repeated questions cost nothing).'),
   decisionCacheMax: z.number().default(500).description('Cached judgement entries to keep.'),
+  gitnexusWikiLang: z.string().default('').description('Language for gitnexus wiki; empty = GitNexus default.'),
+  gitnexusWikiTimeoutMs: z.number().default(900000).description('Timeout for wiki generation in milliseconds.'),
 })
 
 export type ResolvedConfig = Required<Config>
@@ -203,6 +209,8 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   reviewGradeMax: 5,
   decisionCacheEnabled: true,
   decisionCacheMax: 500,
+  gitnexusWikiLang: '',
+  gitnexusWikiTimeoutMs: 900000,
 }
 
 /**

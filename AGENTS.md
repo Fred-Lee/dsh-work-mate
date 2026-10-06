@@ -131,6 +131,7 @@ node $DSH web                                                # http://127.0.0.1:
 | M16 | 判断层（agent/rules provider + 阈值动作 + decision 事件；Jev 接口占位） | ✅ 已归档 `2026-10-05-add-decision-layer` |
 | M17 | 判断层四个消费节点（风险分级 / 审查归级 / 注入判定 / 任务判定） | ✅ 已归档 `2026-10-05-add-decision-nodes` |
 | M18 | 判断缓存（同题复用 + `cached` 留痕 + 上限淘汰 + fail-open） | ✅ 已归档 `2026-10-06-add-decision-cache` |
+| M19 | 项目 wiki 生成（`gitnexus wiki` 桥接 + 工具/REST + 索引新鲜度探针） | ✅ 已归档 `2026-10-06-add-wiki-generation` |
 
 待办（依赖外部条件）：@快捷指令（`@hucj/dsh-file-mention` 未装）、WeKnora 真机契约核验、
 `dsh-mcp-client` 的 profile patch 行（库已装但惰性）。swarm 的任务级载体已落地（M14）：

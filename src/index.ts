@@ -42,7 +42,7 @@ const nextStepHint = (status: string): string => STATE_HINTS[status as keyof typ
 import { collectProjectDrift, orchestrateArchive, orchestrateReopen } from './features/archive/orchestrate.ts'
 import { ProjectRegistry } from './features/project/registry.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
-import { gitnexusRun } from './features/knowledge-bridge/gitnexus.ts'
+import { gitnexusAnalyze, gitnexusRun, gitnexusStatus, gitnexusWiki } from './features/knowledge-bridge/gitnexus.ts'
 import { createWeknoraClient } from './features/knowledge-bridge/weknora.ts'
 import { mountWorkmateApi, createProposal, type WebServerLike } from './api.ts'
 import { registerGuidance } from './features/guidance/index.ts'
@@ -211,6 +211,9 @@ export function apply(ctx: Context, config: Config = {}): void {
       reviewBlockingSeverities: resolved.reviewBlockingSeverities,
       decision,
       events,
+      gitnexusEnabled: resolved.gitnexusEnabled,
+      gitnexusWikiLang: resolved.gitnexusWikiLang,
+      gitnexusWikiTimeoutMs: resolved.gitnexusWikiTimeoutMs,
     })
   })
 }
@@ -772,6 +775,55 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
           risk: outcome?.action === 'act' ? outcome.choice : (proposal.risk ?? null),
           judgement: outcome ?? null,
           extraGates: resolved.highRiskExtraGates,
+        })
+      },
+    }),
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_wiki_generate',
+      description:
+        'Generate a readable project wiki from the GitNexus knowledge graph (per-module documents + an index.html reader under <projectRoot>/.gitnexus/wiki/). Works on any gitnexus-indexed repository — no proposal needed. Reports index staleness first; pass analyze:true to re-index before generating (that is the slow full rebuild).',
+      parameters: {
+        projectRoot: { type: 'string', required: true, description: 'Absolute project root of the indexed repository.' },
+        analyze: { type: 'boolean', description: 'Re-index (gitnexus analyze) before generating. Default false — the result then reports stale:true when the index is behind.' },
+        force: { type: 'boolean', description: 'Force full wiki regeneration even when GitNexus thinks it is up to date.' },
+        lang: { type: 'string', description: 'Output language (e.g. chinese); defaults to Config.gitnexusWikiLang.' },
+        review: { type: 'boolean', description: 'Stop after module grouping so the structure can be reviewed before pages are written.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      timeoutMs: resolved.gitnexusWikiTimeoutMs + 30_000,
+      isConcurrencySafe: () => false,
+      async execute(args, exec) {
+        if (!resolved.gitnexusEnabled) {
+          return asJson({ note: 'gitnexus bridge disabled by config (gitnexusEnabled: false)' })
+        }
+        const status = args.analyze === true ? undefined : await gitnexusStatus(args.projectRoot, exec.signal)
+        let analyzed = false
+        if (args.analyze === true) {
+          const reindex = await gitnexusAnalyze(args.projectRoot, { force: false }, exec.signal)
+          analyzed = reindex.note === undefined
+        }
+        const result = await gitnexusWiki(
+          args.projectRoot,
+          {
+            ...(args.force === true ? { force: true } : {}),
+            ...(args.review === true ? { review: true } : {}),
+            lang: args.lang ?? resolved.gitnexusWikiLang,
+            timeoutMs: resolved.gitnexusWikiTimeoutMs,
+          },
+          exec.signal,
+        )
+        return asJson({
+          projectRoot: args.projectRoot,
+          analyzed,
+          stale: analyzed ? false : (status?.stale ?? true),
+          ...(status?.note !== undefined ? { statusNote: status.note } : {}),
+          wikiDir: result.wikiDir,
+          indexHtml: result.indexHtml,
+          output: result.output,
+          ...(result.note !== undefined ? { note: result.note } : {}),
         })
       },
     }),

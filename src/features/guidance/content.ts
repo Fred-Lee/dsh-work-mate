@@ -69,6 +69,14 @@ export const PROPOSAL_FLOW_SKILL: RuntimeSkill = {
 - 事件流里的 \`decision\` 事件记着 node / choice / action / certainty / provider / samples：
   想知道"这次判断靠不靠谱"，看 \`samples\` 与 \`provider\`（\`degraded: true\` = 降级过）。
 
+## 项目 wiki 生成
+
+- 给一个**已索引**仓库生成可读 wiki：工具 \`workmate_wiki_generate\`（或 \`POST /api/wiki\`），
+  产物在 \`<项目>/.gitnexus/wiki/\`（含 \`index.html\`）。不需要先建提案。
+- 先用只读探针看新鲜度：结果里的 \`stale\` 为 true 表示索引落后于当前提交——要么先
+  \`analyze: true\` 重建（慢），要么明确告诉用户"wiki 基于旧图谱"。
+- 生成失败（缺 LLM 配置等）时把 \`note\` 原文转述给用户，不要自己编造 wiki 内容。
+
 ## 归档与重开
 
 归档由编排完成：审查门（\`changes/<id>/review.md\` 无未解决 CRITICAL）→
