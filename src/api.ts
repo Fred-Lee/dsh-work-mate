@@ -263,6 +263,8 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
       stale: analyzed ? false : (status?.stale ?? true),
       wikiDir: result.wikiDir,
       indexHtml: result.indexHtml,
+      pages: result.pages,
+      complete: result.complete,
       output: result.output,
       ...(result.note !== undefined ? { note: result.note } : {}),
     }

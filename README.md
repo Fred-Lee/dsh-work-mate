@@ -208,8 +208,18 @@ open $ROOT/.gitnexus/wiki/index.html
 | `force: true` | 即使 GitNexus 认为已是最新也整份重生成 |
 | `review: true` | 只做到模块分组就停，先人工确认结构再生成页面 |
 
-结果里 `stale` 如实反映索引是否落后（不擅自替你重跑重索引）；失败时 `note` 会附上
-"先配 provider/key"的可执行指引。超时默认 15 分钟（wiki 是逐模块 LLM 生成，慢是正常的）。
+结果里有四个字段值得看：
+
+| 字段 | 含义 |
+|---|---|
+| `stale` | 索引是否落后于当前提交（只读探针的结论，不擅自替你重跑重索引） |
+| `pages` | **实际写出**的模块页数（数出来的，不是声称的） |
+| `complete` | `index.html` 是否存在——**缺它就是没跑完**（GitNexus 在收尾阶段才写阅读器）。CLI 报成功也可能是半份产物，此时 `note` 会写"生成中断：已写出 N 页、缺 index.html" |
+| `note` | 失败/中断原因 + 下一步（如"先配 provider/key"），原文转述 CLI 输出 |
+
+> 实测教训（2026-10-06，`internal-homework`）：一次 LLM 端点熔断中断的生成，13 个模块只写出
+> 7 个（34 页）、没有 `index.html`，而命令行本身看起来"跑完了"。所以判成功请认 `complete`，
+> 不要认退出信息。
 
 > 与 `workmate_wiki_link` 的区别：后者登记的是**提案级 WeKnora 页面引用**，
 > 本命令生成的是**项目级 GitNexus 仓库 wiki**，两者互补。

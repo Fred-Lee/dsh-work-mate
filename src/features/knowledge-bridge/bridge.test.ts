@@ -1,4 +1,4 @@
-import { mkdtemp, rm, chmod, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -137,13 +137,20 @@ describe('gitnexus wiki bridge (fake CLI)', () => {
   })
 
   it('passes force/lang and returns the fixed wiki paths', async () => {
+    const wikiDir = join(home, '.gitnexus', 'wiki')
+    await mkdir(wikiDir, { recursive: true })
+    await writeFile(join(wikiDir, 'index.html'), '<html></html>', 'utf8')
+    await writeFile(join(wikiDir, 'module-a.md'), '# a', 'utf8')
     await installFakeGitnexus('echo "wiki written"')
     process.env['PATH'] = `${binDir}:${process.env['PATH'] ?? ''}`
 
     const result = await gitnexusWiki(home, { force: true, lang: 'chinese' })
 
-    expect(result.wikiDir).toBe(join(home, '.gitnexus', 'wiki'))
-    expect(result.indexHtml).toBe(join(home, '.gitnexus', 'wiki', 'index.html'))
+    expect(result.wikiDir).toBe(wikiDir)
+    expect(result.indexHtml).toBe(join(wikiDir, 'index.html'))
+    expect(result.pages).toBe(1)
+    expect(result.complete).toBe(true)
+    expect(result.note).toBeUndefined()
     expect(result.output).toContain('wiki written')
     const argv = await readFile(join(home, 'argv.txt'), 'utf8')
     expect(argv).toContain('wiki')
@@ -160,5 +167,36 @@ describe('gitnexus wiki bridge (fake CLI)', () => {
     expect(result.output).toBe('')
     expect(result.note).toContain('gitnexus wiki failed')
     expect(result.note).toContain('~/.gitnexus/config.json')
+  })
+
+  it('flags a half-written wiki even when the CLI reports success', async () => {
+    const wikiDir = join(home, '.gitnexus', 'wiki')
+    await mkdir(wikiDir, { recursive: true })
+    await writeFile(join(wikiDir, 'module-a.md'), '# a', 'utf8')
+    await writeFile(join(wikiDir, 'module-b.md'), '# b', 'utf8')
+    await installFakeGitnexus('echo "done"')
+    process.env['PATH'] = `${binDir}:${process.env['PATH'] ?? ''}`
+
+    const result = await gitnexusWiki(home)
+
+    expect(result.complete).toBe(false)
+    expect(result.pages).toBe(2)
+    expect(result.note).toContain('生成中断')
+    expect(result.note).toContain('缺少 index.html')
+  })
+
+  it('keeps the artifact facts when generation fails outright', async () => {
+    const wikiDir = join(home, '.gitnexus', 'wiki')
+    await mkdir(wikiDir, { recursive: true })
+    await writeFile(join(wikiDir, 'module-a.md'), '# a', 'utf8')
+    await installFakeGitnexus('echo "circuit open" >&2; exit 1')
+    process.env['PATH'] = `${binDir}:${process.env['PATH'] ?? ''}`
+
+    const result = await gitnexusWiki(home)
+
+    expect(result.complete).toBe(false)
+    expect(result.pages).toBe(1)
+    expect(result.note).toContain('gitnexus wiki failed')
+    expect(result.note).toContain('complete=false')
   })
 })

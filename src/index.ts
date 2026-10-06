@@ -822,6 +822,8 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
           ...(status?.note !== undefined ? { statusNote: status.note } : {}),
           wikiDir: result.wikiDir,
           indexHtml: result.indexHtml,
+          pages: result.pages,
+          complete: result.complete,
           output: result.output,
           ...(result.note !== undefined ? { note: result.note } : {}),
         })

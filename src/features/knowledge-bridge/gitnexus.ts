@@ -5,6 +5,7 @@
  * execFile + argv array, cwd = the target project, hard timeout.
  */
 import { basename, join } from 'node:path'
+import { readdir } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { validateProjectRoot } from '../proposal/openspec.ts'
 
@@ -115,6 +116,20 @@ export interface GitnexusWikiResult extends GitnexusResult {
   /** Where GitNexus writes the generated wiki. */
   wikiDir: string
   indexHtml: string
+  /** Module pages actually written (`.md` count). */
+  pages: number
+  /** GitNexus writes `index.html` during finalization — its absence means an aborted run. */
+  complete: boolean
+}
+
+/** Read the artifact directory: claims about success are checked against files. */
+async function inspectWiki(wikiDir: string): Promise<{ pages: number; complete: boolean }> {
+  try {
+    const entries = await readdir(wikiDir)
+    return { pages: entries.filter((entry) => entry.endsWith('.md')).length, complete: entries.includes('index.html') }
+  } catch {
+    return { pages: 0, complete: false }
+  }
 }
 
 /**
@@ -138,16 +153,33 @@ export async function gitnexusWiki(
 
   try {
     const output = await execGitnexus(cliArgs, root, options.timeoutMs ?? 900_000, signal)
-    return { output: output.trim() || '(no output)', wikiDir, indexHtml }
+    const artifact = await inspectWiki(wikiDir)
+    return {
+      output: output.trim() || '(no output)',
+      wikiDir,
+      indexHtml,
+      ...artifact,
+      // The CLI can report success and still stop half-way (an LLM circuit breaker
+      // aborts the loop). A missing reader is the honest signal of that (design D1).
+      ...(artifact.complete
+        ? {}
+        : {
+            note:
+              `生成中断：已写出 ${artifact.pages} 个页面但缺少 index.html（LLM 端点失败/超时/熔断最常见）——` +
+              '重跑同一命令可补齐已存在页面之外的模块',
+          }),
+    }
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
+    const artifact = await inspectWiki(wikiDir)
     return {
       output: '',
       wikiDir,
       indexHtml,
+      ...artifact,
       note:
-        `gitnexus wiki failed: ${detail} — ` +
-        'wiki 生成需要 LLM 配置（~/.gitnexus/config.json，或先跑一次 ' +
+        `gitnexus wiki failed: ${detail}（产物：${artifact.pages} 个页面，complete=${artifact.complete}）— ` +
+        'wiki 生成需要可用的 LLM 端点（~/.gitnexus/config.json，或先跑一次 ' +
         '`gitnexus wiki --provider <p> --model <m> --api-key <k>` 把配置存下来）',
     }
   }
