@@ -1,0 +1,128 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { describe, expect, it } from 'vitest'
+import { exportWikiToVault, iterationsFromProposals } from './vault.ts'
+import type { Proposal } from '../proposal/store.ts'
+
+/** Minimal GitNexus wiki fixture: two modules, one with sub-pages. */
+async function seedRepo(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'wm-vault-repo-'))
+  const wiki = join(root, '.gitnexus', 'wiki')
+  await mkdir(wiki, { recursive: true })
+  await writeFile(
+    join(wiki, 'module_tree.json'),
+    JSON.stringify([
+      { name: 'Homework Management', slug: 'homework-management', files: 3 },
+      { name: 'API Controllers', slug: 'api-controllers', files: 1 },
+    ]),
+    'utf8',
+  )
+  await writeFile(
+    join(wiki, 'meta.json'),
+    JSON.stringify({ fromCommit: 'f987767abcdef', generatedAt: '2026-10-07T00:00:00.000Z', lang: 'chinese' }),
+    'utf8',
+  )
+  await writeFile(join(wiki, 'homework-management.md'), '# Homework Management\n\n总览正文。\n', 'utf8')
+  await writeFile(join(wiki, 'homework-management-main.md'), '# 主流程\n\n批改主流程。\n', 'utf8')
+  await writeFile(join(wiki, 'api-controllers.md'), '# API Controllers\n\n接口层。\n', 'utf8')
+  return root
+}
+
+const proposalOf = (over: Partial<Proposal>): Proposal =>
+  ({
+    id: 'iter-2',
+    title: '批量批改 v2',
+    status: 'archived',
+    projects: ['internal-homework'],
+    relatesTo: ['iter-1'],
+    decisions: [{ id: 'd1', decision: '改用异步', rationale: '吞吐', supersedes: 'iter-1' }],
+    commits: ['f987767aaaa'],
+    ...over,
+  }) as unknown as Proposal
+
+describe('vault export (export-wiki-to-vault)', () => {
+  it('writes index, module notes, iteration notes and a changelog', async () => {
+    const repo = await seedRepo()
+    const vault = await mkdtemp(join(tmpdir(), 'wm-vault-'))
+
+    const result = await exportWikiToVault({
+      projectRoot: repo,
+      project: 'internal-homework',
+      vaultPath: vault,
+      iterations: iterationsFromProposals([proposalOf({})]),
+    })
+
+    expect(result.modules).toBe(2)
+    expect(result.pages).toBe(3)
+    expect(result.iterations).toBe(1)
+    expect(result.commit).toBe('f987767a')
+
+    const index = await readFile(join(vault, 'WorkMate', 'internal-homework', 'index.md'), 'utf8')
+    expect(index).toContain('type: "moc"')
+    expect(index).toContain('[[WorkMate/internal-homework/modules/homework-management\\|Homework Management]]')
+    expect(index).toContain('module')
+
+    const module = await readFile(join(vault, 'WorkMate', 'internal-homework', 'modules', 'homework-management.md'), 'utf8')
+    expect(module).toContain('title: "Homework Management"')
+    expect(module).toContain('批改主流程')          // sub-page folded into the module note
+    expect(module).toContain('[[WorkMate/internal-homework/index|')
+    expect(module).toContain('commit `f987767a`')
+
+    const iteration = await readFile(join(vault, 'WorkMate', 'internal-homework', 'iterations', 'iter-2.md'), 'utf8')
+    expect(iteration).toContain('type: "iteration"')
+    expect(iteration).toContain('[[WorkMate/internal-homework/iterations/iter-1|iter-1]]')
+    expect(iteration).toContain('status: "archived"')
+
+    const changelog = await readFile(join(vault, 'WorkMate', 'internal-homework', 'changelog.md'), 'utf8')
+    expect(changelog.split('\n').filter((line) => line.startsWith('- '))).toHaveLength(1)
+
+    await rm(repo, { recursive: true, force: true })
+    await rm(vault, { recursive: true, force: true })
+  })
+
+  it('is idempotent: re-export rewrites notes and does not duplicate the changelog line', async () => {
+    const repo = await seedRepo()
+    const vault = await mkdtemp(join(tmpdir(), 'wm-vault2-'))
+    const input = {
+      projectRoot: repo,
+      project: 'internal-homework',
+      vaultPath: vault,
+      now: (): Date => new Date('2026-10-07T01:00:00.000Z'),
+    }
+
+    const first = await exportWikiToVault(input)
+    const second = await exportWikiToVault(input)
+
+    expect(second.written.sort()).toEqual(first.written.sort())
+    const changelog = await readFile(join(vault, 'WorkMate', 'internal-homework', 'changelog.md'), 'utf8')
+    expect(changelog.split('\n').filter((line) => line.startsWith('- '))).toHaveLength(1)
+
+    await rm(repo, { recursive: true, force: true })
+    await rm(vault, { recursive: true, force: true })
+  })
+
+  it('tolerates a project without a GitNexus wiki or proposals', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'wm-vault-empty-'))
+    const vault = await mkdtemp(join(tmpdir(), 'wm-vault3-'))
+
+    const result = await exportWikiToVault({ projectRoot: repo, project: 'bare', vaultPath: vault })
+
+    expect(result).toMatchObject({ modules: 0, pages: 0, iterations: 0 })
+    const index = await readFile(join(vault, 'WorkMate', 'bare', 'index.md'), 'utf8')
+    expect(index).toContain('| （无） | — |')
+
+    await rm(repo, { recursive: true, force: true })
+    await rm(vault, { recursive: true, force: true })
+  })
+
+  it('projects proposal dependencies into front-matter-ready fields', () => {
+    const [iteration] = iterationsFromProposals([
+      proposalOf({ relatesTo: ['a', 'b'], decisions: [{ id: 'x', decision: 'd', rationale: 'r', supersedes: 'old' }] as never }),
+    ])
+
+    expect(iteration?.dependsOn).toEqual(['a', 'b'])
+    expect(iteration?.supersedes).toEqual(['old'])
+    expect(iteration?.archived).toBe(true)
+  })
+})

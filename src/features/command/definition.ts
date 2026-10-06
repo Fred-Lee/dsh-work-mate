@@ -39,11 +39,23 @@ export interface WikiRunResult {
   elapsedMs?: number
 }
 
+export interface VaultExportSummary {
+  projectDir: string
+  written: string[]
+  modules: number
+  pages: number
+  iterations: number
+  commit?: string
+  git?: { committed: boolean; note?: string }
+}
+
 export interface CommandDeps {
   /** Ensure the SSE-normalizing proxy is available (no-op when disabled). */
   ensureProxy(): Promise<{ status: string; note?: string }>
   /** WorkMate-registered projects, for resolving a project by name. */
   projects(): Promise<readonly KnownProject[]>
+  /** Export the project wiki into the vault (Obsidian/Tolaria). */
+  exportToVault(input: { projectRoot: string; vaultPath?: string; noGit?: boolean }): Promise<VaultExportSummary>
   status(projectRoot: string): Promise<{ stale: boolean; output: string; note?: string }>
   analyze(projectRoot: string): Promise<{ note?: string }>
   wiki(projectRoot: string, options: { force: boolean; lang: string }): Promise<WikiRunResult>
@@ -84,6 +96,7 @@ export function workmateCommandDefinition(deps: CommandDeps): {
       if ('error' in parsed) return fail(parsed.error)
       if (parsed.action === 'help') return ok(workmateUsage())
 
+      const exportRequested = parsed.action === 'export'
       // "当前项目" first: the session knows its own workspace cwd.
       const resolved = resolveProjectRoot({
         ...(parsed.projectRoot !== undefined ? { input: parsed.projectRoot } : {}),
@@ -92,6 +105,25 @@ export function workmateCommandDefinition(deps: CommandDeps): {
       })
       if ('error' in resolved) return fail(resolved.error)
       const projectRoot = resolved.root
+
+      if (exportRequested) {
+        const exported = await deps.exportToVault({
+          projectRoot,
+          ...(parsed.vaultPath !== undefined ? { vaultPath: parsed.vaultPath } : {}),
+          ...(parsed.noGit === true ? { noGit: true } : {}),
+        })
+        const gitLine = exported.git?.committed === true ? '已提交' : (exported.git?.note ?? '未提交')
+        return ok(
+          [
+            `✅ 导出成功｜仓库：${projectRoot}（${resolved.how}）`,
+            `vault 目录：${exported.projectDir}`,
+            `内容：${exported.modules} 模块 / ${exported.pages} 页 / ${exported.iterations} 迭代`,
+            `索引：${exported.projectDir}/index.md（用 Obsidian 打开即可看到模块表与依赖）`,
+            `git：${gitLine}`,
+            '提示：装 Dataview 插件可把迭代依赖变成表格/时间线。',
+          ].join('\n'),
+        )
+      }
 
       if (parsed.action === 'status') {
         const status = await deps.status(projectRoot)

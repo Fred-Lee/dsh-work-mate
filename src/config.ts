@@ -123,6 +123,12 @@ export interface Config {
   gitnexusApiKeyFromEnv?: string
   /** macOS Keychain service holding the gateway key — works even when the harness env lacks it. @default '' */
   gitnexusApiKeyKeychainService?: string
+  /** Obsidian/Tolaria vault root the project wiki is exported into; empty disables the export. @default '' */
+  wikiVaultPath?: string
+  /** Subdirectory inside that vault. @default 'WorkMate' */
+  wikiVaultSubdir?: string
+  /** Commit exported changes when the vault is a git repository. @default false */
+  wikiVaultGitCommit?: boolean
 }
 
 /** Runtime schema the host collects (validation + config-UI projection). */
@@ -187,6 +193,9 @@ export const Config: z<Config> = z.object({
   gitnexusSseProxyUpstream: z.string().default('').description('Real gateway chat-completions URL the proxy forwards to.'),
   gitnexusApiKeyFromEnv: z.string().default('').description('Env var mapped onto GITNEXUS_API_KEY for gitnexus calls.'),
   gitnexusApiKeyKeychainService: z.string().default('').description('macOS Keychain service holding the gateway key.'),
+  wikiVaultPath: z.string().default('').description('Obsidian/Tolaria vault root for wiki export.'),
+  wikiVaultSubdir: z.string().default('WorkMate').description('Subdirectory inside the vault.'),
+  wikiVaultGitCommit: z.boolean().default(false).description('Commit exported vault changes (git vaults only).'),
 })
 
 export type ResolvedConfig = Required<Config>
@@ -231,6 +240,9 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   gitnexusSseProxyUpstream: '',
   gitnexusApiKeyFromEnv: '',
   gitnexusApiKeyKeychainService: '',
+  wikiVaultPath: '',
+  wikiVaultSubdir: 'WorkMate',
+  wikiVaultGitCommit: false,
 }
 
 /**

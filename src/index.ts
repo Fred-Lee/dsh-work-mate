@@ -21,8 +21,9 @@ import { resolveConfig, type Config } from './config.ts'
 import type { Proposal } from './features/proposal/store.ts'
 import type { OrchestrationTarget } from './features/archive/orchestrate.ts'
 import { ProposalStore } from './features/proposal/store.ts'
+import { execFile } from 'node:child_process'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { EventLog } from './features/proposal/events.ts'
 import { runBandsCheck } from './features/metrics/check.ts'
@@ -53,6 +54,7 @@ import {
 } from './features/knowledge-bridge/gitnexus.ts'
 import { ensureSseProxy } from './features/knowledge-bridge/sse-proxy.ts'
 import { resolveProjectRoot } from './features/project/implicit-root.ts'
+import { exportWikiToVault, iterationsFromProposals } from './features/wiki/vault.ts'
 import { describeGitnexusCredentials } from './features/knowledge-bridge/gitnexus-credentials.ts'
 import { createWeknoraClient } from './features/knowledge-bridge/weknora.ts'
 import { mountWorkmateApi, createProposal, type WebServerLike } from './api.ts'
@@ -206,7 +208,69 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.provide('workmate.projects', registry)
   ctx.provide('workmate.worktree', worktree)
 
-  registerTools(ctx, { proposals, archive, registry, worktree, swarm, decision, resolved, events })
+  /**
+   * One code path for both the tool and `/workmate export`: git history in the vault is
+   * optional and never fatal — an export that fails to commit is still a successful export.
+   */
+  const runVaultExport = async (options: {
+    projectRoot: string
+    vaultPath?: string
+    noGit?: boolean
+  }): Promise<{
+    projectDir: string
+    written: string[]
+    modules: number
+    pages: number
+    iterations: number
+    commit?: string
+    git?: { committed: boolean; note?: string }
+  }> => {
+    const vaultPath = options.vaultPath ?? resolved.wikiVaultPath
+    if (vaultPath === '') {
+      throw new Error(
+        '未配置 wikiVaultPath（也没给 --vault）：请在 profile 的 workmate 配置里指定 Obsidian/Tolaria 库目录',
+      )
+    }
+    const project = basename(options.projectRoot)
+    const all = await proposals.list()
+    const mine = all.filter((proposal) => proposal.projects.includes(project) || proposal.id === project)
+    const result = await exportWikiToVault({
+      projectRoot: options.projectRoot,
+      project,
+      vaultPath,
+      subdir: resolved.wikiVaultSubdir,
+      iterations: iterationsFromProposals(mine),
+    })
+    const wantCommit = options.noGit !== true && resolved.wikiVaultGitCommit
+    if (!wantCommit) {
+      return { ...result, git: { committed: false, note: 'git 提交未开启（wikiVaultGitCommit=false 或 --no-git）' } }
+    }
+    const git = (args: string[], cwd: string): Promise<string> =>
+      new Promise((resolvePromise, reject) => {
+        execFile('git', args, { cwd, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }, (error: Error | null, stdout: string) => {
+          if (error) reject(new Error(error.message))
+          else resolvePromise(stdout)
+        })
+      })
+    try {
+      const inside = await git(['rev-parse', '--is-inside-work-tree'], vaultPath).catch(() => '')
+      if (inside.trim() !== 'true') {
+        return { ...result, git: { committed: false, note: 'vault 不是 git 仓库，跳过提交' } }
+      }
+      const status = (await git(['status', '--porcelain'], vaultPath)).trim()
+      if (status === '') return { ...result, git: { committed: false, note: '无改动，未提交' } }
+      await git(['add', '-A'], vaultPath)
+      await git(['commit', '-m', `WorkMate: 更新 ${project} wiki @${result.commit ?? 'unknown'}`], vaultPath)
+      return { ...result, git: { committed: true, note: `WorkMate: 更新 ${project} wiki @${result.commit ?? 'unknown'}` } }
+    } catch (error) {
+      return {
+        ...result,
+        git: { committed: false, note: `提交失败（不影响导出）：${error instanceof Error ? error.message : String(error)}` },
+      }
+    }
+  }
+
+  registerTools(ctx, { proposals, archive, registry, worktree, swarm, decision, vaultExport: runVaultExport, resolved, events })
   // Native guidance surfaces: two runtime skills + one flow section. Lazy, so
   // a composition without those services keeps the plugin ACTIVE.
   registerGuidance(ctx, {
@@ -217,6 +281,12 @@ export function apply(ctx: Context, config: Config = {}): void {
         upstream: resolved.gitnexusSseProxyUpstream,
       }),
     projects: () => registry.list(),
+    exportToVault: (input) =>
+      runVaultExport({
+        projectRoot: input.projectRoot,
+        ...(input.vaultPath !== undefined ? { vaultPath: input.vaultPath } : {}),
+        ...(input.noGit !== undefined ? { noGit: input.noGit } : {}),
+      }),
     status: (projectRoot) => gitnexusStatus(projectRoot),
     analyze: (projectRoot) => gitnexusAnalyze(projectRoot, { force: false }),
     wiki: (projectRoot, options) =>
@@ -264,6 +334,16 @@ interface ToolDeps {
   worktree: WorktreeManager
   swarm: SwarmManager
   decision: DecisionService
+  /** Export the project wiki into the configured vault (shared with `/workmate export`). */
+  vaultExport: (options: { projectRoot: string; vaultPath?: string; noGit?: boolean }) => Promise<{
+    projectDir: string
+    written: string[]
+    modules: number
+    pages: number
+    iterations: number
+    commit?: string
+    git?: { committed: boolean; note?: string }
+  }>
   resolved: ReturnType<typeof resolveConfig>
 }
 
@@ -897,6 +977,40 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
           output: result.output,
           ...(result.note !== undefined ? { note: result.note } : {}),
         })
+      },
+    }),
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_wiki_export',
+      description:
+        'Export a project wiki into an Obsidian/Tolaria vault as human-readable notes an AI can also read directly: index.md (MOC), one note per module, one per proposal (with depends_on/supersedes front-matter), and an append-only changelog. projectRoot may be omitted (session cwd / sole registered project). Commit is optional (Config.wikiVaultGitCommit) and never fatal.',
+      parameters: {
+        projectRoot: { type: 'string', description: 'Repository root; omit to use the current session project.' },
+        vaultPath: { type: 'string', description: 'Vault root override; defaults to Config.wikiVaultPath.' },
+        gitCommit: { type: 'boolean', description: 'Force a vault git commit for this run (vault must be a git repo).' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      timeoutMs: 120_000,
+      isConcurrencySafe: () => false,
+      async execute(args, exec) {
+        const known = await deps.registry.list()
+        const sessionCwd = exec.agent?.session?.header?.cwd
+        const requested =
+          args.projectRoot ?? (sessionCwd === undefined && known.length === 1 ? known[0]?.root : undefined)
+        const resolvedRoot = resolveProjectRoot({
+          ...(requested !== undefined ? { input: requested } : {}),
+          ...(sessionCwd !== undefined ? { cwd: sessionCwd } : {}),
+          projects: known,
+        })
+        if ('error' in resolvedRoot) throw new Error(resolvedRoot.error)
+        const exported = await deps.vaultExport({
+          projectRoot: resolvedRoot.root,
+          ...(args.vaultPath !== undefined ? { vaultPath: args.vaultPath } : {}),
+          ...(args.gitCommit === true ? { noGit: false } : {}),
+        })
+        return asJson({ projectRoot: resolvedRoot.root, how: resolvedRoot.how, ...exported })
       },
     }),
   )

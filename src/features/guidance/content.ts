@@ -277,5 +277,6 @@ export const FLOW_SECTION_TEXT = [
   '诊断看 credentials.source 与 sseProxy.status；把完整结果（判决 / 结果说明 / 实测产物 / 耗时 / 阅读器）原样报给用户，',
   '不要只转述 CLI 输出；注意"已是最新"是成功（upToDate=true），只有 staleArtifacts=true 才是"本次没产出、磁盘上是上一次的"。',
   '需要"确定不经过模型"的入口时用斜杠命令 /workmate：`/workmate wiki [项目] [--force] [--reanalyze]`、',
-  '`/workmate status [项目]`（只读）；项目可省略（= 当前会话项目），也可给项目名或路径；它直接执行、不发送给模型。',
+  '`/workmate status [项目]`（只读）、`/workmate export [--vault <路径>]`（导出到 Obsidian/Tolaria vault）；',
+  '项目可省略（= 当前会话项目），也可给项目名或路径；它直接执行、不发送给模型。',
 ].join('')

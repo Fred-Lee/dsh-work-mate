@@ -228,6 +228,37 @@ for line in sys.stdin:
 > 的命令面（`@deepseek-ai/dsh-commands`），**不经过模型**，所以是确定性的。
 > 该命令需要重启 harness 后生效；CLI/REST 路径（`wkwiki`、`POST /api/wiki`）不受影响。
 
+### 0.8c 导出到 Obsidian / Tolaria（人读 + AI 读物）
+
+GitNexus 生成的是"原料"；这一步把它整理成**人能读、AI 能直接吃**的 vault 笔记：
+
+```
+/workmate export                      # 当前项目 → 配置的 vault
+/workmate export --vault ~/Documents/Obsidian\ Vault
+/workmate export --no-git             # 本次不提交
+```
+
+导出结构（vault 内 `WorkMate/<project>/`）：
+
+| 文件 | 用途 |
+|---|---|
+| `index.md` | 入口（MOC）：项目概览 + 模块表 + **迭代表（状态 / depends_on / supersedes）** |
+| `modules/<slug>.md` | 每模块一篇：front-matter（project/module/source/commit/generated/pages/tags）+ 正文 + 返回索引的 wikilink |
+| `iterations/<proposal-id>.md` | **来自 WorkMate 提案**：`status`、`depends_on`（提案 `relatesTo`）、`supersedes`（决策链）→ Obsidian 图上就是真实的依赖与取代边 |
+| `changelog.md` | 追加式：日期 / commit / 模块数 / 页数（同一天同一 commit 不重复） |
+
+**人读**：Obsidian 打开 vault → Graph 看模块与迭代的关系；装 **Dataview** 可把 front-matter 变成
+"所有迭代 × 依赖 × 状态"的表/时间线；Canvas 可手绘发展脉络。
+**AI 读**：同一批 markdown，直接 grep/read 并给**文件+行号**引用；`wikiVaultSubdir` 可让 AI 只扫这个子目录。
+
+配置（`cordis.patch.yml` 的 workmate 行）：
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `wikiVaultPath` | `''` | vault 根目录（Obsidian/Tolaria 库）；空 = 禁用导出。本机设为 `~/Documents/WorkMate-vault` |
+| `wikiVaultSubdir` | `'WorkMate'` | vault 内的子目录 |
+| `wikiVaultGitCommit` | `false` | vault 是 git 仓库时自动提交（`WorkMate: 更新 <project> wiki @<commit>`）；无改动不提交，提交失败不影响导出 |
+
 ### 0.9 快速命令：给一个已有项目生成 wiki
 
 不需要建提案。WorkMate 把 GitNexus 的 wiki 生成能力包成了一个工具/接口，产物固定落在
