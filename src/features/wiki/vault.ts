@@ -21,6 +21,16 @@ export interface VaultIterationInput {
   /** From decisions that overturn earlier ones — rendered as `supersedes`. */
   supersedes: string[]
   commits: string[]
+  /** Change `derive-iterations-from-archive`: where this iteration came from. */
+  origin?: 'proposal' | 'archive'
+  /** `YYYY-MM-DD` for archived OpenSpec changes. */
+  date?: string
+  /** One-line summary (first line of the change's Why). */
+  summary?: string
+  /** Raw code paths the change touched (from its Impact section). */
+  touches?: string[]
+  /** Previous iteration by date — a DERIVED lineage link, marked as such. */
+  sequence?: string
 }
 
 export interface VaultExportInput {
@@ -181,6 +191,17 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
   for (const iteration of iterations) {
     const depends = iteration.dependsOn.map((id) => `"[[${subdir}/${input.project}/iterations/${id}|${id}]]"`)
     const sup = iteration.supersedes.map((id) => `"[[${subdir}/${input.project}/iterations/${id}|${id}]]"`)
+    const touched = (iteration.touches ?? [])
+      .map((raw) => {
+        const lower = raw.toLowerCase()
+        const hit = modules.find((module) => lower.includes(module.slug))
+        return hit !== undefined ? `[[${subdir}/${input.project}/modules/${hit.slug}|${hit.name}]]` : `\`${raw}\``
+      })
+      .filter((value) => value !== '')
+    const sequenceLine =
+      iteration.sequence !== undefined
+        ? `- 上一迭代（按时间推导）：[[${subdir}/${input.project}/iterations/${iteration.sequence}|${iteration.sequence}]]\n`
+        : ''
     const content =
       frontMatter({
         title: iteration.title,
@@ -189,10 +210,18 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
         proposal: iteration.id,
         status: iteration.status,
         archived: iteration.archived,
+        date: iteration.date,
+        origin: iteration.origin,
+        derived: iteration.sequence !== undefined,
         generated,
         tags: ['workmate', 'iteration', input.project],
       }) +
-      `# ${iteration.title}\n\n- 提案：\`${iteration.id}\`\n- 状态：**${iteration.status}**\n- 提交：${iteration.commits.map((c) => `\`${c}\``).join(' ') || '（无标记提交）'}\n\n` +
+      `# ${iteration.title}\n\n` +
+      (iteration.summary !== undefined ? `${iteration.summary}\n\n` : '') +
+      `- 迭代 id：\`${iteration.id}\`\n- 状态：**${iteration.status}**${iteration.date !== undefined ? `\n- 日期：${iteration.date}` : ''}\n- 提交：${iteration.commits.map((c) => `\`${c}\``).join(' ') || '（无标记提交）'}\n` +
+      sequenceLine +
+      (touched.length > 0 ? `\n## 触及的模块（由 Impact 推导）\n\n${touched.map((value) => `- ${value}`).join('\n')}\n` : '') +
+      `\n` +
       `## 依赖（depends_on）\n\n${depends.length > 0 ? depends.map((line) => `- ${line.replaceAll('"', '')}`).join('\n') : '- （无声明）'}\n\n` +
       `## 取代（supersedes）\n\n${sup.length > 0 ? sup.map((line) => `- ${line.replaceAll('"', '')}`).join('\n') : '- （无）'}\n\n` +
       `---\n\n[[${subdir}/${input.project}/index|← 返回项目索引]]\n`
@@ -206,10 +235,11 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
   const moduleTable = modules
     .map((module) => `| [[${subdir}/${input.project}/modules/${module.slug}\\|${module.name}]] | \`${module.slug}\` |`)
     .join('\n')
+  const hasDates = iterations.some((iteration) => iteration.date !== undefined)
   const iterationTable = iterations
     .map(
       (iteration) =>
-        `| [[${subdir}/${input.project}/iterations/${iteration.id}\\|${iteration.title}]] | ${iteration.status} | ` +
+        `| ${hasDates ? `${iteration.date ?? '—'} ` : ''}| [[${subdir}/${input.project}/iterations/${iteration.id}\\|${iteration.title}]] | ${iteration.status} | ` +
         `${iteration.dependsOn.join(', ') || '—'} | ${iteration.supersedes.join(', ') || '—'} |`,
     )
     .join('\n')
@@ -229,7 +259,7 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
     `> 由 WorkMate 从 GitNexus 图谱导出 · commit \`${meta.commit ?? 'unknown'}\` · ${generated} · ${modules.length} 模块 / ${pages} 页\n\n` +
     `## 模块\n\n| 模块 | slug |\n| --- | --- |\n${moduleTable || '| （无） | — |'}\n\n` +
     (iterations.length > 0
-      ? `## 迭代与依赖\n\n| 迭代 | 状态 | depends_on | supersedes |\n| --- | --- | --- | --- |\n${iterationTable}\n\n`
+      ? `## 迭代与依赖\n\n| ${hasDates ? '日期 | ' : ''}迭代 | 状态 | depends_on | supersedes |\n| ${hasDates ? '--- | ' : ''}--- | --- | --- | --- |\n${iterationTable}\n\n`
       : '') +
     `## 说明\n\n- 人读：本文件是入口；模块笔记在 \`modules/\`，迭代笔记在 \`iterations/\`。\n- AI 读：直接读同一批文件即可；检索建议返回**文件 + 行号**。\n`
   const indexRel = join(projectDirRel, 'index.md')

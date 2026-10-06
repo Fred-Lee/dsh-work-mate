@@ -55,6 +55,7 @@ import {
 import { ensureSseProxy } from './features/knowledge-bridge/sse-proxy.ts'
 import { resolveProjectRoot } from './features/project/implicit-root.ts'
 import { exportWikiToVault, iterationsFromProposals } from './features/wiki/vault.ts'
+import { collectArchivedIterations, mergeIterations } from './features/wiki/iterations.ts'
 import { describeGitnexusCredentials } from './features/knowledge-bridge/gitnexus-credentials.ts'
 import { createWeknoraClient } from './features/knowledge-bridge/weknora.ts'
 import { mountWorkmateApi, createProposal, type WebServerLike } from './api.ts'
@@ -234,12 +235,28 @@ export function apply(ctx: Context, config: Config = {}): void {
     const project = basename(options.projectRoot)
     const all = await proposals.list()
     const mine = all.filter((proposal) => proposal.projects.includes(project) || proposal.id === project)
+    // Proposals are authoritative; archived OpenSpec changes fill in the history a
+    // project that never used WorkMate would otherwise lack (no fabricated edges).
+    const archived = await collectArchivedIterations({
+      projectRoot: options.projectRoot,
+      openspecRoot: resolved.openspecRoot,
+      gitLog: (root) =>
+        new Promise((resolvePromise) => {
+          execFile(
+            'git',
+            ['-C', root, 'log', '--all', '--format=%h%x09%s', '-n', '2000'],
+            { timeout: 20_000, maxBuffer: 8 * 1024 * 1024 },
+            (error: Error | null, stdout: string) => resolvePromise(error ? '' : stdout),
+          )
+        }),
+    })
+    const iterations = mergeIterations(iterationsFromProposals(mine), archived)
     const result = await exportWikiToVault({
       projectRoot: options.projectRoot,
       project,
       vaultPath,
       subdir: resolved.wikiVaultSubdir,
-      iterations: iterationsFromProposals(mine),
+      iterations,
     })
     const wantCommit = options.noGit !== true && resolved.wikiVaultGitCommit
     if (!wantCommit) {
