@@ -75,7 +75,14 @@ export const PROPOSAL_FLOW_SKILL: RuntimeSkill = {
   产物在 \`<项目>/.gitnexus/wiki/\`（含 \`index.html\`）。不需要先建提案。
 - 先用只读探针看新鲜度：结果里的 \`stale\` 为 true 表示索引落后于当前提交——要么先
   \`analyze: true\` 重建（慢），要么明确告诉用户"wiki 基于旧图谱"。
-- 生成失败（缺 LLM 配置等）时把 \`note\` 原文转述给用户，不要自己编造 wiki 内容。
+- **判成功认产物，不认退出信息**：只有 \`complete: true\`（\`index.html\` 存在）才算跑完；
+  \`pages\` 是实际写出的页数。半份产物（CLI 看着"成功"但缺 index.html）要如实说明并给重跑命令。
+- 结果里的 \`sseProxy.status\`（\`disabled|reused|started|failed\`）与
+  \`credentials.source\` 是诊断字段：\`credentials.source = none\` 表示环境与
+  \`~/.gitnexus/config.json\` 都没有 key（本机 key 在钥匙串、经 \`ESP_XKW_KEY\` 注入，
+  由 \`gitnexusApiKeyFromEnv\` 映射给子进程）——这时直接给"怎么配"的命令，不要反复重试。
+- 生成失败/中断时把 \`note\` 原文转述给用户，不要自己编造 wiki 内容；也不要为了"跑通"
+  去改用户的网关或 GitNexus 源码。
 
 ## 归档与重开
 
