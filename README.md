@@ -208,6 +208,22 @@ open $ROOT/.gitnexus/wiki/index.html
 | `force: true` | 即使 GitNexus 认为已是最新也整份重生成 |
 | `review: true` | 只做到模块分组就停，先人工确认结构再生成页面 |
 
+**自建网关的流式兼容**：若你的网关输出 `data:{…}`（冒号后无空格），GitNexus 的 SSE 解析器
+（`llm-client.ts` 要求 `data: `）会把分片全部跳过并报 `LLM returned empty streaming response`。
+WorkMate 自带一个只监听回环的归一代理 `scripts/gitnexus-sse-proxy.mjs`，配好这三项即按需托管：
+
+```yaml
+gitnexusSseProxyEnabled: true
+gitnexusSseProxyPort: 8787
+gitnexusSseProxyUpstream: https://<你的网关>/ai/v1/chat/completions
+```
+
+它**不是常驻服务**：`workmate_wiki_generate` 在调用 CLI 前探测 `GET /healthz`——已在跑且转发
+目标一致就**复用**（返回值 `sseProxy.status: reused`），没跑才 detached 启动（`started`），
+端口被转发到别处的实例占用则 `failed` 并拒绝（不会把请求送错网关）。GitNexus 侧配置里
+把 `baseUrl` 指向 `http://127.0.0.1:<port>/v1` 即可（http 需
+`GITNEXUS_ALLOW_INSECURE_CONNECTION=127.0.0.1`）。
+
 结果里有四个字段值得看：
 
 | 字段 | 含义 |
@@ -392,6 +408,8 @@ pnpm dsh web                                            # 启动，默认 http:/
 | `reviewGradeMax` | `5` | 一次归档最多让判断层给多少条未打标签的审查发现归级 |
 | `decisionCacheEnabled` | `true` | 判断缓存：同题（state/选项/provider/model/采样数全等）复用上次结论，命中标记 `cached: true` |
 | `decisionCacheMax` | `500` | 缓存条目上限（按时间淘汰）；文件损坏 fail-open，绝不挡住门禁 |
+| `gitnexusWikiLang` / `gitnexusWikiTimeoutMs` | `''` / `900000` | wiki 输出语言（本机设为 `chinese`）与生成超时 |
+| `gitnexusSseProxyEnabled` / `...Port` / `...Upstream` | `false` / `8787` / `''` | 部分网关流式输出 `data:{`（冒号后无空格），而 GitNexus 只认 `data: `；开启后 wiki 生成前会**按需保证**归一代理可用（已在跑且转发目标一致就复用，不重复起进程） |
 
 无效组合启动时响亮提示（如 `weknoraWikiRequired=true` 但 `weknoraKbId` 为空）。
 

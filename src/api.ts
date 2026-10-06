@@ -17,6 +17,7 @@ import { runBandsCheck } from './features/metrics/check.ts'
 import { CONFIG_DEFAULTS } from './config.ts'
 import type { DecisionService } from './features/decision/service.ts'
 import { gitnexusAnalyze, gitnexusStatus, gitnexusWiki } from './features/knowledge-bridge/gitnexus.ts'
+import { ensureSseProxy } from './features/knowledge-bridge/sse-proxy.ts'
 import type { ProposalSource, Provenance } from './features/proposal/store.ts'
 import type { ProposalService } from './features/proposal/service.ts'
 import type { LifecycleServiceImpl } from './features/archive/service.ts'
@@ -60,6 +61,10 @@ export interface ApiDeps {
   gitnexusWikiLang?: string
   /** Wiki generation timeout in ms (`Config.gitnexusWikiTimeoutMs`). */
   gitnexusWikiTimeoutMs?: number
+  /** SSE proxy knobs (`Config.gitnexusSseProxy*`). */
+  gitnexusSseProxyEnabled?: boolean
+  gitnexusSseProxyPort?: number
+  gitnexusSseProxyUpstream?: string
   /** Severities whose open findings block archiving (`Config.reviewBlockingSeverities`). */
   reviewBlockingSeverities?: string[]
 }
@@ -246,6 +251,11 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     const parsed = await readJsonBody<typeof wikiBody>(r.req).catch(() => wikiBody)
     const body = { ...wikiBody, ...parsed }
     if (body.projectRoot === '') throw new Error('projectRoot is required')
+    const sseProxy = await ensureSseProxy({
+      enabled: deps.gitnexusSseProxyEnabled === true,
+      port: deps.gitnexusSseProxyPort ?? 8787,
+      upstream: deps.gitnexusSseProxyUpstream ?? '',
+    })
     const status = body.analyze === true ? undefined : await gitnexusStatus(body.projectRoot)
     let analyzed = false
     if (body.analyze === true) {
@@ -265,6 +275,7 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
       indexHtml: result.indexHtml,
       pages: result.pages,
       complete: result.complete,
+      sseProxy,
       output: result.output,
       ...(result.note !== undefined ? { note: result.note } : {}),
     }

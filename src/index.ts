@@ -43,6 +43,7 @@ import { collectProjectDrift, orchestrateArchive, orchestrateReopen } from './fe
 import { ProjectRegistry } from './features/project/registry.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
 import { gitnexusAnalyze, gitnexusRun, gitnexusStatus, gitnexusWiki } from './features/knowledge-bridge/gitnexus.ts'
+import { ensureSseProxy } from './features/knowledge-bridge/sse-proxy.ts'
 import { createWeknoraClient } from './features/knowledge-bridge/weknora.ts'
 import { mountWorkmateApi, createProposal, type WebServerLike } from './api.ts'
 import { registerGuidance } from './features/guidance/index.ts'
@@ -214,6 +215,9 @@ export function apply(ctx: Context, config: Config = {}): void {
       gitnexusEnabled: resolved.gitnexusEnabled,
       gitnexusWikiLang: resolved.gitnexusWikiLang,
       gitnexusWikiTimeoutMs: resolved.gitnexusWikiTimeoutMs,
+      gitnexusSseProxyEnabled: resolved.gitnexusSseProxyEnabled,
+      gitnexusSseProxyPort: resolved.gitnexusSseProxyPort,
+      gitnexusSseProxyUpstream: resolved.gitnexusSseProxyUpstream,
     })
   })
 }
@@ -799,6 +803,13 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         if (!resolved.gitnexusEnabled) {
           return asJson({ note: 'gitnexus bridge disabled by config (gitnexusEnabled: false)' })
         }
+        // Gateways that stream `data:{` (no space) need the normalizing proxy first;
+        // reuse an existing matching instance rather than spawning another.
+        const sseProxy = await ensureSseProxy({
+          enabled: resolved.gitnexusSseProxyEnabled,
+          port: resolved.gitnexusSseProxyPort,
+          upstream: resolved.gitnexusSseProxyUpstream,
+        })
         const status = args.analyze === true ? undefined : await gitnexusStatus(args.projectRoot, exec.signal)
         let analyzed = false
         if (args.analyze === true) {
@@ -824,6 +835,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
           indexHtml: result.indexHtml,
           pages: result.pages,
           complete: result.complete,
+          sseProxy,
           output: result.output,
           ...(result.note !== undefined ? { note: result.note } : {}),
         })

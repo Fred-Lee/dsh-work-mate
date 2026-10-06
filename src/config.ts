@@ -113,6 +113,12 @@ export interface Config {
   gitnexusWikiLang?: string
   /** Timeout for wiki generation in ms — per-module LLM work is slow. @default 900000 */
   gitnexusWikiTimeoutMs?: number
+  /** Ensure the SSE-normalizing proxy before wiki generation (gateways that stream `data:{`). @default false */
+  gitnexusSseProxyEnabled?: boolean
+  /** Loopback port for that proxy. @default 8787 */
+  gitnexusSseProxyPort?: number
+  /** Real gateway chat-completions URL the proxy forwards to (e.g. https://gw/ai/v1/chat/completions). @default '' */
+  gitnexusSseProxyUpstream?: string
 }
 
 /** Runtime schema the host collects (validation + config-UI projection). */
@@ -172,6 +178,9 @@ export const Config: z<Config> = z.object({
   decisionCacheMax: z.number().default(500).description('Cached judgement entries to keep.'),
   gitnexusWikiLang: z.string().default('').description('Language for gitnexus wiki; empty = GitNexus default.'),
   gitnexusWikiTimeoutMs: z.number().default(900000).description('Timeout for wiki generation in milliseconds.'),
+  gitnexusSseProxyEnabled: z.boolean().default(false).description('Ensure the SSE-normalizing proxy before wiki generation.'),
+  gitnexusSseProxyPort: z.number().default(8787).description('Loopback port for the SSE normalize proxy.'),
+  gitnexusSseProxyUpstream: z.string().default('').description('Real gateway chat-completions URL the proxy forwards to.'),
 })
 
 export type ResolvedConfig = Required<Config>
@@ -211,6 +220,9 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   decisionCacheMax: 500,
   gitnexusWikiLang: '',
   gitnexusWikiTimeoutMs: 900000,
+  gitnexusSseProxyEnabled: false,
+  gitnexusSseProxyPort: 8787,
+  gitnexusSseProxyUpstream: '',
 }
 
 /**

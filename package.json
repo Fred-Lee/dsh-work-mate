@@ -14,7 +14,8 @@
     "dist",
     "assets",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "scripts/gitnexus-sse-proxy.mjs"
   ],
   "dsh": {
     "bundle": {
