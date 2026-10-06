@@ -138,6 +138,7 @@ node $DSH web                                                # http://127.0.0.1:
 | M23 | `/workmate` 斜杠命令（help / status 只读 / wiki 确定性生成，不经过模型） | ✅ 已归档 `2026-10-06-add-workmate-command` |
 | M24 | 项目隐式解析（会话 cwd / 项目名 / 相对路径；命令与工具都可省略路径） | ✅ 已归档 `2026-10-06-resolve-project-implicitly` |
 | M25 | 凭据 fail-fast + 钥匙串解析链 + 陈旧产物守卫 + 一行判决 | ✅ 已归档 `2026-10-06-fail-fast-wiki-credentials` |
+| M26 | 结果说明（CLI 摘要解析 / up-to-date 语义 / 耗时与结束提示） | ✅ 已归档 `2026-10-07-clarify-wiki-outcome` |
 
 待办（依赖外部条件）：@快捷指令（`@hucj/dsh-file-mention` 未装）、WeKnora 真机契约核验、
 `dsh-mcp-client` 的 profile patch 行（库已装但惰性）。swarm 的任务级载体已落地（M14）：

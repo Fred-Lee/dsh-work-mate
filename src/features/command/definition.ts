@@ -31,6 +31,12 @@ export interface WikiRunResult {
   warning?: string
   /** The wiki on disk came from an EARLIER run; this run produced nothing. */
   staleArtifacts?: boolean
+  /** GitNexus reported the wiki as already current (nothing regenerated). */
+  upToDate?: boolean
+  /** Mode reported by GitNexus (`full` / `up-to-date` / …). */
+  mode?: string
+  /** Wall-clock milliseconds of the generation call. */
+  elapsedMs?: number
 }
 
 export interface CommandDeps {
@@ -119,8 +125,21 @@ export function workmateCommandDefinition(deps: CommandDeps): {
         )
       }
       const suffix = result.warning !== undefined ? `⚠️ 有警告：${result.warning}` : ''
+      const what =
+        result.upToDate === true
+          ? '已是最新（GitNexus 未重新生成；要整份重生成用 --force）'
+          : `已生成 / 更新（CLI 模式：${result.mode ?? 'unknown'}）`
+      const elapsed = result.elapsedMs !== undefined ? `${(result.elapsedMs / 1000).toFixed(1)}s` : '—'
       return ok(
-        [`✅ 成功｜${where}`, `页数：${result.pages}`, `阅读器：${result.indexHtml}`, suffix]
+        [
+          `✅ 成功｜${where}`,
+          `结果：${what}`,
+          `产物（实测）：${result.pages} 页${result.complete ? ' + index.html' : ''}`,
+          `耗时：${elapsed}｜索引重建：${parsed.reanalyze ? '是' : '否'}`,
+          `阅读器：${result.indexHtml}`,
+          suffix,
+          '命令结束（无实时进度；需要边跑边看输出请在终端用 wkwiki）',
+        ]
           .filter((line) => line !== '')
           .join('\n'),
       )

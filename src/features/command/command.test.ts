@@ -95,7 +95,9 @@ describe('/workmate handler', () => {
 
     expect(result.kind).toBe('success')
     expect(result.text).toContain('✅ 成功')
-    expect(result.text).toContain('页数：47')
+    expect(result.text).toContain('产物（实测）：47 页')
+    expect(result.text).toContain('结果：已生成 / 更新')
+    expect(result.text).toContain('命令结束')
     expect(result.text).toContain('index.html')
     expect(d.ensureProxy).toHaveBeenCalled()
     expect(d.wiki).toHaveBeenCalledWith(dir, { force: true, lang: 'chinese' })
@@ -200,6 +202,34 @@ describe('implicit project resolution (resolve-project-implicitly)', () => {
     const unknown = await workmateCommandDefinition(deps()).handler(invocation('status nowhere', tmpdir()))
     expect(unknown.kind).toBe('error')
     expect(unknown.text).toContain('无法解析项目')
+    await rm(dir, { recursive: true, force: true })
+  })
+})
+
+describe('up-to-date outcome clarity (clarify-wiki-outcome)', () => {
+  it('says up-to-date instead of implying a regeneration', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wm-command-uptodate-'))
+    const d = deps({
+      wiki: vi.fn(async () => ({
+        wikiDir: join(dir, '.gitnexus', 'wiki'),
+        indexHtml: join(dir, '.gitnexus', 'wiki', 'index.html'),
+        pages: 47,
+        complete: true,
+        output: 'Wiki is already up to date.',
+        upToDate: true,
+        elapsedMs: 1234,
+      })),
+    })
+
+    const result = await workmateCommandDefinition(d).handler({
+      rawInput: 'wiki',
+      agent: { session: { header: { cwd: dir } } },
+    })
+
+    expect(result.kind).toBe('success')
+    expect(result.text).toContain('已是最新')
+    expect(result.text).toContain('--force')
+    expect(result.text).toContain('耗时：1.2s')
     await rm(dir, { recursive: true, force: true })
   })
 })

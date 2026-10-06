@@ -7,6 +7,7 @@ import {
   gitnexusRun,
   gitnexusStatus,
   gitnexusWiki,
+  parseWikiSummary,
   setGitnexusApiKeyEnv,
   setGitnexusKeychainService,
 } from './gitnexus.ts'
@@ -252,5 +253,45 @@ describe('wiki credential preflight and stale artifacts (fail-fast-wiki-credenti
     expect(result.complete).toBe(true)
     expect(result.pages).toBe(1)
     setGitnexusKeychainService('')
+  })
+})
+
+describe('wiki CLI summary parsing (clarify-wiki-outcome)', () => {
+  it('reads the CLI summary lines', () => {
+    const summary = parseWikiSummary(
+      'Wiki generated successfully (576.4s)\n  Mode: full\n  Pages: 49\n  Viewer: /x/index.html',
+    )
+
+    expect(summary).toEqual({ upToDate: false, mode: 'full', reportedPages: 49, cliElapsedSeconds: 576.4 })
+  })
+
+  it('recognizes the up-to-date answer', () => {
+    const summary = parseWikiSummary('  Wiki is already up to date.\n  Viewer: /x/index.html')
+
+    expect(summary.upToDate).toBe(true)
+    expect(summary.mode).toBeUndefined()
+  })
+
+  it('treats an up-to-date run as success even when artifacts are older', async () => {
+    const wikiDir = join(home, '.gitnexus', 'wiki')
+    await installFakeGitnexus(
+      `mkdir -p ${wikiDir} && echo '<html></html>' > ${wikiDir}/index.html && echo '# a' > ${wikiDir}/a.md && ` +
+        'echo "  Wiki is already up to date." && echo "  Viewer: "',
+    )
+    process.env['PATH'] = `${binDir}:${process.env['PATH'] ?? ''}`
+    // Backdate the artifacts: an up-to-date answer legitimately leaves them alone.
+    const old = new Date(Date.now() - 600_000)
+    await mkdir(wikiDir, { recursive: true })
+    await writeFile(join(wikiDir, 'a.md'), '# a', 'utf8')
+    await writeFile(join(wikiDir, 'index.html'), '<html></html>', 'utf8')
+    await utimes(join(wikiDir, 'a.md'), old, old)
+    await utimes(join(wikiDir, 'index.html'), old, old)
+
+    const result = await gitnexusWiki(home)
+
+    expect(result.upToDate).toBe(true)
+    expect(result.complete).toBe(true)
+    expect(result.pages).toBe(1)
+    expect(result.staleArtifacts).toBe(false)
   })
 })

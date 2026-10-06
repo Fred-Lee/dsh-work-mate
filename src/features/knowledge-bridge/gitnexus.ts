@@ -156,6 +156,14 @@ export interface GitnexusWikiResult extends GitnexusResult {
   warning?: string
   /** The wiki on disk was produced by an EARLIER run; this run produced nothing. */
   staleArtifacts?: boolean
+  /** GitNexus said the wiki was already current, so nothing was regenerated. */
+  upToDate?: boolean
+  /** Mode reported by the CLI (`full` / `up-to-date` / incremental variants). */
+  mode?: string
+  /** Pages the CLI claims it generated (our `pages` is the measured count). */
+  reportedPages?: number
+  /** Wall-clock milliseconds for the CLI invocation. */
+  elapsedMs?: number
 }
 
 /**
@@ -187,6 +195,28 @@ async function inspectWiki(
  * instead of duplicating the content. Generation is per-module LLM work, hence the
  * long default timeout.
  */
+/**
+ * Read the CLI's own summary lines. The CLI already states the mode, the page count
+ * and the elapsed time — throwing that away was why a fast up-to-date run looked
+ * identical to a real regeneration.
+ */
+export function parseWikiSummary(output: string): {
+  upToDate: boolean
+  mode?: string
+  reportedPages?: number
+  cliElapsedSeconds?: number
+} {
+  const mode = /Mode:\s*([a-z-]+)/i.exec(output)?.[1]
+  const pages = /Pages:\s*(\d+)/i.exec(output)?.[1]
+  const seconds = /generated successfully \(([\d.]+)s\)/i.exec(output)?.[1]
+  return {
+    upToDate: /already up to date/i.test(output),
+    ...(mode !== undefined ? { mode } : {}),
+    ...(pages !== undefined ? { reportedPages: Number(pages) } : {}),
+    ...(seconds !== undefined ? { cliElapsedSeconds: Number(seconds) } : {}),
+  }
+}
+
 export async function gitnexusWiki(
   projectRoot: string,
   options: { force?: boolean; lang?: string; review?: boolean; timeoutMs?: number } = {},
@@ -224,12 +254,19 @@ export async function gitnexusWiki(
 
   try {
     const output = await execGitnexus(cliArgs, root, options.timeoutMs ?? 900_000, signal)
-    const artifact = await inspectWiki(wikiDir, startedAt)
+    const summary = parseWikiSummary(output)
+    // An "already up to date" answer legitimately leaves older artifacts in place:
+    // they are current, so the freshness guard must not flag them as stale.
+    const artifact = await inspectWiki(wikiDir, summary.upToDate ? 0 : startedAt)
     return {
       output: output.trim() || '(no output)',
       wikiDir,
       indexHtml,
       ...artifact,
+      ...(summary.upToDate ? { upToDate: true } : {}),
+      ...(summary.mode !== undefined ? { mode: summary.mode } : {}),
+      ...(summary.reportedPages !== undefined ? { reportedPages: summary.reportedPages } : {}),
+      elapsedMs: Date.now() - startedAt,
       // The CLI can report success and still stop half-way (an LLM circuit breaker
       // aborts the loop). A missing reader is the honest signal of that (design D1).
       ...(artifact.complete

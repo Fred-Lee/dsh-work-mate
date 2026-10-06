@@ -203,7 +203,21 @@ for line in sys.stdin:
 /workmate status                    # 只读看当前项目
 /workmate wiki                      # 生成 / 更新当前项目 wiki
 /workmate wiki --reanalyze          # 索引落后时先重建再生成
+/workmate wiki --force              # 忽略"已是最新"，整份重生成
 ```
+
+输出说明（一眼看懂发生了什么，不再自相矛盾）：
+```
+✅ 成功｜仓库：…（当前项目（会话工作目录））｜代理：reused｜语言：chinese
+结果：已是最新（GitNexus 未重新生成；要整份重生成用 --force）
+产物（实测）：47 页 + index.html
+耗时：1.2s｜索引重建：否
+阅读器：…/.gitnexus/wiki/index.html
+命令结束（无实时进度；需要边跑边看输出请在终端用 wkwiki）
+```
+即：**"已是最新"是成功而不是失败**；`staleArtifacts: true` 才表示本次没产出、
+磁盘上是上一次的产物。斜杠命令是"跑完一次性给结果"，**没有实时进度**——
+要看逐模块生成过程，用终端的 `wkwiki <路径>`。
 
 > 工具 `workmate_wiki_generate` 的 `projectRoot` 同样**可以省略**：会用会话工作目录，
 > 若会话没有工作目录则回退到"唯一已注册项目"。
