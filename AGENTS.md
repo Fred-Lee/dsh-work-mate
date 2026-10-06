@@ -137,6 +137,7 @@ node $DSH web                                                # http://127.0.0.1:
 | M22 | 网关 key 环境变量注入（`ESP_XKW_KEY` → 子进程 `GITNEXUS_API_KEY` + 来源探测不回显） | ✅ 已归档 `2026-10-06-inject-api-key-env` |
 | M23 | `/workmate` 斜杠命令（help / status 只读 / wiki 确定性生成，不经过模型） | ✅ 已归档 `2026-10-06-add-workmate-command` |
 | M24 | 项目隐式解析（会话 cwd / 项目名 / 相对路径；命令与工具都可省略路径） | ✅ 已归档 `2026-10-06-resolve-project-implicitly` |
+| M25 | 凭据 fail-fast + 钥匙串解析链 + 陈旧产物守卫 + 一行判决 | ✅ 已归档 `2026-10-06-fail-fast-wiki-credentials` |
 
 待办（依赖外部条件）：@快捷指令（`@hucj/dsh-file-mention` 未装）、WeKnora 真机契约核验、
 `dsh-mcp-client` 的 profile patch 行（库已装但惰性）。swarm 的任务级载体已落地（M14）：

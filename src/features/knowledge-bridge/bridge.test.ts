@@ -1,8 +1,15 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { gitnexusRun, gitnexusAnalyze, gitnexusStatus, gitnexusWiki } from './gitnexus.ts'
+import {
+  gitnexusAnalyze,
+  gitnexusRun,
+  gitnexusStatus,
+  gitnexusWiki,
+  setGitnexusApiKeyEnv,
+  setGitnexusKeychainService,
+} from './gitnexus.ts'
 import { createWeknoraClient, extractFragments } from './weknora.ts'
 
 let home: string
@@ -12,9 +19,12 @@ beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'workmate-kb-'))
   binDir = join(home, 'bin')
   await import('node:fs/promises').then((fs) => fs.mkdir(binDir, { recursive: true }))
+  // The wiki path now fails fast without a credential; give the fake CLI one.
+  process.env['GITNEXUS_API_KEY'] = 'sk-test-key'
 })
 
 afterEach(async () => {
+  delete process.env['GITNEXUS_API_KEY']
   await rm(home, { recursive: true, force: true })
 })
 
@@ -138,10 +148,9 @@ describe('gitnexus wiki bridge (fake CLI)', () => {
 
   it('passes force/lang and returns the fixed wiki paths', async () => {
     const wikiDir = join(home, '.gitnexus', 'wiki')
-    await mkdir(wikiDir, { recursive: true })
-    await writeFile(join(wikiDir, 'index.html'), '<html></html>', 'utf8')
-    await writeFile(join(wikiDir, 'module-a.md'), '# a', 'utf8')
-    await installFakeGitnexus('echo "wiki written"')
+    await installFakeGitnexus(
+      `mkdir -p ${wikiDir} && echo '<html></html>' > ${wikiDir}/index.html && echo '# a' > ${wikiDir}/module-a.md && echo "wiki written"`,
+    )
     process.env['PATH'] = `${binDir}:${process.env['PATH'] ?? ''}`
 
     const result = await gitnexusWiki(home, { force: true, lang: 'chinese' })
@@ -171,10 +180,9 @@ describe('gitnexus wiki bridge (fake CLI)', () => {
 
   it('flags a half-written wiki even when the CLI reports success', async () => {
     const wikiDir = join(home, '.gitnexus', 'wiki')
-    await mkdir(wikiDir, { recursive: true })
-    await writeFile(join(wikiDir, 'module-a.md'), '# a', 'utf8')
-    await writeFile(join(wikiDir, 'module-b.md'), '# b', 'utf8')
-    await installFakeGitnexus('echo "done"')
+    await installFakeGitnexus(
+      `mkdir -p ${wikiDir} && echo '# a' > ${wikiDir}/module-a.md && echo '# b' > ${wikiDir}/module-b.md && echo "done"`,
+    )
     process.env['PATH'] = `${binDir}:${process.env['PATH'] ?? ''}`
 
     const result = await gitnexusWiki(home)
@@ -187,9 +195,9 @@ describe('gitnexus wiki bridge (fake CLI)', () => {
 
   it('keeps the artifact facts when generation fails outright', async () => {
     const wikiDir = join(home, '.gitnexus', 'wiki')
-    await mkdir(wikiDir, { recursive: true })
-    await writeFile(join(wikiDir, 'module-a.md'), '# a', 'utf8')
-    await installFakeGitnexus('echo "circuit open" >&2; exit 1')
+    await installFakeGitnexus(
+      `mkdir -p ${wikiDir} && echo '# a' > ${wikiDir}/module-a.md && echo "circuit open" >&2; exit 1`,
+    )
     process.env['PATH'] = `${binDir}:${process.env['PATH'] ?? ''}`
 
     const result = await gitnexusWiki(home)
@@ -198,5 +206,51 @@ describe('gitnexus wiki bridge (fake CLI)', () => {
     expect(result.pages).toBe(1)
     expect(result.note).toContain('gitnexus wiki failed')
     expect(result.note).toContain('complete=false')
+  })
+})
+
+describe('wiki credential preflight and stale artifacts (fail-fast-wiki-credentials)', () => {
+  it('fails fast without running the CLI when no credential is configured', async () => {
+    const wikiDir = join(home, '.gitnexus', 'wiki')
+    await mkdir(wikiDir, { recursive: true })
+    await writeFile(join(wikiDir, 'old.md'), '# old', 'utf8')
+    await writeFile(join(wikiDir, 'index.html'), '<html>old</html>', 'utf8')
+    // Backdate: these belong to an EARLIER run, which is exactly what must not be
+    // mistaken for this run's output.
+    const old = new Date(Date.now() - 60_000)
+    await utimes(join(wikiDir, 'old.md'), old, old)
+    await utimes(join(wikiDir, 'index.html'), old, old)
+    await installFakeGitnexus('echo "should not run"; exit 1')
+    process.env['PATH'] = `${binDir}:${process.env['PATH'] ?? ''}`
+    setGitnexusApiKeyEnv('')
+    setGitnexusKeychainService('')
+
+    const savedKey = process.env['GITNEXUS_API_KEY']
+    delete process.env['GITNEXUS_API_KEY']
+    delete process.env['OPENAI_API_KEY']
+    try {
+      const result = await gitnexusWiki(home)
+      expect(result.complete).toBe(false)
+      expect(result.note).toContain('缺少网关凭据')
+      // The earlier run's wiki must never be reported as this run's output.
+      expect(result.pages).toBe(0)
+      expect(result.staleArtifacts).toBe(true)
+      const argv = await readFile(join(home, 'argv.txt'), 'utf8').catch(() => '')
+      expect(argv).toBe('')
+    } finally {
+      if (savedKey !== undefined) process.env['GITNEXUS_API_KEY'] = savedKey
+    }
+  })
+
+  it('accepts a keychain-provided key for the child process', async () => {
+    setGitnexusKeychainService('ESP_XKW_KEY')
+    await installFakeGitnexus('echo "wiki written"; mkdir -p .gitnexus/wiki; echo x > .gitnexus/wiki/a.md; echo "<html></html>" > .gitnexus/wiki/index.html')
+    process.env['PATH'] = `${binDir}:${process.env['PATH'] ?? ''}`
+
+    const result = await gitnexusWiki(home)
+
+    expect(result.complete).toBe(true)
+    expect(result.pages).toBe(1)
+    setGitnexusKeychainService('')
   })
 })

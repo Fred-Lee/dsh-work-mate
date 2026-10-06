@@ -49,6 +49,7 @@ import {
   gitnexusStatus,
   gitnexusWiki,
   setGitnexusApiKeyEnv,
+  setGitnexusKeychainService,
 } from './features/knowledge-bridge/gitnexus.ts'
 import { ensureSseProxy } from './features/knowledge-bridge/sse-proxy.ts'
 import { resolveProjectRoot } from './features/project/implicit-root.ts'
@@ -115,6 +116,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   // Every spawned `gitnexus` gets GITNEXUS_API_KEY mapped from the configured
   // variable (key lives in the Keychain / shell, never in a repo or plugin file).
   setGitnexusApiKeyEnv(resolved.gitnexusApiKeyFromEnv)
+  setGitnexusKeychainService(resolved.gitnexusApiKeyKeychainService)
   const swarm = new SwarmManager({ proposals, worktrees: worktree })
   // The judgement layer reaches the LLM service through a lazy reference: a profile
   // without `llm` keeps the plugin ACTIVE and the agent provider simply reports
@@ -248,6 +250,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       gitnexusSseProxyPort: resolved.gitnexusSseProxyPort,
       gitnexusSseProxyUpstream: resolved.gitnexusSseProxyUpstream,
       gitnexusApiKeyFromEnv: resolved.gitnexusApiKeyFromEnv,
+      gitnexusApiKeyKeychainService: resolved.gitnexusApiKeyKeychainService,
     })
   })
 }
@@ -853,6 +856,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         const credentials = describeGitnexusCredentials({
           env: process.env,
           fromEnvName: resolved.gitnexusApiKeyFromEnv,
+          keychainService: resolved.gitnexusApiKeyKeychainService,
           configPath: join(homedir(), '.gitnexus', 'config.json'),
         })
         const sseProxy = await ensureSseProxy({

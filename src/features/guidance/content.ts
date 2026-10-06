@@ -273,7 +273,8 @@ export const FLOW_SECTION_TEXT = [
   '完整规程见技能 workmate-proposal-flow，审查规程见 workmate-proposal-audit。',
   '项目 wiki 的生成 / 更新一律走 workmate_wiki_generate（或 POST /api/wiki），不要直接调 gitnexus wiki：',
   'SSE 归一代理与网关 key 注入只在这条工具路径里，直接调 CLI 会连不上或拿不到 key；',
-  '判成功认返回的 complete=true（缺 index.html 即半份产物），诊断看 credentials.source 与 sseProxy.status。',
+  '判成功认返回的 complete=true（缺 index.html 即半份产物；staleArtifacts=true 表示磁盘上是上一次的产物）；',
+  '诊断看 credentials.source 与 sseProxy.status；把完整的判决行与阅读器路径原样报给用户，不要只转述 CLI 输出。',
   '需要"确定不经过模型"的入口时用斜杠命令 /workmate：`/workmate wiki [项目] [--force] [--reanalyze]`、',
   '`/workmate status [项目]`（只读）；项目可省略（= 当前会话项目），也可给项目名或路径；它直接执行、不发送给模型。',
 ].join('')

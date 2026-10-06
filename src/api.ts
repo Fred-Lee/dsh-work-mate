@@ -66,8 +66,9 @@ export interface ApiDeps {
   gitnexusSseProxyEnabled?: boolean
   gitnexusSseProxyPort?: number
   gitnexusSseProxyUpstream?: string
-  /** Credential plumbing (`Config.gitnexusApiKeyFromEnv`). */
+  /** Credential plumbing (`Config.gitnexusApiKeyFromEnv` / `...KeychainService`). */
   gitnexusApiKeyFromEnv?: string
+  gitnexusApiKeyKeychainService?: string
   /** Severities whose open findings block archiving (`Config.reviewBlockingSeverities`). */
   reviewBlockingSeverities?: string[]
 }
@@ -257,6 +258,7 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     const credentials = describeGitnexusCredentials({
       env: process.env,
       fromEnvName: deps.gitnexusApiKeyFromEnv ?? '',
+      keychainService: deps.gitnexusApiKeyKeychainService ?? '',
     })
     const sseProxy = await ensureSseProxy({
       enabled: deps.gitnexusSseProxyEnabled === true,

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { describeGitnexusCredentials, withGitnexusApiKey } from './gitnexus-credentials.ts'
+import {
+  describeGitnexusCredentials,
+  resolveGitnexusApiKey,
+  withGitnexusApiKey,
+  withResolvedApiKey,
+} from './gitnexus-credentials.ts'
 
 describe('gateway key plumbing (inject-api-key-env)', () => {
   it('maps the configured variable onto GITNEXUS_API_KEY for the child process', () => {
@@ -51,5 +56,61 @@ describe('gateway key plumbing (inject-api-key-env)', () => {
 
   it('treats OPENAI_API_KEY as a source when nothing else is set', () => {
     expect(describeGitnexusCredentials({ env: { OPENAI_API_KEY: 'sk-x' } }).source).toBe('OPENAI_API_KEY')
+  })
+})
+
+describe('keychain-backed credential chain (fail-fast-wiki-credentials)', () => {
+  it('resolves through keychain when neither env variable is present', () => {
+    const resolved = resolveGitnexusApiKey({
+      env: {},
+      fromEnvName: 'ESP_XKW_KEY',
+      keychainService: 'ESP_XKW_KEY',
+      readKeychain: () => 'sk-from-keychain',
+    })
+
+    expect(resolved).toEqual({ key: 'sk-from-keychain', source: 'keychain' })
+  })
+
+  it('prefers env over keychain, and keychain over config.json', () => {
+    const envWins = resolveGitnexusApiKey({
+      env: { ESP_XKW_KEY: 'sk-env' },
+      fromEnvName: 'ESP_XKW_KEY',
+      keychainService: 'ESP_XKW_KEY',
+      readKeychain: () => 'sk-keychain',
+    })
+    expect(envWins.source).toBe('config-env')
+
+    const keychainWins = resolveGitnexusApiKey({
+      env: {},
+      keychainService: 'ESP_XKW_KEY',
+      configPath: '/whatever/config.json',
+      readKeychain: () => 'sk-keychain',
+      readConfig: () => 'sk-config',
+    })
+    expect(keychainWins.source).toBe('keychain')
+  })
+
+  it('injects the keychain value as GITNEXUS_API_KEY for the child process', () => {
+    const child = withResolvedApiKey(
+      { OTHER: 'x' },
+      { keychainService: 'ESP_XKW_KEY', readKeychain: () => 'sk-keychain' },
+    )
+
+    expect(child['GITNEXUS_API_KEY']).toBe('sk-keychain')
+    expect(child['OTHER']).toBe('x')
+  })
+
+  it('reports keychain as a safe source name and none with a hint', () => {
+    const keychain = describeGitnexusCredentials({
+      env: {},
+      keychainService: 'ESP_XKW_KEY',
+      readKeychain: () => 'sk-secret-value',
+    })
+    expect(keychain).toEqual({ source: 'keychain', mapped: true })
+    expect(JSON.stringify(keychain)).not.toContain('sk-secret-value')
+
+    const none = describeGitnexusCredentials({ env: {}, keychainService: 'ESP_XKW_KEY', readKeychain: () => undefined })
+    expect(none.source).toBe('none')
+    expect(none.note).toContain('gitnexusApiKeyKeychainService')
   })
 })

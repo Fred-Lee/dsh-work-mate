@@ -27,6 +27,10 @@ export interface WikiRunResult {
   complete: boolean
   output: string
   note?: string
+  /** Non-fatal issue (e.g. exit code non-zero on a complete run). */
+  warning?: string
+  /** The wiki on disk came from an EARLIER run; this run produced nothing. */
+  staleArtifacts?: boolean
 }
 
 export interface CommandDeps {
@@ -106,17 +110,19 @@ export function workmateCommandDefinition(deps: CommandDeps): {
       }
       const lang = parsed.lang ?? deps.configuredLang
       const result = await deps.wiki(projectRoot, { force: parsed.force, lang })
-      const head =
-        `仓库：${projectRoot}（${resolved.how}）\n代理：${proxy.status} | 语言：${lang || '(GitNexus 默认)'}`
+      const where = `仓库：${projectRoot}（${resolved.how}）｜代理：${proxy.status}｜语言：${lang || '(GitNexus 默认)'}`
       if (!result.complete) {
+        // One verdict line first: "what happened" must be readable without parsing.
+        const reason = result.note ?? (result.staleArtifacts === true ? '本次未产出新产物（磁盘上是上一次的归档）' : '')
         return fail(
-          `${head}\n⚠️ 生成中断：已写出 ${result.pages} 个页面，但缺 index.html。\n` +
-            `${result.note ?? ''}\n重跑同一命令可补齐。`,
+          `❌ 未完成｜${where}｜本次页数：${result.pages}\n${reason}\n阅读器（若存在）：${result.indexHtml}`,
         )
       }
+      const suffix = result.warning !== undefined ? `⚠️ 有警告：${result.warning}` : ''
       return ok(
-        `${head}\n✅ complete=true | pages=${result.pages}\n阅读器：${result.indexHtml}\n` +
-          `${result.note ?? ''}`.trimEnd(),
+        [`✅ 成功｜${where}`, `页数：${result.pages}`, `阅读器：${result.indexHtml}`, suffix]
+          .filter((line) => line !== '')
+          .join('\n'),
       )
     },
   }

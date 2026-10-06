@@ -94,8 +94,8 @@ describe('/workmate handler', () => {
     const result = await workmateCommandDefinition(d).handler(invocation(`wiki ${dir} --force`))
 
     expect(result.kind).toBe('success')
-    expect(result.text).toContain('complete=true')
-    expect(result.text).toContain('pages=47')
+    expect(result.text).toContain('✅ 成功')
+    expect(result.text).toContain('页数：47')
     expect(result.text).toContain('index.html')
     expect(d.ensureProxy).toHaveBeenCalled()
     expect(d.wiki).toHaveBeenCalledWith(dir, { force: true, lang: 'chinese' })
@@ -118,7 +118,8 @@ describe('/workmate handler', () => {
     const result = await workmateCommandDefinition(d).handler(invocation(`wiki ${dir}`))
 
     expect(result.kind).toBe('error')
-    expect(result.text).toContain('34')
+    expect(result.text).toContain('❌ 未完成')
+    expect(result.text).toContain('本次页数：34')
     expect(result.text).toContain('缺 index.html')
     await rm(dir, { recursive: true, force: true })
   })

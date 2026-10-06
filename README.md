@@ -303,6 +303,9 @@ gitnexusSseProxyUpstream: https://<你的网关>/ai/v1/chat/completions
 | 归档报「验收未通过：… 仍有未勾选任务」 | 把 `tasks.md` 真正做完并勾上，或让用户显式 `force` |
 | 归档报「计划漂移」 | 开启 `planDriftGate` 后，改了没在 `writes`/`files` 里声明的文件；补声明或 `force` |
 | 归档报「判断层归级 N 条 / CRIT 1/1 未解决」 | review.md 里那条发现被判为阻断级，修掉或勾选解决 |
+| `/workmate wiki` 报 `❌ 未完成｜…缺少网关凭据` | 环境、钥匙串、`~/.gitnexus/config.json` 都没有 key。设 `gitnexusApiKeyKeychainService: ESP_XKW_KEY`（key 已在钥匙串）或 export `ESP_XKW_KEY`；**现在不会先跑 CLI 再报错，直接 fail-fast** |
+| 结果里出现 `staleArtifacts: true` | 本次没有产出新产物，磁盘上那份是**上一次**的 wiki（不再冒充本次成功）；先解决凭据/端点再重跑 |
+| 报成功却带一句 `gitnexus wiki failed` | 已修：CLI 退出非 0 但产物完整时只算**警告**，判决仍是 `✅ 成功` |
 | wiki 报"没有 LLM 配置 / 空响应" | 先看工具返回值里的 `credentials.source`：`none` 表示环境与 `~/.gitnexus/config.json` 都没 key。本机做法：key 在钥匙串（`security add-generic-password -s ESP_XKW_KEY -a "$USER" -w` ），`~/.zshrc` 注入 `ESP_XKW_KEY` 并由 `gitnexusApiKeyFromEnv: ESP_XKW_KEY` 映射 |
 | wiki 生成报"没有 LLM 配置" | 先配 GitNexus 的 provider/key：`~/.gitnexus/config.json`，或跑一次 `gitnexus wiki --provider openai --base-url <url> --model <m> --api-key <k>` 存下来 |
 | wiki 内容是基于旧代码 | 先 `gitnexus analyze`（或调工具时传 `analyze: true`），结果的 `stale` 字段会告诉你索引落后 |
@@ -446,6 +449,7 @@ pnpm dsh web                                            # 启动，默认 http:/
 | `decisionCacheEnabled` | `true` | 判断缓存：同题（state/选项/provider/model/采样数全等）复用上次结论，命中标记 `cached: true` |
 | `decisionCacheMax` | `500` | 缓存条目上限（按时间淘汰）；文件损坏 fail-open，绝不挡住门禁 |
 | `gitnexusWikiLang` / `gitnexusWikiTimeoutMs` | `''` / `900000` | wiki 输出语言（本机设为 `chinese`）与生成超时 |
+| `gitnexusApiKeyKeychainService` | `''` | macOS 钥匙串服务名（本机 `ESP_XKW_KEY`）。**harness 环境里没有 key 也能生成**：子进程凭据按「环境变量 → 配置的变量名 → 钥匙串 → `~/.gitnexus/config.json`」解析，只报来源不回声值 |
 | `gitnexusApiKeyFromEnv` | `''` | 把该环境变量的值**仅对子进程**映射为 `GITNEXUS_API_KEY`（GitNexus 只认这个名字）；已在环境里的 `GITNEXUS_API_KEY` 不会被覆盖。本机设为 `ESP_XKW_KEY`——key 存 macOS 钥匙串，不在任何配置文件里 |
 | `gitnexusSseProxyEnabled` / `...Port` / `...Upstream` | `false` / `8787` / `''` | 部分网关流式输出 `data:{`（冒号后无空格），而 GitNexus 只认 `data: `；开启后 wiki 生成前会**按需保证**归一代理可用（已在跑且转发目标一致就复用，不重复起进程） |
 

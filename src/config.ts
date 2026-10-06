@@ -121,6 +121,8 @@ export interface Config {
   gitnexusSseProxyUpstream?: string
   /** Env var whose value is mapped onto GITNEXUS_API_KEY for spawned gitnexus calls. @default '' */
   gitnexusApiKeyFromEnv?: string
+  /** macOS Keychain service holding the gateway key — works even when the harness env lacks it. @default '' */
+  gitnexusApiKeyKeychainService?: string
 }
 
 /** Runtime schema the host collects (validation + config-UI projection). */
@@ -184,6 +186,7 @@ export const Config: z<Config> = z.object({
   gitnexusSseProxyPort: z.number().default(8787).description('Loopback port for the SSE normalize proxy.'),
   gitnexusSseProxyUpstream: z.string().default('').description('Real gateway chat-completions URL the proxy forwards to.'),
   gitnexusApiKeyFromEnv: z.string().default('').description('Env var mapped onto GITNEXUS_API_KEY for gitnexus calls.'),
+  gitnexusApiKeyKeychainService: z.string().default('').description('macOS Keychain service holding the gateway key.'),
 })
 
 export type ResolvedConfig = Required<Config>
@@ -227,6 +230,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   gitnexusSseProxyPort: 8787,
   gitnexusSseProxyUpstream: '',
   gitnexusApiKeyFromEnv: '',
+  gitnexusApiKeyKeychainService: '',
 }
 
 /**

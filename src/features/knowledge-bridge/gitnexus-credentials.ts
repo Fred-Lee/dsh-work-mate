@@ -1,75 +1,123 @@
 /**
- * Gateway credential plumbing (change `inject-api-key-env`).
+ * Gateway credential plumbing (changes `inject-api-key-env`, `fail-fast-wiki-credentials`).
  *
- * The gateway key lives in the macOS Keychain and reaches GitNexus through an
- * environment variable (`ESP_XKW_KEY` exported by the shell). GitNexus itself only
- * reads `GITNEXUS_API_KEY` / `OPENAI_API_KEY`, so WorkMate maps the configured
- * variable for the child process it spawns.
+ * The key must survive "the harness was started from a shell that never saw the
+ * export". Observed reality: the harness process had neither `ESP_XKW_KEY` nor
+ * `GITNEXUS_API_KEY`, so every spawned `gitnexus wiki` died with "No LLM API key
+ * found" — while the previous run's wiki was still on disk and looked like success.
  *
- * Two rules this module exists to enforce:
- *   1. never write the key into a config file — mapping is per-child-process only;
- *   2. never echo it — `describeGitnexusCredentials` answers with a SOURCE NAME only.
+ * Resolution order (first hit wins):
+ *   1. `GITNEXUS_API_KEY` in the environment (GitNexus's own name)
+ *   2. the configured variable (`Config.gitnexusApiKeyFromEnv`, e.g. `ESP_XKW_KEY`)
+ *   3. the macOS Keychain item (`Config.gitnexusApiKeyKeychainService`) — no shell involved
+ *   4. `~/.gitnexus/config.json` `apiKey`
+ *
+ * Two rules: the key is only ever injected into a child process (never written to a
+ * config file), and it is never echoed — `describeGitnexusCredentials` reports a
+ * SOURCE NAME only.
  */
+import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 
-export type CredentialSource = 'GITNEXUS_API_KEY' | 'OPENAI_API_KEY' | 'config-env' | 'config.json' | 'none'
+export type CredentialSource =
+  | 'GITNEXUS_API_KEY'
+  | 'OPENAI_API_KEY'
+  | 'config-env'
+  | 'keychain'
+  | 'config.json'
+  | 'none'
 
 export interface CredentialDescription {
   source: CredentialSource
-  /** True when the value came from `Config.gitnexusApiKeyFromEnv` rather than GITNEXUS_API_KEY. */
+  /** True when the resolved value has to be injected as GITNEXUS_API_KEY. */
   mapped: boolean
   note?: string
 }
 
-/**
- * Child environment for `gitnexus`: map the configured variable name onto
- * `GITNEXUS_API_KEY` when (and only when) it is not already set. An explicit value
- * always wins — this never overwrites what the user set on purpose.
- */
-export function withGitnexusApiKey(
-  env: NodeJS.ProcessEnv,
-  fromEnvName?: string,
-): NodeJS.ProcessEnv {
-  if (fromEnvName === undefined || fromEnvName === '') return env
-  if (env['GITNEXUS_API_KEY'] !== undefined && env['GITNEXUS_API_KEY'] !== '') return env
-  const mapped = env[fromEnvName]
-  if (mapped === undefined || mapped === '') return env
-  return { ...env, GITNEXUS_API_KEY: mapped }
+export interface CredentialOptions {
+  env: NodeJS.ProcessEnv
+  /** `Config.gitnexusApiKeyFromEnv`. */
+  fromEnvName?: string
+  /** `Config.gitnexusApiKeyKeychainService` (macOS `security` service name). */
+  keychainService?: string
+  /** GitNexus's own config file, checked last. */
+  configPath?: string
+  /** Injection seams for tests. */
+  readKeychain?: (service: string) => string | undefined
+  readConfig?: (path: string) => string | undefined
 }
 
-/**
- * Report where a key would come from, without reading out the value.
- * `configPath` is GitNexus's own `~/.gitnexus/config.json`; only the presence of the
- * field is checked.
- */
-export function describeGitnexusCredentials(options: {
-  env: NodeJS.ProcessEnv
-  configPath?: string
-  fromEnvName?: string
-}): CredentialDescription {
-  const { env, configPath, fromEnvName } = options
-  const present = (name: string): boolean => env[name] !== undefined && env[name] !== ''
+const present = (value: string | undefined): value is string => typeof value === 'string' && value !== ''
 
-  if (present('GITNEXUS_API_KEY')) return { source: 'GITNEXUS_API_KEY', mapped: false }
-  if (fromEnvName !== undefined && fromEnvName !== '' && present(fromEnvName)) {
-    return { source: 'config-env', mapped: true }
+/** macOS Keychain lookup; undefined on any failure (missing item, no tool, locked). */
+export function readKeychainSecret(service: string): string | undefined {
+  try {
+    const output = execFileSync(
+      'security',
+      ['find-generic-password', '-s', service, '-a', process.env['USER'] ?? '', '-w'],
+      { encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] },
+    )
+    const key = output.trim()
+    return key === '' ? undefined : key
+  } catch {
+    return undefined
   }
-  if (present('OPENAI_API_KEY')) return { source: 'OPENAI_API_KEY', mapped: false }
-  if (configPath !== undefined) {
-    try {
-      const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as { apiKey?: unknown }
-      if (typeof parsed.apiKey === 'string' && parsed.apiKey !== '') {
-        return { source: 'config.json', mapped: false }
-      }
-    } catch {
-      /* missing or unreadable config is simply "no credential there" */
+}
+
+function readConfigKey(path: string): string | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as { apiKey?: unknown }
+    return typeof parsed.apiKey === 'string' && parsed.apiKey !== '' ? parsed.apiKey : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Resolve the key value plus its source. The source never contains the value. */
+export function resolveGitnexusApiKey(options: CredentialOptions): { key?: string; source: CredentialSource } {
+  const { env, fromEnvName, keychainService, configPath } = options
+
+  if (present(env['GITNEXUS_API_KEY'])) return { key: env['GITNEXUS_API_KEY'], source: 'GITNEXUS_API_KEY' }
+  if (present(fromEnvName) && present(env[fromEnvName])) return { key: env[fromEnvName], source: 'config-env' }
+  if (present(keychainService)) {
+    const key = (options.readKeychain ?? readKeychainSecret)(keychainService)
+    if (present(key)) return { key, source: 'keychain' }
+  }
+  if (present(env['OPENAI_API_KEY'])) return { key: env['OPENAI_API_KEY'], source: 'OPENAI_API_KEY' }
+  if (present(configPath)) {
+    const key = (options.readConfig ?? readConfigKey)(configPath)
+    if (present(key)) return { key, source: 'config.json' }
+  }
+  return { source: 'none' }
+}
+
+/** Source-only view, safe to log or return to a model. */
+export function describeGitnexusCredentials(options: CredentialOptions): CredentialDescription {
+  const resolved = resolveGitnexusApiKey(options)
+  if (resolved.source === 'none') {
+    return {
+      source: 'none',
+      mapped: false,
+      note:
+        '未发现 GitNexus 凭据：把 key 放进钥匙串（security add-generic-password -s <服务名>）并设置 ' +
+        'Config.gitnexusApiKeyKeychainService，或 export 环境变量（ESP_XKW_KEY / GITNEXUS_API_KEY），' +
+        '或临时写进 ~/.gitnexus/config.json',
     }
   }
-  return {
-    source: 'none',
-    mapped: false,
-    note:
-      '未发现 GitNexus 凭据：把 key 放进钥匙串并 export 环境变量（例如 ESP_XKW_KEY），' +
-      '或临时用 `gitnexus wiki --provider <p> --api-key <k>` 写入 ~/.gitnexus/config.json',
-  }
+  return { source: resolved.source, mapped: resolved.source !== 'GITNEXUS_API_KEY' }
+}
+
+/** Child environment for a spawned `gitnexus`: inject the key under GitNexus's own name. */
+export function withResolvedApiKey(
+  env: NodeJS.ProcessEnv,
+  options: Omit<CredentialOptions, 'env'>,
+): NodeJS.ProcessEnv {
+  if (present(env['GITNEXUS_API_KEY'])) return env
+  const { key } = resolveGitnexusApiKey({ ...options, env })
+  return present(key) ? { ...env, GITNEXUS_API_KEY: key } : env
+}
+
+/** Env-only variant (changes before Keychain support); kept for its focused tests. */
+export function withGitnexusApiKey(env: NodeJS.ProcessEnv, fromEnvName?: string): NodeJS.ProcessEnv {
+  return withResolvedApiKey(env, { ...(fromEnvName !== undefined ? { fromEnvName } : {}) })
 }
