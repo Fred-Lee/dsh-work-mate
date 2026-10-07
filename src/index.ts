@@ -538,7 +538,11 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
             openspecRoot: resolved.openspecRoot,
             projectRoot: resolved.projectRoot,
             qualitySyncEnabled: resolved.qualitySyncEnabled,
-      claudeAssetsEnabled: resolved.claudeAssetsEnabled,
+            claudeAssetsEnabled: resolved.claudeAssetsEnabled,
+            // Without these two the injection judgement and its `decision` trace never ran
+            // on the tool path — only the REST path was protected (found by live probe).
+            decision: deps.decision,
+            events: deps.events,
           },
           {
             id: args.id,
