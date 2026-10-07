@@ -36,30 +36,20 @@ TBD - created by archiving change export-wiki-to-vault. Update Purpose after arc
 
 ### Requirement: Vault 词法检索
 
-实现 SHALL 提供在 vault 内按关键词检索的能力，返回文件与行号及片段，支持结果上限与项目限定；
-无命中或 vault 缺失时 SHALL 返回说明而非报错。
+在启用 `Config.wikiVaultRerank` 且判断层可用时，语义检索 SHALL 允许用模型对**召回候选**做重排：
+模型只在给定候选内选一个最相关者并置顶，SHALL NOT 改变候选集合；
+重排结果 SHALL 在说明中标注"首选原第 N 位"。
+当模型弃权、越界或调用失败时，实现 SHALL 保持召回顺序，SHALL NOT 丢弃任何命中。
 
-在配置了本地嵌入模型（`Config.wikiVaultEmbeddingModel`）时，实现 SHALL 额外支持语义检索，
-并 SHALL 采用**词法优先**策略：词法有命中时 SHALL 直接返回词法结果；
-仅在词法无命中（或调用方显式要求语义）时才使用嵌入，结果 SHALL 说明所用引擎；
-语义命中 SHALL 引用**分块起始行**，SHALL NOT 声称精确到句。
-嵌入调用失败 SHALL 降级为说明并保留词法结果，SHALL NOT 抛错；
-单次运行的**新嵌入数量** SHALL 有上限。
+#### Scenario: 模型选中候选
 
-#### Scenario: 词法优先
+- **WHEN** 重排器返回候选序号 k（0<k<n）
+- **THEN** 该候选移到首位，其余保持相对顺序，说明里注明原来位置
 
-- **WHEN** 词法检索有命中
-- **THEN** 返回词法结果，`engine` 为 `lexical`，不调用嵌入模型
+#### Scenario: 弃权或异常
 
-#### Scenario: 语义兜底
-
-- **WHEN** 词法无命中且配置了嵌入模型、Ollama 可用
-- **THEN** 返回语义命中（行号为分块起始行），`engine` 为 `semantic`
-
-#### Scenario: Ollama 不可用
-
-- **WHEN** 嵌入调用失败
-- **THEN** 结果保留词法（空）结果并给出原因说明，不抛错
+- **WHEN** 重排器返回 undefined 或越界序号
+- **THEN** 命中顺序与召回结果完全一致，说明中不出现重排字样
 
 ### Requirement: 注入判定在所有创建入口生效
 
