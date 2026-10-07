@@ -5,20 +5,14 @@ TBD - created by archiving change export-wiki-to-vault. Update Purpose after arc
 ## Requirements
 ### Requirement: 项目 wiki 导出到 vault
 
-归档编排在提案进入 `archived` 之后 SHALL 调用可选钩子 `onArchived`（当
-`Config.wikiVaultAutoExport` 为真且配置了 `wikiVaultPath` 时由调用方接线），
-并把结果记为 `vault-export` 步骤。钩子失败 SHALL NOT 使归档失败，
-SHALL 记录该步骤为 `failed` 且说明"不影响归档"。
+`classify` 诊断中的 `pathMatched` SHALL 使用与迭代笔记渲染**完全相同**的路径判据
+（模块 slug 包含或 slug token 重合），SHALL NOT 只统计 slug 包含——两处口径不一致会虚高
+向量/判断层的贡献，使"补了几条边"无法核对。
 
-#### Scenario: 归档即同步
+#### Scenario: 口径一致
 
-- **WHEN** 配置了 vault 且归档成功
-- **THEN** 出现 `vault-export: ok` 步骤，摘要包含导出规模
-
-#### Scenario: 导出失败不毁归档
-
-- **WHEN** 钩子抛错（例如 vault 不可写）
-- **THEN** 编排仍 `ok: true`，仅 `vault-export` 步骤为 `failed`
+- **WHEN** 某迭代的 `touches` 里是代码路径（`.../HomeworkManagementService.java`）并由 token 命中模块
+- **THEN** 该迭代计入 `pathMatched`，且不出现在 `vectorMatched` / `llmMatched` 里
 
 ### Requirement: Vault 视图笔记
 
