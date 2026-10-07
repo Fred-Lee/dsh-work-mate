@@ -5,30 +5,26 @@ TBD - created by archiving change export-wiki-to-vault. Update Purpose after arc
 ## Requirements
 ### Requirement: 项目 wiki 导出到 vault
 
-实现 SHALL 把项目的 GitNexus wiki 导出为 Obsidian/Tolaria 兼容的 markdown 笔记：
-每个模块一篇笔记、一篇 `index.md` 索引、迭代笔记、以及追加式 `changelog.md`；
-笔记 SHALL 带 YAML front-matter，索引与迭代笔记 SHALL 使用 `[[wikilink]]` 形成可浏览的图谱。
+导出 SHALL 在结果中报告归类的实际情况（`classify`：路径命中 / 向量命中 / 判断层询问与命中 /
+未归类 / 判断层是否可用），SHALL NOT 在归类无作为时静默返回成功。
+迭代到模块的匹配 SHALL 优先使用**本地嵌入**（零 token、可复现），仅在向量无解时才按
+`Config.wikiVaultClassifyMax` 调用判断层；低于相似度阈值 SHALL 留空。
+每次导出 SHALL 至少写入一条聚合 `decision` 事件记录归类结果。
 
-迭代数据源 SHALL 包含两路：WorkMate 提案（声明式：`depends_on` 来自 `relatesTo`、
-`supersedes` 来自决策链）与 **OpenSpec 归档变更**（历史式：目录名给日期与 id、`#` 标题、
-`## Why` 首行作摘要、`## Impact` 中的代码路径作 `touches`、`[proposal:<id>]` 提交标记）。
-按时间推导出的上一迭代 SHALL 记为 `sequence` 并在 front-matter 标记 `derived: true`；
-实现 SHALL NOT 把推导关系写成 `depends_on`。
+#### Scenario: 向量优先
 
-#### Scenario: 无提案但有归档
+- **WHEN** 提供了向量匹配能力且有未归类迭代
+- **THEN** 命中即连边，`classify.vectorMatched` 增加，且不调用判断层
 
-- **WHEN** 项目从未使用 WorkMate 提案，但 `openspec/changes/archive/` 有历史变更
-- **THEN** 导出产生对应的迭代笔记（含日期与摘要），索引列出它们，且 `depends_on` 为空
+#### Scenario: 判断层不可用要说明
 
-#### Scenario: 派生的血缘被标注
+- **WHEN** 未提供判断层
+- **THEN** `classify.llm` 为 `missing`，未归类数量如实上报
 
-- **WHEN** 多个迭代按日期排序
-- **THEN** 除最早一个外，每个迭代的 front-matter 含 `sequence` 指向上一迭代且 `derived: true`
+#### Scenario: 归档分级留痕
 
-#### Scenario: 提案优先
-
-- **WHEN** 同一 id 既有提案记录又有归档记录
-- **THEN** 使用提案记录（声明式依赖保留）
+- **WHEN** 归档编排调用判断层给出结论
+- **THEN** `events.jsonl` 追加一条含该提案 id 的 `decision` 事件
 
 ### Requirement: Vault 视图笔记
 
