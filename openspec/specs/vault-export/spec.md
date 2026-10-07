@@ -16,14 +16,14 @@ TBD - created by archiving change export-wiki-to-vault. Update Purpose after arc
 
 ### Requirement: Vault 视图笔记
 
-迭代笔记中的每条「触及模块」边 SHALL 标注其来源（路径命中 / token 命中 / 向量相似 / 判断层归类），
-使得边的可靠强度可被读者判断；段落标题 SHALL NOT 暗示所有边都来自 Impact 段。
-front-matter 的 `touches` SHALL 保持纯 slug/名称，不掺入标注文字；热度与去重统计 SHALL 忽略标注。
+「触及模块」边的标注 SHALL 描述**证据类型**（来自代码路径 / 来自散文 token / 来自向量相似 /
+来自判断层归类），SHALL NOT 用实现细节（如"slug 包含 vs token 重叠"）冒充证据强度。
+看起来像路径或文件名的证据 SHALL 标为路径证据，即使匹配是通过 slug token 完成的。
 
-#### Scenario: 理由可见
+#### Scenario: 代码路径算路径证据
 
-- **WHEN** 一次迭代的模块边分别来自路径、token 与判断层
-- **THEN** 笔记中相应行分别出现「路径命中」「token 命中」「判断层归类」
+- **WHEN** Impact 段给出 `src/.../HomeworkManagementService.java` 并被 token 匹配到模块
+- **THEN** 该边标注为「路径命中」，而不是「token 命中」
 
 ### Requirement: Vault 词法检索
 
