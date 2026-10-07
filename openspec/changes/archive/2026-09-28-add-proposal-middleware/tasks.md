@@ -22,7 +22,8 @@
 - [x] 3.2 `src/api.ts`：proposals 列表/详情/创建/归档 + openspec 目录联动
 - [x] 3.3 `src/client/`：ProposalPanel（React）+ main.tsx（IIFE）+ index.tsx
       （ModuleLoader + betterSidebar tab）+ api.ts + styles
-- [ ] 3.4 `build.mjs` 两个 client 产物；`package.json` 加 `dsh.client` / `exports`
+- [x] 3.4 `build.mjs` 两个 client 产物；`package.json` 加 `dsh.client` / `exports`
+      （2026-10-07 补验：`dist/client/client.js` 产出正常，`pnpm verify:client` 门禁常年在跑）
       / react·jsdom·testing-library devDeps；`tsconfig.client.json`
 
 ## 4. 测试与验收
@@ -31,4 +32,5 @@
       REST 集成（路由 + 聚合）
 - [x] 4.2 client 测试：面板渲染 / 创建 / 归档交互（jsdom + testing-library）
 - [x] 4.3 `pnpm build` / `pnpm typecheck` / `pnpm test` / `pnpm verify:contract` 全绿
-- [ ] 4.4 真机冒烟：curl REST 全链路 + 工具在 Agent 侧可见 + 面板页可打开
+- [x] 4.4 真机冒烟：curl REST 全链路 + 工具在 Agent 侧可见 + 面板页可打开
+      （2026-10-07 补验：REST `/workmate/api/...` 实测 200；20 个工具注册可见；面板页签与卡片在真机可用）
