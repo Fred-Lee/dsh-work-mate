@@ -5,14 +5,19 @@ TBD - created by archiving change export-wiki-to-vault. Update Purpose after arc
 ## Requirements
 ### Requirement: 项目 wiki 导出到 vault
 
-判断层的诊断记录 SHALL 区分"适配器未产生任何流块"（`chunksSeen === 0`，记为
-`empty stream (no chunk at all)`）与"产生了块但没有工具调用"（记为
-`no tool-call emitted (model answered in text?)`），SHALL 记录 `chunksSeen` 字段。
+归档编排读取验收证据（`tasks.md` / `review.md`）时 SHALL 解析 change 目录：
+先看活动路径 `changes/<id>/`，不存在时 SHALL 回退到 `changes/archive/<date>-<id>/`，
+使归档后的复查与重跑仍能读到证据。编排结果 SHALL 明确报告本次是否由 `force` 跳过门禁（`forced`）。
 
-#### Scenario: 空流可辨认
+#### Scenario: 归档后仍读得到证据
 
-- **WHEN** 适配器返回的流里没有任何块
-- **THEN** 诊断记录 `chunksSeen: 0` 且 failure 为 `empty stream (no chunk at all)`
+- **WHEN** change 目录已位于 `changes/archive/<date>-<id>/`
+- **THEN** 编排仍能读到 `tasks.md` 与 `review.md`（审查分级据此执行）
+
+#### Scenario: force 可见
+
+- **WHEN** 调用方以 `reviewGate: false` 或 `tasksGate: false` 运行归档
+- **THEN** 返回结果 `forced: true`
 
 ### Requirement: Vault 视图笔记
 
