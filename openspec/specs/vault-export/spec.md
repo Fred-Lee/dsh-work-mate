@@ -5,16 +5,19 @@ TBD - created by archiving change export-wiki-to-vault. Update Purpose after arc
 ## Requirements
 ### Requirement: 项目 wiki 导出到 vault
 
-判断层 provider SHALL 将宿主归一化的终态 `finish` 块视为失败信号：当终态原因不属于正常停止
-（`stop` / `tool-calls` / `end_turn`）时，SHALL 记录该原因；当整轮未出现 `tool-call-delta` 时，
-SHALL 记录"模型以文本作答"这一事实。相关记录 SHALL 追加写入 `<DSH home>/workmate/decision-diagnostics.jsonl`
-且 SHALL 失败无副作用（诊断不得影响判断结果）。
+判断层 SHALL 依据宿主 `FinishReason.kind` 判定终态：`stop` / `tool-calls` / `max-tokens`
+视为正常结束，`aborted` / `error` 视为失败；失败时 SHALL 保留结构化 `failure` 原文并写入诊断文件。
+诊断记录 SHALL 可序列化（不得出现 `[object Object]`）。
 
-#### Scenario: 失败必须可复现定位
+#### Scenario: 正常结束不被误判
 
-- **WHEN** 适配器调用失败或被超时中断
-- **THEN** 诊断文件出现一条含 `failure` / `finishReason` / `provider` / `model` 的记录，
-  且调用方仍按"无结论"处理（不产生边、不写缓存）
+- **WHEN** 模型发出 `finish:{kind:'tool-calls'}` 且此前有工具调用增量
+- **THEN** 返回该答案，不记录失败
+
+#### Scenario: 失败保留原文
+
+- **WHEN** 适配器以 `{kind:'error', failure:{...}}` 结束
+- **THEN** 诊断记录含 `finishKind: 'error'` 与结构化 `finishFailure`
 
 ### Requirement: Vault 视图笔记
 
