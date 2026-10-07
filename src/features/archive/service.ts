@@ -227,7 +227,9 @@ export class LifecycleServiceImpl {
       this.deps.allowAgentApproval !== true
     ) {
       const unassessed = new InvalidTransitionError(
-        `推进到 ${to} 前必须先判定风险：调用 workmate_assess_risk（高风险会在 approvalsRequired 之外追加人工批准门）`,
+        `推进到 ${to} 前必须先判定风险：调用 workmate_assess_risk。` +
+          `若判断层只给出 review 档（置信不足，工具按设计不写入风险），则需要人工在面板点「推进到 ${to}」` +
+          `——该守卫只约束 agent，人类不受限制。`,
       )
       await this.recordGateFailure(proposal, to, unassessed, actor, 'risk-unassessed')
       throw unassessed

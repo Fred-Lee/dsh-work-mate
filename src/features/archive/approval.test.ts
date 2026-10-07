@@ -211,6 +211,10 @@ describe('unassessed risk must not bypass the risk gate (risk-gate-bypass)', () 
     await expect(lifecycle.transition('p1', 'implementing', { actor: 'agent' })).rejects.toThrow(
       /必须先判定风险|risk/i,
     )
+    // Humans stay unblocked by this guard (they own the risk decision).
+    await expect(lifecycle.transition('p1', 'implementing', { actor: 'human' })).rejects.not.toThrow(
+      /必须先判定风险/,
+    )
   })
 
   it('keeps working when the judgement layer is off', async () => {
