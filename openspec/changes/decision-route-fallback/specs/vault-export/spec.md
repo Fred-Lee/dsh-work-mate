@@ -1,6 +1,6 @@
 ## MODIFIED Requirements
 
-### Requirement: 判断层在所有创建入口生效
+### Requirement: 注入判定在所有创建入口生效
 
 判断层解析模型路由时 SHALL 生成**有序候选列表**（精确 id/name 优先，其余按注册顺序），
 SHALL 逐个尝试直到某条路由给出答案；单条路由不可用（账号登录要求、传输失败、空流等）
