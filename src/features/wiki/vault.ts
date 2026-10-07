@@ -289,8 +289,13 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
           })
         const hit = byToken
         if (hit === undefined) return `\`${raw}\``
+        // Distinguish WHAT the evidence is, not which matcher fired: a code path from the
+        // proposal's Impact section (matched by slug or by a slug token) is path evidence;
+        // only non-path prose matched by token overlap is the weaker "token" kind.
+        const looksLikePath = /[\\/]|\.[A-Za-z]{1,6}$/.test(raw)
         const reason =
-          iteration.touchReasons?.[hit.slug] ?? (exact !== undefined ? ('path' as const) : ('token' as const))
+          iteration.touchReasons?.[hit.slug] ??
+          (looksLikePath || exact !== undefined ? ('path' as const) : ('token' as const))
         return `[[${subdir}/${input.project}/modules/${hit.slug}|${hit.name}]]（${reasonLabels[reason]}）`
       })
       .filter((value) => value !== '')

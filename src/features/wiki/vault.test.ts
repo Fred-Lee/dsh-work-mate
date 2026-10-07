@@ -272,7 +272,7 @@ describe('edge reasons (touch-reasons)', () => {
           commits: [],
           origin: 'archive',
           date: '2026-02-01',
-          touches: ['homework-management', 'HomeworkManagementService.java', 'api-controllers'],
+          touches: ['homework-management', 'src/main/java/com/zujuan/HomeworkManagementService.java', 'api-controllers', '一些散文描述'],
           touchReasons: { 'api-controllers': 'llm' },
         },
       ],
@@ -281,7 +281,7 @@ describe('edge reasons (touch-reasons)', () => {
     const note = await readFile(join(vault, 'WorkMate', 'internal-homework', 'iterations', 'iter-reason.md'), 'utf8')
     expect(note).toContain('## 触及的模块（含匹配理由）')
     expect(note).toContain('（路径命中）')     // exact slug in the touch list
-    expect(note).toContain('（token 命中）')   // HomeworkManagementService.java → homework-management
+    expect(note).not.toContain('（token 命中）') // code paths are path evidence, even when matched by token
     expect(note).toContain('（判断层归类）')   // explicit reason from the judgement layer
     await rm(repo, { recursive: true, force: true })
     await rm(vault, { recursive: true, force: true })
