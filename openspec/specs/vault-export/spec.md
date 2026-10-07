@@ -78,17 +78,17 @@ detail 中记录命中的特征名。前置筛 SHALL NOT 单独把文本判为 `
 
 ### Requirement: 风险未判定不得通过高风险门
 
-判断层开启时，代理人在风险尚未判定前 SHALL NOT 推进到受 `Config.highRiskExtraGates` 保护的状态；
-被拒绝时 SHALL 给出可操作提示（先调用 `workmate_assess_risk`），并 SHALL 记录一条 `gate-failed`
-事件（gate 名为 `risk-unassessed`）。人类操作者与判断层关闭的情形 SHALL 不受影响。
+拒绝代理人推进时的错误信息 SHALL 说明两点：判断层停留在 `review` 档时实现不会写入风险
+（设计 D2：只有 `act` 档结论成为事实），以及**该守卫只约束 agent，人类可在面板直接推进**。
+实现 SHALL NOT 因该守卫把人类操作者也挡在门外。
 
-#### Scenario: 未判风险被挡
+#### Scenario: review 档时说明出路
 
-- **WHEN** 判断层开启、highRiskExtraGates 含 implementing、提案无 risk，且由 agent 推进
-- **THEN** 抛出含"必须先判定风险"的错误，并记录 gate-failed 事件
+- **WHEN** 代理人推进被该守卫拒绝
+- **THEN** 错误信息同时包含 "review" 档说明与"人类可直接推进"的提示
 
-#### Scenario: 判断层关闭时不变
+#### Scenario: 人类不受限
 
-- **WHEN** 判断层关闭
-- **THEN** 该守卫不生效，行为与之前一致
+- **WHEN** 人类操作者推进同一状态
+- **THEN** 该守卫不介入（是否放行由配置的批准门决定）
 
