@@ -144,8 +144,9 @@ node $DSH web                                                # http://127.0.0.1:
 | M29 | vault 视图笔记 + touches 增强（front-matter/裸路径/判断层归类）+ `workmate_wiki_search` | ✅ 已归档 `2026-10-07-vault-views-search` |
 | M30 | 本地 Ollama 嵌入的语义检索（词法优先、语义兜底；向量哈希缓存，零新依赖） | ✅ 已归档 `2026-10-07-semantic-vault-search` |
 
-待办（依赖外部条件）：@快捷指令（`@hucj/dsh-file-mention` 未装）、WeKnora 真机契约核验、
-`dsh-mcp-client` 的 profile patch 行（库已装但惰性）。swarm 的任务级载体已落地（M14）：
+**知识面已定型（2026-10-07 用户决策）：本地 markdown + Obsidian，放弃 WeKnora** —— GitNexus wiki → 导出 Obsidian vault（`index.md`/`modules/`/`iterations/`/`views.md`/`changelog.md`），人用 Graph+Dataview 读，AI 读同一批 markdown（`workmate_wiki_search` 返回文件:行号）；语义检索走本地 Ollama（bge-m3），重排走判断层 `search-rerank`。
+待办（依赖外部条件）：@快捷指令（`@hucj/dsh-file-mention` 未装）、
+`dsh-mcp-client` 的 profile patch 行（库已装但惰性）。~~WeKnora 真机契约核验~~（已放弃）；WeKnora 写路径与 embedding 不再实现。swarm 的任务级载体已落地（M14）：
 "谁来执行任务"仍由调用方（子代理 / Agent Teams）决定，插件只负责 git 隔离与合并纪律；
 工件账本与 plan-drift 已落地（M15）。判断层（M16）插件默认关闭，但**本机 web profile 已开启**（`cordis.patch.yml` 的 workmate 行：`decisionEnabled=true`、3 次采样、缓存开启）；插件侧默认仍是关闭，
 `decisionProvider` 可切 `agent` / `rules` / `jev`（`jev` 仅接口占位，需 TypeSafe key 才有适配器）。

@@ -141,6 +141,8 @@ export interface Config {
   wikiVaultClassifyMax?: number
   /** Let the model reorder semantic search candidates (recall stays cosine-based). @default false */
   wikiVaultRerank?: boolean
+  /** Re-export the vault automatically after a proposal is archived. @default true */
+  wikiVaultAutoExport?: boolean
 }
 
 /** Runtime schema the host collects (validation + config-UI projection). */
@@ -214,6 +216,7 @@ export const Config: z<Config> = z.object({
   wikiVaultEmbeddingCache: z.string().default('').description('Vector cache file (empty = workmateHome/wiki-embeddings.json).'),
   wikiVaultClassifyMax: z.number().default(20).description('Judgement-layer module classifications per export run.'),
   wikiVaultRerank: z.boolean().default(false).description('Model rerank of semantic search candidates.'),
+  wikiVaultAutoExport: z.boolean().default(true).description('Re-export the vault after a proposal is archived.'),
 })
 
 export type ResolvedConfig = Required<Config>
@@ -267,6 +270,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   wikiVaultEmbeddingCache: '',
   wikiVaultClassifyMax: 20,
   wikiVaultRerank: false,
+  wikiVaultAutoExport: true,
 }
 
 /**

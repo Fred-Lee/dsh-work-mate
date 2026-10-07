@@ -537,3 +537,49 @@ describe('swarm step reports what the proposal used (swarm-report-not-wired)', (
     await rm(project, { recursive: true, force: true })
   })
 })
+
+describe('auto vault export after archiving (auto-export-vault)', () => {
+  async function fixture(): Promise<string> {
+    const project = await mkdtemp(join(tmpdir(), 'wm-autovault-'))
+    await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+    await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n', 'utf8')
+    return project
+  }
+  const prop = { id: 'p1', title: 't', status: 'archiving', projects: ['proj'], commits: [], openspecChangeId: 'p1' }
+
+  it('calls the hook once the proposal is archived', async () => {
+    const project = await fixture()
+    const calls: string[] = []
+    const result = await orchestrateArchive(prop as never, [{ project: 'proj', root: project }], {
+      openspecRoot: 'openspec',
+      gitnexusAnalyzeEnabled: false,
+      reviewGate: false,
+      onArchived: async (proposal, targets) => {
+        calls.push(`${proposal.id}@${targets[0]?.project}`)
+        return '导出了 3 个模块'
+      },
+    } as never)
+
+    expect(calls).toEqual(['p1@proj'])
+    expect(result.steps.find((step) => step.step === 'vault-export')).toMatchObject({ status: 'ok' })
+    await rm(project, { recursive: true, force: true })
+  })
+
+  it('records a failing hook without failing the archive', async () => {
+    const project = await fixture()
+    const result = await orchestrateArchive(prop as never, [{ project: 'proj', root: project }], {
+      openspecRoot: 'openspec',
+      gitnexusAnalyzeEnabled: false,
+      reviewGate: false,
+      onArchived: async () => {
+        throw new Error('vault 不可写')
+      },
+    } as never)
+
+    expect(result.ok).toBe(true)
+    const step = result.steps.find((entry) => entry.step === 'vault-export')
+    expect(step?.status).toBe('failed')
+    expect(step?.summary).toContain('不影响归档')
+    await rm(project, { recursive: true, force: true })
+  })
+})

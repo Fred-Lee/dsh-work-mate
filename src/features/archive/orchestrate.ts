@@ -19,7 +19,17 @@ import { collectArtifactLedger, computeDrift, declaredScopes } from '../proposal
 import type { DecisionOutcome, DecisionQuestion } from '../decision/types.ts'
 
 export interface OrchestrationStep {
-  step: 'review-gate' | 'tasks' | 'plan-drift' | 'swarm' | 'openspec-archive' | 'gitnexus-analyze' | 'reopen-dir' | 'worktree-cleanup' | 'status'
+  step:
+    | 'review-gate'
+    | 'tasks'
+    | 'plan-drift'
+    | 'swarm'
+    | 'openspec-archive'
+    | 'gitnexus-analyze'
+    | 'reopen-dir'
+    | 'worktree-cleanup'
+    | 'vault-export'
+    | 'status'
   status: 'ok' | 'skipped' | 'failed'
   summary: string
 }
@@ -173,6 +183,11 @@ export interface OrchestrateDeps {
 
 export interface OrchestrateOptions {
   openspecRoot: string
+  /**
+   * Called once the proposal reached `archived` (change `auto-export-vault`).
+   * Best-effort: a failing hook is recorded as a step, never fails the archive itself.
+   */
+  onArchived?: (proposal: Proposal, targets: OrchestrationTarget[]) => Promise<string | undefined>
   gitnexusAnalyzeEnabled?: boolean
   reviewGate?: boolean
   /**
@@ -494,6 +509,20 @@ export async function orchestrateArchive(
 
   // 7. status
   steps.push({ step: 'status', status: 'ok', summary: `proposal ${proposal.id} → archived` })
+  // 8. vault 回写（知识面 = 本地 markdown + Obsidian：归档即同步，不必有人记得手动导出）
+  if (options.onArchived !== undefined) {
+    try {
+      const summary = await options.onArchived(proposal, targets)
+      steps.push({ step: 'vault-export', status: 'ok', summary: summary ?? 'vault 已更新' })
+    } catch (error) {
+      steps.push({
+        step: 'vault-export',
+        status: 'failed',
+        summary: `vault 回写失败（不影响归档）：${error instanceof Error ? error.message : String(error)}`,
+      })
+    }
+  }
+
   return {
     ok: true,
     steps,

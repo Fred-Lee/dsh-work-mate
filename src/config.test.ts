@@ -48,6 +48,7 @@ describe('resolveConfig', () => {
       wikiVaultEmbeddingCache: '',
       wikiVaultClassifyMax: 20,
       wikiVaultRerank: false,
+      wikiVaultAutoExport: true,
       packageManager: 'pnpm',
       weknoraEnabled: true,
       weknoraKbId: '',

@@ -228,6 +228,8 @@ for line in sys.stdin:
 > 的命令面（`@deepseek-ai/dsh-commands`），**不经过模型**，所以是确定性的。
 > 该命令需要重启 harness 后生效；CLI/REST 路径（`wkwiki`、`POST /api/wiki`）不受影响。
 
+> **知识面定型（2026-10-07）**：本机不部署 WeKnora，知识面 = **本地 markdown + Obsidian**。下面这条导出链路就是唯一的知识出口。
+
 ### 0.8c 导出到 Obsidian / Tolaria（人读 + AI 读物）
 
 GitNexus 生成的是"原料"；这一步把它整理成**人能读、AI 能直接吃**的 vault 笔记：

@@ -183,6 +183,23 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...(opts.tasksGate !== undefined ? { tasksGate: opts.tasksGate } : {}),
         ...(opts.planDriftGate !== undefined ? { planDriftGate: opts.planDriftGate } : {}),
         ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+        // 知识面 = 本地 markdown + Obsidian：归档成功即把 vault 同步一次（失败不影响归档）
+        ...(resolved.wikiVaultPath !== '' && resolved.wikiVaultAutoExport
+          ? {
+              onArchived: async (_proposal: unknown, targets: Array<{ project: string; root: string }>) => {
+                const written: string[] = []
+                for (const target of targets) {
+                  try {
+                    const exported = await runVaultExport({ projectRoot: target.root })
+                    written.push(`${target.project}: ${exported.modules} 模块 / ${exported.pages} 页 / ${exported.iterations} 迭代`)
+                  } catch (error) {
+                    written.push(`${target.project}: 跳过（${error instanceof Error ? error.message : String(error)}）`)
+                  }
+                }
+                return written.join('；')
+              },
+            }
+          : {}),
       }, {
         // The judgement layer reaches the archive orchestration as a hook: absent
         // means disabled, and everything behaves exactly as before.
