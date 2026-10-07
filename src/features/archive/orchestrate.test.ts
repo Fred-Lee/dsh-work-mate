@@ -68,9 +68,9 @@ describe('orchestrateArchive (fake CLIs)', () => {
   async function seedProject(): Promise<string> {
     const project = join(home, 'proj')
     await import('node:fs/promises').then(async (fs) => {
-      await fs.mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
-      await fs.writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. a\n- [x] 2. b\n', 'utf8')
-      await fs.writeFile(
+      await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+      await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. a\n- [x] 2. b\n', 'utf8')
+      await writeFile(
         join(project, 'openspec', 'changes', 'p1', 'review.md'),
         '## CRITICAL 问题\n\n- [x] CRIT-1 已解决\n',
         'utf8',
@@ -112,7 +112,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
       expect(result.tasks).toEqual({ done: 2, total: 2, lines: ['- [x] 1. a', '- [x] 2. b'] })
       expect(result.steps.map((s) => [s.step, s.status])).toEqual([
         ['tasks', 'ok'],
-        ['swarm', 'skipped'],
+        ['swarm', 'ok'],   // 无 swarm 任务时如实报告，而非含糊的 not wired
         ['review-gate', 'ok'],
         ['openspec-archive', 'ok'],
         ['gitnexus-analyze', 'ok'],
@@ -480,5 +480,60 @@ describe('archived change dir is still readable (archive-evidence-after-move)', 
     expect(await resolveChangeDir(root, 'openspec', 'moved-probe')).toBe(active)
 
     await rm(root, { recursive: true, force: true })
+  })
+})
+
+describe('swarm step reports what the proposal used (swarm-report-not-wired)', () => {
+  const NO_PROJECT = mkdtemp(join(tmpdir(), 'wm-swarm-none-'))
+  const MERGED_PROJECT = mkdtemp(join(tmpdir(), 'wm-swarm-merged-'))
+
+  /** Minimal archivable fixture; the swarm step only needs tasks.md and proposal.swarmTasks. */
+  async function fixture(project: string): Promise<void> {
+    await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+    await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n', 'utf8')
+  }
+
+  const baseProposal = (swarmTasks?: unknown[]): unknown => ({
+    id: 'p1',
+    title: 'swarm 步骤如实报告',
+    status: 'archiving',
+    projects: ['proj'],
+    commits: [],
+    openspecChangeId: 'p1',
+    ...(swarmTasks !== undefined ? { swarmTasks } : {}),
+  })
+
+  it('says the proposal used no task-level parallelism when there are no swarm tasks', async () => {
+    const project = await NO_PROJECT
+    await fixture(project)
+    const result = await orchestrateArchive(
+      baseProposal() as never,
+      [{ project: 'proj', root: project }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false, reviewGate: false } as never,
+    )
+
+    const step = result.steps.find((entry) => entry.step === 'swarm')
+    expect(step?.status).toBe('ok')
+    expect(step?.summary).toContain('无 swarm 任务')
+    expect(step?.summary).toContain('D1')
+    await rm(project, { recursive: true, force: true })
+  })
+
+  it('lists merged swarm tasks and their branches', async () => {
+    const project = await MERGED_PROJECT
+    await fixture(project)
+    const result = await orchestrateArchive(
+      baseProposal([
+        { id: 't1', title: 'a', writes: [], status: 'merged', branch: 'feature/x--t1' },
+        { id: 't2', title: 'b', writes: [], status: 'merged', branch: 'feature/x--t2' },
+      ]) as never,
+      [{ project: 'proj', root: project }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false, reviewGate: false } as never,
+    )
+
+    const step = result.steps.find((entry) => entry.step === 'swarm')
+    expect(step?.summary).toContain('2 个 swarm 任务全部已合并')
+    expect(step?.summary).toContain('feature/x--t1')
+    await rm(project, { recursive: true, force: true })
   })
 })

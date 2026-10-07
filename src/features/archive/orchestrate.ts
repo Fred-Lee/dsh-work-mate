@@ -321,8 +321,13 @@ export async function orchestrateArchive(
     if (tasks === undefined) tasks = withTasks[0]?.snapshot
   }
 
-  // 2. swarm parallel execution (recorded skip until the swarm plugin ships)
-  if (tasks !== undefined && deps.runSwarmTasks) {
+  // 2. swarm: REPORT, never dispatch. Design D1 keeps task execution with the caller
+  // (subagents / Agent Teams); workmate owns the git isolation and merge discipline. So the
+  // step states what this proposal actually used instead of a vague "not wired".
+  const swarmTasks = proposal.swarmTasks ?? []
+  const swarmMerged = swarmTasks.filter((task) => task.status === 'merged')
+  const swarmPending = swarmTasks.filter((task) => task.status !== 'merged')
+  if (tasks !== undefined && deps.runSwarmTasks !== undefined) {
     try {
       const summary = await deps.runSwarmTasks(tasks, firstRoot)
       steps.push({ step: 'swarm', status: 'ok', summary })
@@ -330,11 +335,28 @@ export async function orchestrateArchive(
       steps.push({ step: 'swarm', status: 'failed', summary: error instanceof Error ? error.message : String(error) })
       return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }
     }
+  } else if (swarmTasks.length === 0) {
+    steps.push({
+      step: 'swarm',
+      status: 'ok',
+      summary: '无 swarm 任务（本提案未使用任务级并行；派发执行由调用方/Agent Teams 决定，见设计 D1）',
+    })
+  } else if (swarmPending.length === 0) {
+    steps.push({
+      step: 'swarm',
+      status: 'ok',
+      summary: `${swarmMerged.length} 个 swarm 任务全部已合并` +
+        `${swarmMerged.filter((task) => task.branch !== undefined).length > 0
+          ? `（分支：${swarmMerged.map((task) => task.branch ?? task.id).join(', ')}）`
+          : ''}`,
+    })
   } else {
     steps.push({
       step: 'swarm',
       status: 'skipped',
-      summary: 'swarm orchestrator not wired — parallel execution pending (design D1)',
+      summary: `swarm 任务未全部合并，本次按 force 放行：${swarmPending
+        .map((task) => `${task.id}(${task.status}${task.branch !== undefined ? `, ${task.branch}` : ''})`)
+        .join('，')}——正常路径应为 workmate_swarm_task action=merge`,
     })
   }
 
