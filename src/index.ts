@@ -254,6 +254,25 @@ export function apply(ctx: Context, config: Config = {}): void {
       question: '哪个候选片段与查询最相关？',
       options: [...candidates.map((_, index) => String(index + 1)), 'none'],
     })
+    // Same discipline as every other node: a judgement that leaves no trace cannot be
+    // debugged (this is exactly what cost us hours on `module-match`).
+    await events
+      .append({
+        at: new Date().toISOString(),
+        kind: 'decision',
+        proposalId: '_wiki_search',
+        actor: 'agent',
+        node: 'search-rerank',
+        action: outcome?.action ?? 'abstain',
+        ...(outcome?.choice !== undefined ? { choice: outcome.choice } : {}),
+        certainty: outcome?.certainty ?? 0,
+        provider: outcome?.provider ?? 'none',
+        ...(outcome?.threshold !== undefined ? { threshold: outcome.threshold } : {}),
+        ...(outcome?.cached !== undefined ? { cached: outcome.cached } : {}),
+        detail: JSON.stringify({ query: input.query, candidates: candidates.length }),
+      })
+      .catch(() => undefined)
+
     if (outcome?.action !== 'act' || outcome.choice === undefined || outcome.choice === 'none') return undefined
     const picked = Number(outcome.choice) - 1
     return Number.isInteger(picked) && picked >= 0 && picked < candidates.length ? picked : undefined
