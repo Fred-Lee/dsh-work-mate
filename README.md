@@ -228,6 +228,15 @@ for line in sys.stdin:
 > 的命令面（`@deepseek-ai/dsh-commands`），**不经过模型**，所以是确定性的。
 > 该命令需要重启 harness 后生效；CLI/REST 路径（`wkwiki`、`POST /api/wiki`）不受影响。
 
+#### 什么时候用哪个（graph 查询 vs vault 检索）
+
+| 你想做的事 | 用哪个 | 说明 |
+|---|---|---|
+| 用**中文**模糊描述找相关代码/文档 | `workmate_wiki_search` | 本地 bge-m3 语义 + 判断层重排 + 词法兜底，返回**文件:行号** |
+| **精确**看某个类/方法（谁调用、有哪些成员） | `workmate_knowledge_query { action: "context", target: "<符号名>" }` | 符号名通常是英文，`epistemic: exact`，不受语言影响 |
+| 改动**影响面**（会波及谁） | `workmate_knowledge_query { action: "impact", target: "<符号名>" }` | 同上，精确 |
+| 用**中文概念**跑 `action: "query"` | ⚠️ 目前命中为空 | GitNexus 全文索引需要 `GITNEXUS_FTS_CJK_SEGMENTATION=bigram`（analyze 与查询进程都要设）+ `analyze --force` 重建；工具会把该 warning **提到返回顶层**，看到它不是"功能坏了" |
+
 > **知识面定型（2026-10-07）**：本机不部署 WeKnora，知识面 = **本地 markdown + Obsidian**。下面这条导出链路就是唯一的知识出口。
 
 ### 0.8c 导出到 Obsidian / Tolaria（人读 + AI 读物）

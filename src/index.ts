@@ -843,7 +843,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     defineTool({
       name: 'workmate_knowledge_query',
       description:
-        'Query the GitNexus code knowledge graph of a project (must be gitnexus-analyzed): action "query" finds execution flows for a concept, "context" gives a 360-degree view of a symbol, "impact" reports the blast radius of changing a symbol.',
+        'Query the GitNexus code knowledge graph of a project (must be gitnexus-analyzed): query finds execution flows for a concept, context gives a 360-degree view of a symbol, impact reports the blast radius of changing a symbol. Prefer SYMBOL NAMES (usually English) — context/impact are exact and unaffected by language. For fuzzy CHINESE concept search use workmate_wiki_search instead: the GitNexus full-text index needs GITNEXUS_FTS_CJK_SEGMENTATION=bigram at analyze time, so a CJK warning means Chinese concept queries cannot match (the tool is not broken).',
       parameters: {
         action: { type: 'string', required: true, description: 'One of: query | context | impact.' },
         target: { type: 'string', required: true, description: 'Search concept or symbol name.' },
@@ -871,7 +871,11 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
           },
           exec.signal,
         )
-        return asJson(result)
+        // GitNexus reports index-level caveats (e.g. CJK segmentation) inside its payload; lift the
+        // warning to the top level so "no results" never reads as "the feature is missing".
+        const warning =
+          typeof result.output === 'string' ? /"warning"\s*:\s*"([^"]+)"/.exec(result.output)?.[1] : undefined
+        return asJson({ ...result, ...(warning !== undefined ? { warning } : {}) })
       },
     }),
   )
