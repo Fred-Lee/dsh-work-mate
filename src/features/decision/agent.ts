@@ -197,7 +197,11 @@ export class AgentProvider implements DecisionProvider {
         additionalProperties: false,
       },
     }
-    let argumentsJson = ''
+    // Deliberately collect by tool name: a model may call the same schema under a different
+    // name, and dropping those deltas looks exactly like "the model never answered"
+    // (observed: 204 chunks, zero text, no `answer` tool call).
+    const buffers = new Map<string, string>()
+    const chunkTypes = new Map<string, number>()
     let chunksSeen = 0
     let finishKind = '(no finish chunk)'
     let finishFailure: unknown
@@ -230,6 +234,7 @@ export class AgentProvider implements DecisionProvider {
       })
       for await (const chunk of stream) {
         chunksSeen += 1
+        chunkTypes.set(chunk.type, (chunkTypes.get(chunk.type) ?? 0) + 1)
         if (abort.signal.aborted) {
           failure = failure === '' ? 'aborted (timeout or caller signal)' : failure
           break
@@ -244,22 +249,32 @@ export class AgentProvider implements DecisionProvider {
           }
           continue
         }
-        if (chunk.type === 'text-delta') {
+        if (chunk.type === 'text-delta' || chunk.type === 'reasoning-delta') {
           textChars += chunk.text?.length ?? 0
           continue
         }
         if (chunk.type !== 'tool-call-delta') continue
-        if (chunk.name !== undefined && chunk.name !== TOOL_NAME) continue
-        argumentsJson += chunk.argumentsDelta ?? ''
+        const key = chunk.name ?? TOOL_NAME
+        buffers.set(key, (buffers.get(key) ?? '') + (chunk.argumentsDelta ?? ''))
       }
     } catch (error) {
       failure = `threw:${error instanceof Error ? error.message : String(error)}`
-      await recordDiagnostic({ node: question.node, provider: route.provider, model: route.model, failure, textChars })
+      await recordDiagnostic({
+        node: question.node,
+        provider: route.provider,
+        model: route.model,
+        failure,
+        textChars,
+        chunksSeen,
+        chunkTypes: Object.fromEntries(chunkTypes),
+        toolNames: [...buffers.keys()],
+      })
       return undefined
     } finally {
       clearTimeout(stop)
       signal?.removeEventListener('abort', onAbort)
     }
+    const argumentsJson = buffers.get(TOOL_NAME) ?? [...buffers.values()][0] ?? ''
     if (argumentsJson === '') {
       await recordDiagnostic({
         node: question.node,
@@ -275,6 +290,8 @@ export class AgentProvider implements DecisionProvider {
             : failure,
         textChars,
         chunksSeen,
+        chunkTypes: Object.fromEntries(chunkTypes),
+        toolNames: [...buffers.keys()],
       })
       return undefined
     }

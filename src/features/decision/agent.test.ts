@@ -157,3 +157,44 @@ describe('multi-route fallback (decision-route-fallback)', () => {
     expect(tried).toEqual(['b'])
   })
 })
+
+describe('tool name tolerance (decision-tool-name-tolerance)', () => {
+  it('accepts a tool call whose name differs from the requested schema', async () => {
+    const { AgentProvider } = await import('./agent.ts')
+    const provider = new AgentProvider({
+      llm: () => ({
+        listProviders: () => [{ id: 'p', models: [{ id: 'm' }] }],
+        stream: () => (async function* () {
+          // Same arguments schema, different tool name — must not be treated as "no answer".
+          yield { type: 'tool-call-delta', index: 0, id: 'c', name: 'choose_option', argumentsDelta: '{"choice":"high"}' }
+          yield { type: 'finish', reason: { kind: 'tool-calls' } }
+        })(),
+      }),
+      provider: 'p',
+      model: 'm',
+      samples: 1,
+    } as never)
+
+    const answer = await provider.ask({ node: 'risk-tier', state: 's', question: 'q', options: ['low', 'high'] })
+
+    expect(answer?.choice).toBe('high')
+  })
+
+  it('counts reasoning deltas as content, not as an empty stream', async () => {
+    const { AgentProvider } = await import('./agent.ts')
+    const provider = new AgentProvider({
+      llm: () => ({
+        listProviders: () => [{ id: 'p', models: [{ id: 'm' }] }],
+        stream: () => (async function* () {
+          yield { type: 'reasoning-delta', index: 0, text: 'thinking…' }
+          yield { type: 'finish', reason: { kind: 'stop' } }
+        })(),
+      }),
+      provider: 'p',
+      model: 'm',
+      samples: 1,
+    } as never)
+
+    await expect(provider.ask({ node: 'risk-tier', state: 's', question: 'q', options: ['low'] })).resolves.toBeUndefined()
+  })
+})
