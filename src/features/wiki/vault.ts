@@ -30,6 +30,8 @@ export interface VaultIterationInput {
   summary?: string
   /** Raw code paths the change touched (from its Impact section). */
   touches?: string[]
+  /** Why a module edge exists: path/token match, local embedding, or judgement layer. */
+  touchReasons?: Record<string, 'path' | 'token' | 'vector' | 'llm'>
   /** Previous iteration by date — a DERIVED lineage link, marked as such. */
   sequence?: string
 }
@@ -244,6 +246,7 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
       const hit = await input.matchModuleByVector(text, modules).catch(() => undefined)
       if (hit !== undefined && modules.some((module) => module.slug === hit.slug)) {
         iteration.touches = [...(iteration.touches ?? []), hit.slug]
+        iteration.touchReasons = { ...(iteration.touchReasons ?? {}), [hit.slug]: 'vector' }
         classify.vectorMatched += 1
         continue
       }
@@ -255,6 +258,7 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
       const guess = await input.classifyModule(text, modules).catch(() => undefined)
       if (guess !== undefined && modules.some((module) => module.slug === guess)) {
         iteration.touches = [...(iteration.touches ?? []), guess]
+        iteration.touchReasons = { ...(iteration.touchReasons ?? {}), [guess]: 'llm' }
         classify.llmMatched += 1
         continue
       }
@@ -264,22 +268,35 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
   for (const iteration of iterations) {
     const depends = iteration.dependsOn.map((id) => `"[[${subdir}/${input.project}/iterations/${id}|${id}]]"`)
     const sup = iteration.supersedes.map((id) => `"[[${subdir}/${input.project}/iterations/${id}|${id}]]"`)
+    const reasonLabels: Record<'path' | 'token' | 'vector' | 'llm', string> = {
+      path: '路径命中',
+      token: 'token 命中',
+      vector: '向量相似',
+      llm: '判断层归类',
+    }
     const touched = (iteration.touches ?? [])
       .map((raw) => {
         const lower = raw.toLowerCase()
         // Exact slug containment first, then token overlap: `WrongQuesRate.java` must reach
         // `wrong-questions-system` without a model, because the graph edge is evidence the
-        // reader can check by clicking through.
-        const hit =
-          modules.find((module) => lower.includes(module.slug)) ??
+        // reader can check by clicking through. Every edge states WHY it exists.
+        const exact = modules.find((module) => lower.includes(module.slug))
+        const byToken =
+          exact ??
           modules.find((module) => {
             const tokens = module.slug.split('-').filter((token) => token.length >= 4)
             return tokens.some((token) => lower.includes(token))
           })
-        return hit !== undefined ? `[[${subdir}/${input.project}/modules/${hit.slug}|${hit.name}]]` : `\`${raw}\``
+        const hit = byToken
+        if (hit === undefined) return `\`${raw}\``
+        const reason =
+          iteration.touchReasons?.[hit.slug] ?? (exact !== undefined ? ('path' as const) : ('token' as const))
+        return `[[${subdir}/${input.project}/modules/${hit.slug}|${hit.name}]]（${reasonLabels[reason]}）`
       })
       .filter((value) => value !== '')
-    const touchedUnique = [...new Set(touched)].filter((value) => value.startsWith('[['))
+    const touchedUnique = [
+      ...new Set(touched.filter((value) => value.startsWith('[[')).map((value) => value.replace(/（[^）]*）$/, ''))),
+    ]
     for (const link of touchedUnique) {
       const slug = /modules\/([^|\]]+)/.exec(link)?.[1]
       if (slug === undefined) continue
@@ -312,7 +329,7 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
       (iteration.summary !== undefined ? `${iteration.summary}\n\n` : '') +
       `- 迭代 id：\`${iteration.id}\`\n- 状态：**${iteration.status}**${iteration.date !== undefined ? `\n- 日期：${iteration.date}` : ''}\n- 提交：${iteration.commits.map((c) => `\`${c}\``).join(' ') || '（无标记提交）'}\n` +
       sequenceLine +
-      (touched.length > 0 ? `\n## 触及的模块（由 Impact 推导）\n\n${[...new Set(touched)].map((value) => `- ${value}`).join('\n')}\n` : '') +
+      (touched.length > 0 ? `\n## 触及的模块（含匹配理由）\n\n${[...new Set(touched)].map((value) => `- ${value}`).join('\n')}\n` : '') +
       `\n` +
       `## 依赖（depends_on）\n\n${depends.length > 0 ? depends.map((line) => `- ${line.replaceAll('"', '')}`).join('\n') : '- （无声明）'}\n\n` +
       `## 取代（supersedes）\n\n${sup.length > 0 ? sup.map((line) => `- ${line.replaceAll('"', '')}`).join('\n') : '- （无）'}\n\n` +

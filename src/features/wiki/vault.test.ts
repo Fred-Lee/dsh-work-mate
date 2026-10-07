@@ -251,3 +251,39 @@ describe('classify diagnostics and vector fallback (classify-diagnostics)', () =
     await rm(vault, { recursive: true, force: true })
   })
 })
+
+describe('edge reasons (touch-reasons)', () => {
+  it('labels path, token, vector and judgement-layer edges in the note', async () => {
+    const repo = await seedRepo()
+    const vault = await mkdtemp(join(tmpdir(), 'wm-reason-'))
+
+    await exportWikiToVault({
+      projectRoot: repo,
+      project: 'internal-homework',
+      vaultPath: vault,
+      iterations: [
+        {
+          id: 'iter-reason',
+          title: '理由标注',
+          status: 'archived',
+          archived: true,
+          dependsOn: [],
+          supersedes: [],
+          commits: [],
+          origin: 'archive',
+          date: '2026-02-01',
+          touches: ['homework-management', 'HomeworkManagementService.java', 'api-controllers'],
+          touchReasons: { 'api-controllers': 'llm' },
+        },
+      ],
+    })
+
+    const note = await readFile(join(vault, 'WorkMate', 'internal-homework', 'iterations', 'iter-reason.md'), 'utf8')
+    expect(note).toContain('## 触及的模块（含匹配理由）')
+    expect(note).toContain('（路径命中）')     // exact slug in the touch list
+    expect(note).toContain('（token 命中）')   // HomeworkManagementService.java → homework-management
+    expect(note).toContain('（判断层归类）')   // explicit reason from the judgement layer
+    await rm(repo, { recursive: true, force: true })
+    await rm(vault, { recursive: true, force: true })
+  })
+})
