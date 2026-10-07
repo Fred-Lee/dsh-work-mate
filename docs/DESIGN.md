@@ -1,14 +1,53 @@
 # WorkMate DSH 插件技术设计文档
 
-**版本**: 0.1.0-draft
+**版本**: 0.2.0（正文仍是 0.1.0-draft 的架构设定；**实现现状见 §0**）
 **目标读者**: ZCode 开发团队
-**DSH 版本要求**: `>=0.1.5-rc.3 <=0.1.7-rc.2`
+**DSH 版本要求**: 实装基线 `0.2.1-alpha.1`（内核 peer 写 `*`，见 AGENTS.md 的升级仪式）
 **Node 版本要求**: `>=22.19`
 
 > 入库说明：这是项目的宪法文档，原文照录。实现过程中与本机环境冲突的两处假设
 > （dsh-tools 版本线、`@deepseek-ai/dsh-mcp-client` 缺位）及插件形态适配
 > （Config 用 interface 而非 Schemastery）已在 `openspec/changes/bootstrap-workmate-plugin/design.md`
 > 决策记录中修正，以真机验证为准。
+
+## 0. 实现现状（2026-10-07 复核）
+
+> 本节是**与代码同步的事实快照**；下面 §1 起仍是立项时的架构设定（作为意图文档阅读）。
+> 里程碑只列到 5，实际已推进到 **M61**，完整清单见 `AGENTS.md` 的里程碑路线表。
+
+### 0.1 规模与门禁
+
+| 维度 | 现状 |
+|---|---|
+| 工具 | **20 个**（提案 / 知识 / 过程 / 并行 四组） |
+| 入口 | 工具 + `/workmate` 斜杠命令 + REST（`/workmate/api/...`）+ 原生面板（看板 / 控制台 / 知识图谱）+ **📚 Wiki 页签** |
+| 能力规格 | **28 个** / **83 条 requirement**（`openspec/specs/`） |
+| 已归档变更 | **69 个**，0 活动、0 未勾选 |
+| 测试 | **339 个用例 / 39 文件**；四条门禁：契约 + 工具链钉版 + 宿主兼容 + **客户端工厂求值** |
+
+### 0.2 新增的核心能力（超出 §1–§9 的原始设计）
+
+1. **判断层（Decision Layer）**——把"高频、封闭、可验证"的判断抽成节点，概率 + 阈值 + 事件留痕：
+   6 个消费节点（模块归类 / 注入判定 / 风险分级 / 检索重排 / 任务完成判定 / 审查归级）。
+   provider 可切 `agent`（宿主 LLM，**本机已真机跑通**）/ `rules`（确定性）/ `jev`（占位）。
+   **D2 纪律**：只有 `act` 档结论才成为事实，`review` 档交给人；失败必须留诊断（`decision-diagnostics.jsonl`）。
+2. **知识面 = 本地 markdown + Obsidian**（WeKnora 已放弃）：GitNexus wiki → 导出 vault
+   （`index.md` MOC / `modules/` / `iterations/`（`depends_on`·`sequence`·`touches` 三类边）/ `views.md`（Dataview）/ `changelog.md`），
+   **归档后自动回写**；人用 Graph+Dataview 读，AI 读同一批 markdown（`workmate_wiki_search` 返回文件:行号）。
+3. **检索三层**：词法（grep 式，优先）→ 本地 Ollama 语义（bge-m3，向量哈希缓存）→ 判断层重排
+   （只重排候选、绝不丢结果）。
+4. **过程纪律**：审批记录与"写码者不得批准"（`merging`/`archiving` 只能人推进）；风险未判定不得进入
+   高风险门；`force` 在返回值里显式标注；异常提案可用 `abandon`（记录 actor 与原因）。
+5. **并行载体**：`swarm_plan` 按写作用域装批 + `swarm_task` 起/并分支；未合并任务拦归档（编排只**报告**，不派发执行——D1）。
+
+### 0.3 已知边界（诚实声明）
+
+- `workmate_knowledge_query` 的 **`query`（中文概念）** 需 `GITNEXUS_FTS_CJK_SEGMENTATION=bigram` 重建索引才能命中；
+  精确查询走**符号名**（`context`/`impact`）不受影响；中文模糊检索请用 `workmate_wiki_search`。
+- 归档图覆盖 60/62 迭代（2 个低于 `act` 阈值 → 按纪律留白）；6 个基础层模块无迭代边（证据不足，属事实）。
+- 本机 harness 是源码 `tsx` 运行；host 侧改动需 `pnpm build` + 重启（看门狗 `~/.dsh/harness-restart.sh`）。
+
+---
 
 ## 1. 项目概述
 
@@ -326,6 +365,9 @@ const Config = Schema.object({
 **交付**：右侧 Sidebar 展示「需求 ↔ 项目 ↔ Git 提交」关系图。
 
 **验收**：知识图谱展示至少 3 层关联。
+
+> **里程碑现状**：本节只写了立项时的 5 个里程碑。实际路线已到 **M61**，逐条状态
+> （含每次变更的归档名）见 `AGENTS.md` §里程碑路线，此处不再复制以免漂移。
 
 ## 8. 开发规范
 
