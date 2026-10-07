@@ -80,6 +80,10 @@ export interface Proposal {
   status: ProposalState
   /** Worktree created at ready→implementing (auto, design D3). */
   worktreePath?: string
+  /** Set when the proposal was deliberately abandoned (no project required). */
+  abandonedAt?: string
+  /** Why it was abandoned — shown in the panel and kept for audit. */
+  abandonedReason?: string
   /** Port segment allocated for this proposal's worktree. */
   portRange?: number[]
   /** Proposal branch (created at proposing). */

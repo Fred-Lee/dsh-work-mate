@@ -77,6 +77,13 @@ export function archiveProposal(
   })
 }
 
+export function abandonProposal(id: string, reason: string): Promise<{ proposal: Proposal }> {
+  return request(`/workmate/api/proposals/${encodeURIComponent(id)}/abandon`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  })
+}
+
 export interface RegisteredProject {
   name: string
   root: string

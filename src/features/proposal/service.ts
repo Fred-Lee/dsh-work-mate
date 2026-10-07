@@ -44,6 +44,8 @@ const PATCHABLE = new Set([
   'archiveManifest',
   'swarmTasks',
   'risk',
+  'abandonedAt',
+  'abandonedReason',
 ])
 
 export interface UpsertProposalInput {
@@ -75,6 +77,8 @@ export interface BlockInput {
 }
 
 export interface ProposalService {
+  /** Deliberate exit without the archive orchestration (`POST …/abandon`). */
+  abandon(id: string, reason: string): Promise<Proposal>
   rootDir(): string
   list(): Promise<Proposal[]>
   get(id: string): Promise<Proposal | undefined>
@@ -262,6 +266,40 @@ export class ProposalServiceImpl implements ProposalService {
     existing.updatedAt = record.at
     await this.store.save(proposals)
     return record
+  }
+
+  /**
+   * Deliberate exit for a proposal that cannot go through the normal lifecycle — an
+   * orphaned demo, a dead project root, or a change nobody will finish. It does NOT run the
+   * archive orchestration (no openspec archive, no review gate): it records WHO decided and
+   * WHY, and moves the proposal to the terminal state so the board stops showing it as work.
+   */
+  async abandon(id: string, reason: string): Promise<Proposal> {
+    const trimmed = reason.trim()
+    if (trimmed === '') throw new Error('abandon 需要说明原因（便于审计）')
+    const proposals = await this.store.load()
+    const existing = proposals.find((proposal) => proposal.id === id)
+    if (!existing) throw new Error(`proposal not found: ${id}`)
+    if (existing.status === 'archived') throw new Error(`proposal ${id} 已归档，无需终止`)
+    const from = existing.status
+    const at = this.now().toISOString()
+    existing.status = 'archived'
+    existing.abandonedAt = at
+    existing.abandonedReason = trimmed
+    existing.updatedAt = at
+    await this.store.save(proposals)
+    if (this.events !== undefined) {
+      await this.events.append({
+        at,
+        proposalId: id,
+        kind: 'transition',
+        from,
+        to: 'archived',
+        actor: 'human',
+        reason: `abandoned: ${trimmed}`,
+      })
+    }
+    return existing
   }
 
   async setStatus(id: string, status: Proposal['status'], meta: StatusMeta = {}): Promise<Proposal> {

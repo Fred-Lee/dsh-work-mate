@@ -362,6 +362,12 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     return { decision: entry }
   })
 
+  router.post('/api/proposals/:id/abandon', async (r) => {
+    const body = await readJsonBody<{ reason?: string }>(r.req)
+    const proposal = await deps.proposals.abandon(r.params['id'] ?? '', body.reason ?? '')
+    return { proposal }
+  })
+
   router.post('/api/proposals/:id/block', async (r) => {
     const body = await readJsonBody<{ question?: string; tried?: string }>(r.req)
     const blocker = await deps.proposals.block(r.params['id'] ?? '', {

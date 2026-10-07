@@ -10,7 +10,7 @@ import { getBands, getMetrics } from './api'
 import type { AggregateMetrics, BandEvaluation, BandsPayload } from './types'
 import {
   advanceProposal,
-  archiveProposal,
+  abandonProposal, archiveProposal,
   createProposal,
   getProposal,
   listProjects,
@@ -67,6 +67,8 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const [pending, setPending] = useState('')
   /** Per-proposal outcome line (success or failure), shown on the card itself. */
   const [notes, setNotes] = useState<Record<string, string>>({})
+  /** Why a proposal's detail could not be loaded (e.g. its project root no longer exists). */
+  const [detailErrors, setDetailErrors] = useState<Record<string, string>>({})
 
   const refresh = useCallback(async () => {
     try {
@@ -89,20 +91,32 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
       try {
         const detail = await getProposal(id, projectRootDraft || undefined)
         setDetails((prev) => ({ ...prev, [id]: detail }))
+        setDetailErrors((prev) => {
+          const next = { ...prev }
+          delete next[id]
+          return next
+        })
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause))
+        const message = cause instanceof Error ? cause.message : String(cause)
+        setError(message)
+        setDetailErrors((prev) => ({ ...prev, [id]: message }))
       }
     },
     [projectRootDraft],
   )
 
   const act = useCallback(
-    async (id: string, action: 'advance' | 'back' | 'archive', to?: ProposalState, force = false) => {
+    async (id: string, action: 'advance' | 'back' | 'archive' | 'abandon', to?: ProposalState, force = false) => {
       setBusy(true)
       setPending(`${id}:${action}`)
       try {
         let result: unknown
         if (action === 'archive') result = await archiveProposal(id, force)
+        else if (action === 'abandon') {
+          const reason = window.prompt('终止原因（必填，写入事件流便于审计）')
+          if (reason === null) throw new Error('已取消终止')
+          result = await abandonProposal(id, reason)
+        }
         else if (action === 'advance') {
           // Gated states are the HUMAN's call: ask for the rationale here, so a
           // panel approval is as auditable as an API one.
@@ -120,7 +134,9 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           [id]:
             action === 'archive'
               ? `✅ 归档完成${forced ? '（force：已跳过审查门）' : ''}`
-              : '✅ 状态已更新',
+              : action === 'abandon'
+                ? '🛑 已终止（记录原因，未跑归档编排）'
+                : '✅ 状态已更新',
         }))
         await Promise.all([refresh(), loadDetail(id)])
       } catch (cause) {
@@ -448,6 +464,17 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                 {detail.lifecycle !== undefined && (
                                   <span className="wm-progress-label">下一步：{detail.lifecycle.hint}</span>
                                 )}
+                                {proposal.status !== 'archived' && (
+                                  <button
+                                    className="wm-btn mini"
+                                    type="button"
+                                    disabled={busy}
+                                    title="终止：不跑归档编排（不经审查门），记录原因后置为终态——用于孤儿提案/放弃的变更"
+                                    onClick={() => void act(proposal.id, 'abandon')}
+                                  >
+                                    {pending === `${proposal.id}:abandon` ? '终止中…' : '终止'}
+                                  </button>
+                                )}
                                 {detail.lifecycle?.prev !== undefined && (
                                   <button
                                     className="wm-btn mini"
@@ -472,28 +499,43 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                       : `推进到 ${STATE_META[detail.lifecycle.next].label} ›`}
                                   </button>
                                 )}
-                                {proposal.status === 'archiving' && (
-                                  <>
-                                    <button
-                                      className="wm-btn mini primary"
-                                      type="button"
-                                      disabled={busy}
-                                      onClick={() => void act(proposal.id, 'archive')}
-                                    >
-                                      {pending === `${proposal.id}:archive` ? '归档中…（编排在跑）' : '完成归档'}
-                                    </button>
-                                    <button
-                                      className="wm-btn mini"
-                                      type="button"
-                                      disabled={busy}
-                                      title="只跳过审查门（缺 review.md 或有未解决 CRITICAL）；openspec archive 与 gitnexus 照常执行"
-                                      onClick={() => void act(proposal.id, 'archive', undefined, true)}
-                                    >
-                                      {pending === `${proposal.id}:archive` ? '归档中…' : '强制归档（跳过审查门）'}
-                                    </button>
-                                  </>
-                                )}
                               </div>
+                              {/* Archiving only needs the proposal's status: keep these reachable even when
+                                  the detail payload fails (deleted project root), so the card is never a dead end. */}
+                              {proposal.status === 'archiving' && (
+                                <div className="wm-actions">
+                                  <button
+                                    className="wm-btn mini primary"
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => void act(proposal.id, 'archive')}
+                                  >
+                                    {pending === `${proposal.id}:archive` ? '归档中…（编排在跑）' : '完成归档'}
+                                  </button>
+                                  <button
+                                    className="wm-btn mini"
+                                    type="button"
+                                    disabled={busy}
+                                    title="只跳过审查门（缺 review.md 或有未解决 CRITICAL）；openspec archive 与 gitnexus 照常执行"
+                                    onClick={() => void act(proposal.id, 'archive', undefined, true)}
+                                  >
+                                    {pending === `${proposal.id}:archive` ? '归档中…' : '强制归档（跳过审查门）'}
+                                  </button>
+                                </div>
+                              )}
+                              {detailErrors[proposal.id] !== undefined && (
+                                <div className="wm-action-note error">
+                                  详情加载失败：{detailErrors[proposal.id]}
+                                  <button
+                                    className="wm-btn mini"
+                                    type="button"
+                                    style={{ marginLeft: 6 }}
+                                    onClick={() => void loadDetail(proposal.id)}
+                                  >
+                                    重新加载
+                                  </button>
+                                </div>
+                              )}
                               {notes[proposal.id] !== undefined && (
                                 <div className={`wm-action-note${notes[proposal.id]?.startsWith('❌') === true ? ' error' : ''}`}>
                                   {notes[proposal.id]}

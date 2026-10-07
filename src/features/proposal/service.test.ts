@@ -171,3 +171,35 @@ describe('decisions and blockers', () => {
     expect((await service2.get('dl'))?.blockers).toHaveLength(1)
   })
 })
+
+describe('abandon (deliberate exit)', () => {
+  it('moves the proposal to the terminal state with a reason and an event', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wm-abandon-'))
+    const store = new ProposalStore({ homeRoot: dir, subdir: 'workmate' })
+    const log = new EventLog({ homeRoot: dir, subdir: 'workmate' })
+    const service = new ProposalServiceImpl(store, undefined, log)
+    await service.upsert({ id: 'orphan', title: '孤儿提案' })
+
+    const abandoned = await service.abandon('orphan', '项目目录已删除，演示数据')
+
+    expect(abandoned.status).toBe('archived')
+    expect(abandoned.abandonedReason).toContain('演示数据')
+    expect(abandoned.abandonedAt).toBeDefined()
+    const { events } = await log.read()
+    const transition = events.find((event) => event.proposalId === 'orphan' && event.kind === 'transition')
+    expect(transition?.to).toBe('archived')
+    expect(transition?.actor).toBe('human')
+    expect(transition?.reason).toContain('abandoned')
+  })
+
+  it('requires a reason and refuses to re-abandon an archived proposal', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wm-abandon2-'))
+    const service = new ProposalServiceImpl(new ProposalStore({ homeRoot: dir, subdir: 'workmate' }))
+    await service.upsert({ id: 'p', title: 't' })
+
+    await expect(service.abandon('p', '   ')).rejects.toThrow(/原因/)
+    await service.abandon('p', '不做了')
+    await expect(service.abandon('p', 'again')).rejects.toThrow(/已归档/)
+    await rm(dir, { recursive: true, force: true })
+  })
+})
