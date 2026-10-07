@@ -455,3 +455,30 @@ describe('orchestrateArchive (fake CLIs)', () => {
     expect(result.orchestration?.steps.some((s) => s.step === 'reopen-dir')).toBe(true)
   })
 })
+
+describe('archived change dir is still readable (archive-evidence-after-move)', () => {
+  it('resolves the active path first, then falls back to changes/archive/<date>-<id>/', async () => {
+    const { mkdtemp, mkdir, writeFile, readFile, rm } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const { resolveChangeDir } = await import('./orchestrate.ts')
+    const root = await mkdtemp(join(tmpdir(), 'wm-archive-dir-'))
+
+    // 1) Only the archived location exists — the state after a previous archive run.
+    const archived = join(root, 'openspec', 'changes', 'archive', '2026-10-07-moved-probe')
+    await mkdir(archived, { recursive: true })
+    await writeFile(join(archived, 'review.md'), '- [LOW] 低风险\n', 'utf8')
+    await writeFile(join(archived, 'tasks.md'), '- [x] 1. done\n', 'utf8')
+
+    const resolved = await resolveChangeDir(root, 'openspec', 'moved-probe')
+    expect(resolved).toBe(archived)
+    expect(await readFile(join(resolved, 'review.md'), 'utf8')).toContain('LOW')
+
+    // 2) An active dir wins when both exist.
+    const active = join(root, 'openspec', 'changes', 'moved-probe')
+    await mkdir(active, { recursive: true })
+    expect(await resolveChangeDir(root, 'openspec', 'moved-probe')).toBe(active)
+
+    await rm(root, { recursive: true, force: true })
+  })
+})

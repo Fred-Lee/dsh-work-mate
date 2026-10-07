@@ -32,6 +32,11 @@ export interface OrchestrationTarget {
 export interface OrchestrationResult {
   ok: boolean
   steps: OrchestrationStep[]
+  /**
+   * True when a gate was explicitly skipped by `force` (`reviewGate: false` / `tasksGate: false`).
+   * Reported so "编排自报失败" and "归档已完成" can never be silently contradicted.
+   */
+  forced?: boolean
   tasks?: { done: number; total: number; lines: string[] }
   /** Delivery summary, present when the archive run succeeded. */
   manifest?: ArchiveManifest
@@ -194,6 +199,22 @@ export interface OrchestrateOptions {
   signal?: AbortSignal
 }
 
+/**
+ * A change directory may already have moved into `changes/archive/<date>-<id>/` — after a
+ * previous archive attempt, or when the run is re-checked. Both the tasks gate and the review
+ * gate read evidence from this directory, so resolve it instead of assuming the active path.
+ */
+export async function resolveChangeDir(root: string, openspecRoot: string, changeId: string): Promise<string> {
+  const projectRoot = validateProjectRoot(root)
+  const active = join(projectRoot, openspecRoot, 'changes', changeId)
+  const exists = await readdir(active).then(() => true).catch(() => false)
+  if (exists) return active
+  const archiveDir = join(projectRoot, openspecRoot, 'changes', 'archive')
+  const entries = await readdir(archiveDir).catch(() => [] as string[])
+  const archived = entries.filter((entry) => entry === changeId || entry.endsWith(`-${changeId}`)).sort().pop()
+  return archived === undefined ? active : join(archiveDir, archived)
+}
+
 export async function orchestrateArchive(
   proposal: Proposal,
   targets: OrchestrationTarget[],
@@ -215,10 +236,8 @@ export async function orchestrateArchive(
   const snapshots: Array<{ project: string; snapshot?: TaskSnapshot }> = []
   for (const target of targets) {
     try {
-      const content = await readFile(
-        join(validateProjectRoot(target.root), options.openspecRoot, 'changes', proposal.openspecChangeId, 'tasks.md'),
-        'utf8',
-      )
+      const changeDir = await resolveChangeDir(target.root, options.openspecRoot, proposal.openspecChangeId)
+      const content = await readFile(join(changeDir, 'tasks.md'), 'utf8')
       snapshots.push({ project: target.project, snapshot: parseTasksMd(content) })
     } catch {
       snapshots.push({ project: target.project })
@@ -329,16 +348,16 @@ export async function orchestrateArchive(
       const label = targets.length > 1 ? `[${target.project}] ` : ''
       let content: string
       try {
-        content = await readFile(
-          join(target.root, options.openspecRoot, 'changes', proposal.openspecChangeId, 'review.md'),
-          'utf8',
-        )
+        const changeDir = await resolveChangeDir(target.root, options.openspecRoot, proposal.openspecChangeId)
+        content = await readFile(join(changeDir, 'review.md'), 'utf8')
       } catch {
         gateFailed = true
         steps.push({
           step: 'review-gate',
           status: 'failed',
-          summary: `${label}审查报告缺失 — 在会话中运行 proposal-auditor 生成 review.md（或 force 跳过）`,
+          summary:
+            `${label}审查报告缺失 — 在会话中运行 proposal-auditor 生成 review.md（或 force 跳过）` +
+            `；本次 reviewGate=on`,
         })
         continue
       }
@@ -457,6 +476,8 @@ export async function orchestrateArchive(
     ok: true,
     steps,
     manifest,
+    // A forced run must say so: the panel can then never contradict an `ok:false` result.
+    forced: options.reviewGate === false || options.tasksGate === false,
     ...(tasks !== undefined ? { tasks } : {}),
   }
 }
