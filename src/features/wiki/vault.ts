@@ -220,9 +220,20 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
   let classifyBudget = input.classifyMax ?? 20
   const classify = { pathMatched: 0, vectorMatched: 0, llmAsked: 0, llmMatched: 0, unanswered: 0 }
   for (const iteration of iterations) {
-    const hasPathTouch = (iteration.touches ?? []).some((raw) =>
-      modules.some((module) => raw.toLowerCase().includes(module.slug)),
-    )
+    // Mirror the renderer's rule exactly (slug containment OR token overlap), otherwise the
+    // diagnostics would undercount path matches and look like the vector did more than it did.
+    const matchesByPath = (raw: string): boolean => {
+      const lower = raw.toLowerCase()
+      return modules.some(
+        (module) =>
+          lower.includes(module.slug) ||
+          module.slug
+            .split('-')
+            .filter((token) => token.length >= 4)
+            .some((token) => lower.includes(token)),
+      )
+    }
+    const hasPathTouch = (iteration.touches ?? []).some(matchesByPath)
     if (hasPathTouch) {
       classify.pathMatched += 1
       continue

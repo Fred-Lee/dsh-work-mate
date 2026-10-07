@@ -229,7 +229,7 @@ describe('classify diagnostics and vector fallback (classify-diagnostics)', () =
       },
     })
 
-    expect(result.classify).toMatchObject({ vectorMatched: 2, llmAsked: 0, llm: 'ok' })
+    expect(result.classify).toMatchObject({ pathMatched: 0, vectorMatched: 2, llmAsked: 0, llm: 'ok' })
     expect(llmCalls).toBe(0)                       // free path wins, no tokens spent
     await rm(repo, { recursive: true, force: true })
     await rm(vault, { recursive: true, force: true })
