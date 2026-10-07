@@ -63,6 +63,10 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const [error, setError] = useState('')
   const [projectRootDraft, setProjectRootDraft] = useState(projectRoot ?? '')
   const [busy, setBusy] = useState(false)
+  /** `${proposalId}:${action}` currently in flight — drives the button's pending label. */
+  const [pending, setPending] = useState('')
+  /** Per-proposal outcome line (success or failure), shown on the card itself. */
+  const [notes, setNotes] = useState<Record<string, string>>({})
 
   const refresh = useCallback(async () => {
     try {
@@ -95,8 +99,10 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const act = useCallback(
     async (id: string, action: 'advance' | 'back' | 'archive', to?: ProposalState, force = false) => {
       setBusy(true)
+      setPending(`${id}:${action}`)
       try {
-        if (action === 'archive') await archiveProposal(id, force)
+        let result: unknown
+        if (action === 'archive') result = await archiveProposal(id, force)
         else if (action === 'advance') {
           // Gated states are the HUMAN's call: ask for the rationale here, so a
           // panel approval is as auditable as an API one.
@@ -107,11 +113,23 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
         else if (to !== undefined) await transitionProposal(id, to)
         else throw new Error('rollback requires an adjacent target state')
         setError('')
+        // A silent long-running action reads as "frozen": say what happened, on the card.
+        const forced = typeof result === 'object' && result !== null && (result as { forced?: boolean }).forced === true
+        setNotes((prev) => ({
+          ...prev,
+          [id]:
+            action === 'archive'
+              ? `✅ 归档完成${forced ? '（force：已跳过审查门）' : ''}`
+              : '✅ 状态已更新',
+        }))
         await Promise.all([refresh(), loadDetail(id)])
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause))
+        const message = cause instanceof Error ? cause.message : String(cause)
+        setError(message)
+        setNotes((prev) => ({ ...prev, [id]: `❌ ${message}` }))
       } finally {
         setBusy(false)
+        setPending('')
       }
     },
     [refresh, loadDetail],
@@ -449,7 +467,9 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                     title={detail.lifecycle.hint}
                                     onClick={() => void act(proposal.id, 'advance')}
                                   >
-                                    推进到 {STATE_META[detail.lifecycle.next].label} ›
+                                    {pending === `${proposal.id}:advance`
+                                      ? '推进中…'
+                                      : `推进到 ${STATE_META[detail.lifecycle.next].label} ›`}
                                   </button>
                                 )}
                                 {proposal.status === 'archiving' && (
@@ -460,7 +480,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                       disabled={busy}
                                       onClick={() => void act(proposal.id, 'archive')}
                                     >
-                                      完成归档
+                                      {pending === `${proposal.id}:archive` ? '归档中…（编排在跑）' : '完成归档'}
                                     </button>
                                     <button
                                       className="wm-btn mini"
@@ -469,11 +489,16 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                       title="只跳过审查门（缺 review.md 或有未解决 CRITICAL）；openspec archive 与 gitnexus 照常执行"
                                       onClick={() => void act(proposal.id, 'archive', undefined, true)}
                                     >
-                                      强制归档（跳过审查门）
+                                      {pending === `${proposal.id}:archive` ? '归档中…' : '强制归档（跳过审查门）'}
                                     </button>
                                   </>
                                 )}
                               </div>
+                              {notes[proposal.id] !== undefined && (
+                                <div className={`wm-action-note${notes[proposal.id]?.startsWith('❌') === true ? ' error' : ''}`}>
+                                  {notes[proposal.id]}
+                                </div>
+                              )}
                             </>
                           )}
                         </div>

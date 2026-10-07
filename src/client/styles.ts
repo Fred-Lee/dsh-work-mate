@@ -136,6 +136,17 @@ export const PANEL_STYLE = `
 .wm-detail code { font-family: ui-monospace, monospace; background: var(--wm-code); padding: 1px 5px; border-radius: 5px; font-size: 11px; }
 .wm-detail ul { margin: 4px 0 0; padding-left: 16px; }
 .wm-detail li { margin: 2px 0; }
+
+.wm-action-note {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.85;
+}
+.wm-action-note.error {
+  color: #e5534b;
+  opacity: 1;
+}
 .wm-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* ---------- modal ---------- */
