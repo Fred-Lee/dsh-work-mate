@@ -33,15 +33,14 @@ SHALL 记录该步骤为 `failed` 且说明"不影响归档"。
 
 ### Requirement: Vault 词法检索
 
-判断层的单次采样输出预算 SHALL 由 `Config.decisionMaxTokens` 控制（默认 1024），
-SHALL 足以覆盖推理块与工具调用两部分；实现 SHALL NOT 使用会让推理型模型在发出工具调用前
-就耗尽预算的固定小值。
+`workmate_knowledge_query` 返回结果 SHALL 把 GitNexus 的索引级告警（如 CJK 分词未开启）**提升到顶层字段**
+`warning`；工具描述 SHALL 说明：符号名查询（`context` / `impact`）精确且不受语言影响，
+中文模糊检索应使用 `workmate_wiki_search`，且出现 CJK 告警不代表工具失效。
 
-#### Scenario: 推理不吞掉答案
+#### Scenario: 中文告警可见
 
-- **WHEN** 模型在回答前产生大量推理块
-- **THEN** 只要总输出未超预算，工具调用仍能发出；若仍以 `max-tokens` 结束，
-  诊断 SHALL 记录该终态以供识别
+- **WHEN** 以中文概念执行 `query` 且索引未开启 bigram 分词
+- **THEN** 返回对象顶层含 `warning`，其内容说明需要 GITNEXUS_FTS_CJK_SEGMENTATION=bigram
 
 ### Requirement: 注入判定在所有创建入口生效
 
