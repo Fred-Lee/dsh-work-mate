@@ -39,20 +39,20 @@ SHALL 足以覆盖推理块与工具调用两部分；实现 SHALL NOT 使用会
 
 ### Requirement: 注入判定在所有创建入口生效
 
-判断层解析模型答复时 SHALL 以**参数 schema 与选项枚举**为准，SHALL NOT 仅因工具名不同而丢弃
-工具调用增量；当出现多个工具名时 SHALL 优先使用约定的 `answer`。
-诊断记录 SHALL 包含各块类型计数（`chunkTypes`）与出现过的工具名（`toolNames`），
-并 SHALL 把推理块计入内容长度。
+创建提案时，实现 SHALL 先用**确定性前置筛**判断文本是否携带指向 agent 的指令特征；
+未命中特征时 SHALL 直接判为 `benign` 并 SHALL NOT 调用模型，同时 SHALL 记录一条
+`decision` 事件（`provider: 'rules'`）。命中特征时 SHALL 继续走模型判定，并 SHALL 在事件
+detail 中记录命中的特征名。前置筛 SHALL NOT 单独把文本判为 `risky`。
 
-#### Scenario: 异名工具调用被采信
+#### Scenario: 普通文本不再误报
 
-- **WHEN** 模型以 `choose_option` 之类的名字发出参数为 `{"choice": "<枚举值>"}` 的工具调用
-- **THEN** 该答案被采信，不记为"模型未作答"
+- **WHEN** notes 是普通业务描述（无指令特征）且判断层开启
+- **THEN** 不调用模型、不置 `untrusted`，事件流留下 `provider: rules / choice: benign` 记录
 
-#### Scenario: 诊断可辨
+#### Scenario: 明显注入仍被拦
 
-- **WHEN** 一轮调用仍无有效答案
-- **THEN** 诊断含 chunkTypes 与 toolNames，可区分"只吐推理块"与"用了别的工具名"
+- **WHEN** notes 含 "IGNORE ALL PREVIOUS INSTRUCTIONS" 等特征
+- **THEN** 仍调用模型判定，risky 时置 `untrusted`，detail 记录命中的特征名
 
 ### Requirement: Wiki 面板
 
