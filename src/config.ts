@@ -95,6 +95,8 @@ export interface Config {
   decisionSamples?: number
   /** Per-judgement timeout in ms. @default 4000 */
   decisionTimeoutMs?: number
+  /** Output-token budget per judgement sample (reasoning models need headroom). @default 1024 */
+  decisionMaxTokens?: number
   /** certainty needed to act. @default 0.8 */
   decisionActThreshold?: number
   /** certainty needed to raise a review instead of acting. @default 0.6 */
@@ -186,6 +188,7 @@ export const Config: z<Config> = z.object({
   decisionModel: z.string().default('').description('Model for the agent provider; empty = route default.'),
   decisionSamples: z.number().default(1).description('Samples per judgement; the agreement ratio becomes certainty.'),
   decisionTimeoutMs: z.number().default(4000).description('Per-judgement timeout in milliseconds.'),
+  decisionMaxTokens: z.number().default(1024).description('Output-token budget per judgement sample.'),
   decisionActThreshold: z.number().default(0.8).description('Certainty needed to act on a judgement.'),
   decisionReviewThreshold: z.number().default(0.6).description('Certainty needed to raise a review instead of acting.'),
   highRiskExtraGates: z
@@ -241,6 +244,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   decisionModel: '',
   decisionSamples: 1,
   decisionTimeoutMs: 4000,
+  decisionMaxTokens: 1024,
   decisionActThreshold: 0.8,
   decisionReviewThreshold: 0.6,
   highRiskExtraGates: ['implementing'],

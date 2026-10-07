@@ -149,6 +149,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...(resolved.decisionModel !== '' ? { model: resolved.decisionModel } : {}),
         samples: resolved.decisionSamples,
         timeoutMs: resolved.decisionTimeoutMs,
+        maxTokens: resolved.decisionMaxTokens,
       }),
       new RulesProvider(),
     ],

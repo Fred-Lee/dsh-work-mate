@@ -25,6 +25,7 @@ describe('resolveConfig', () => {
       decisionModel: '',
       decisionSamples: 1,
       decisionTimeoutMs: 4000,
+      decisionMaxTokens: 1024,
       decisionActThreshold: 0.8,
       decisionReviewThreshold: 0.6,
       highRiskExtraGates: ['implementing'],

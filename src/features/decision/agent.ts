@@ -44,6 +44,8 @@ export interface AgentProviderOptions {
   model?: string
   samples?: number
   timeoutMs?: number
+  /** Output budget per sample. Reasoning models spend it on thinking before the tool call. */
+  maxTokens?: number
 }
 
 const TOOL_NAME = 'answer'
@@ -230,7 +232,9 @@ export class AgentProvider implements DecisionProvider {
         ],
         tools: [tool],
         temperature: 0,
-        maxTokens: 200,
+        // 200 was consumed entirely by reasoning deltas (真机: reasoning-delta ×200 → finish:max-tokens),
+        // so the tool call never happened. Keep a real budget for thinking + the answer.
+        maxTokens: this.options.maxTokens ?? 1024,
       })
       for await (const chunk of stream) {
         chunksSeen += 1
