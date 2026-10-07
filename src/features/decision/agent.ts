@@ -26,7 +26,14 @@ export interface HostLlmFace {
     tools?: Array<{ name: string; description?: string; parameters?: unknown }>
     temperature?: number
     maxTokens?: number
-  }): AsyncIterable<{ type: string; reason?: unknown; text?: string; name?: string; argumentsDelta?: string }>
+  }): AsyncIterable<{
+    type: string
+    /** Host `FinishReason`: `{ kind: 'stop' | 'tool-calls' | 'max-tokens' | 'aborted' | 'error', failure? }`. */
+    reason?: { kind?: string; failure?: unknown }
+    text?: string
+    name?: string
+    argumentsDelta?: string
+  }>
 }
 
 export interface AgentProviderOptions {
@@ -52,7 +59,10 @@ async function recordDiagnostic(line: Record<string, unknown>): Promise<void> {
   try {
     const file = join(homedir(), '.dsh', 'workmate', 'decision-diagnostics.jsonl')
     await mkdir(dirname(file), { recursive: true })
-    await appendFile(file, `${JSON.stringify({ at: new Date().toISOString(), ...line })}\n`, 'utf8')
+    const payload = JSON.stringify({ at: new Date().toISOString(), ...line }, (_key, value: unknown) =>
+      typeof value === 'bigint' ? String(value) : value,
+    )
+    await appendFile(file, `${payload}\n`, 'utf8')
   } catch {
     /* diagnostics must never break a judgement */
   }
@@ -133,7 +143,8 @@ export class AgentProvider implements DecisionProvider {
       },
     }
     let argumentsJson = ''
-    let finishReason = ''
+    let finishKind = '(no finish chunk)'
+    let finishFailure: unknown
     let textChars = 0
     let failure = ''
     const timeoutMs = this.options.timeoutMs ?? 4_000
@@ -162,9 +173,12 @@ export class AgentProvider implements DecisionProvider {
           break
         }
         if (chunk.type === 'finish') {
-          finishReason = String(chunk.reason)
-          if (!['stop', 'tool-calls', 'tool_call', 'end_turn'].includes(finishReason)) {
-            failure = `finish:${finishReason}`
+          finishKind = chunk.reason?.kind ?? '(no kind)'
+          finishFailure = chunk.reason?.failure
+          // `stop` / `tool-calls` are normal ends; `max-tokens` means the answer may be
+          // truncated; `aborted` / `error` carry the adapter failure we need to see.
+          if (!['stop', 'tool-calls', 'max-tokens'].includes(finishKind)) {
+            failure = `finish:${finishKind}`
           }
           continue
         }
@@ -189,7 +203,8 @@ export class AgentProvider implements DecisionProvider {
         node: question.node,
         provider: route.provider,
         model: route.model,
-        finishReason: finishReason === '' ? '(no finish chunk)' : finishReason,
+        finishKind,
+        ...(finishFailure !== undefined ? { finishFailure } : {}),
         failure: failure === '' ? 'no tool-call emitted (model answered in text?)' : failure,
         textChars,
       })
