@@ -10,6 +10,9 @@
  * `samples > 1` the majority share becomes the proxy, and the sample count is
  * carried into the audit trail so a single-sample guess is never read as confidence.
  */
+import { appendFile, mkdir } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
 import type { DecisionAnswer, DecisionProvider, DecisionQuestion } from './types.ts'
 
 /** The slice of the host LLM service this provider uses. */
@@ -23,7 +26,7 @@ export interface HostLlmFace {
     tools?: Array<{ name: string; description?: string; parameters?: unknown }>
     temperature?: number
     maxTokens?: number
-  }): AsyncIterable<{ type: string; name?: string; argumentsDelta?: string }>
+  }): AsyncIterable<{ type: string; reason?: unknown; text?: string; name?: string; argumentsDelta?: string }>
 }
 
 export interface AgentProviderOptions {
@@ -39,6 +42,21 @@ const TOOL_NAME = 'answer'
 const SYSTEM =
   'You are a decision function, not an assistant. Answer ONLY by calling the `answer` tool with one of the given options. ' +
   'Never explain, never write prose, never invent an option outside the list. If the state does not support a confident answer, pick the option that says so.'
+
+/**
+ * The host normalizes an adapter failure into a terminal `finish` chunk instead of
+ * throwing, so a failed call looks exactly like "the model returned no tool call".
+ * That is how the judgement layer stayed silent for days. Record the reason.
+ */
+async function recordDiagnostic(line: Record<string, unknown>): Promise<void> {
+  try {
+    const file = join(homedir(), '.dsh', 'workmate', 'decision-diagnostics.jsonl')
+    await mkdir(dirname(file), { recursive: true })
+    await appendFile(file, `${JSON.stringify({ at: new Date().toISOString(), ...line })}\n`, 'utf8')
+  } catch {
+    /* diagnostics must never break a judgement */
+  }
+}
 
 export class AgentProvider implements DecisionProvider {
   readonly name = 'agent'
@@ -115,9 +133,10 @@ export class AgentProvider implements DecisionProvider {
       },
     }
     let argumentsJson = ''
+    let finishReason = ''
+    let textChars = 0
+    let failure = ''
     const timeoutMs = this.options.timeoutMs ?? 4_000
-    const timer = setTimeout(() => undefined, 0)
-    clearTimeout(timer)
     const abort = new AbortController()
     const onAbort = (): void => abort.abort()
     signal?.addEventListener('abort', onAbort, { once: true })
@@ -138,18 +157,44 @@ export class AgentProvider implements DecisionProvider {
         maxTokens: 200,
       })
       for await (const chunk of stream) {
-        if (abort.signal.aborted) break
+        if (abort.signal.aborted) {
+          failure = failure === '' ? 'aborted (timeout or caller signal)' : failure
+          break
+        }
+        if (chunk.type === 'finish') {
+          finishReason = String(chunk.reason)
+          if (!['stop', 'tool-calls', 'tool_call', 'end_turn'].includes(finishReason)) {
+            failure = `finish:${finishReason}`
+          }
+          continue
+        }
+        if (chunk.type === 'text-delta') {
+          textChars += chunk.text?.length ?? 0
+          continue
+        }
         if (chunk.type !== 'tool-call-delta') continue
         if (chunk.name !== undefined && chunk.name !== TOOL_NAME) continue
         argumentsJson += chunk.argumentsDelta ?? ''
       }
-    } catch {
+    } catch (error) {
+      failure = `threw:${error instanceof Error ? error.message : String(error)}`
+      await recordDiagnostic({ node: question.node, provider: route.provider, model: route.model, failure, textChars })
       return undefined
     } finally {
       clearTimeout(stop)
       signal?.removeEventListener('abort', onAbort)
     }
-    if (argumentsJson === '') return undefined
+    if (argumentsJson === '') {
+      await recordDiagnostic({
+        node: question.node,
+        provider: route.provider,
+        model: route.model,
+        finishReason: finishReason === '' ? '(no finish chunk)' : finishReason,
+        failure: failure === '' ? 'no tool-call emitted (model answered in text?)' : failure,
+        textChars,
+      })
+      return undefined
+    }
     try {
       const parsed: unknown = JSON.parse(argumentsJson)
       if (parsed === null || typeof parsed !== 'object') return undefined
