@@ -56,6 +56,12 @@ export interface CommandDeps {
   projects(): Promise<readonly KnownProject[]>
   /** Export the project wiki into the vault (Obsidian/Tolaria). */
   exportToVault(input: { projectRoot: string; vaultPath?: string; noGit?: boolean }): Promise<VaultExportSummary>
+  /** Lexical vault search; returns file+line citations for the AI to quote. */
+  searchVault(input: { query: string; limit?: number; vaultPath?: string }): Promise<{
+    hits: Array<{ file: string; line: number; text: string }>
+    scannedFiles: number
+    note?: string
+  }>
   status(projectRoot: string): Promise<{ stale: boolean; output: string; note?: string }>
   analyze(projectRoot: string): Promise<{ note?: string }>
   wiki(projectRoot: string, options: { force: boolean; lang: string }): Promise<WikiRunResult>
@@ -105,6 +111,26 @@ export function workmateCommandDefinition(deps: CommandDeps): {
       })
       if ('error' in resolved) return fail(resolved.error)
       const projectRoot = resolved.root
+
+      if (parsed.action === 'search') {
+        const found = await deps.searchVault({
+          query: parsed.query ?? '',
+          ...(parsed.limit !== undefined ? { limit: parsed.limit } : {}),
+        })
+        if (found.hits.length === 0) {
+          return fail(`没有命中：${parsed.query ?? ''}${found.note !== undefined ? `（${found.note}）` : ''}`)
+        }
+        const lines = found.hits.map((hit) => `${hit.file}:${hit.line}  ${hit.text}`)
+        return ok(
+          [
+            `🔍 ${found.hits.length} 条命中（扫描 ${found.scannedFiles} 篇笔记）`,
+            ...lines,
+            found.note ?? '',
+          ]
+            .filter((line) => line !== '')
+            .join('\n'),
+        )
+      }
 
       if (exportRequested) {
         const exported = await deps.exportToVault({

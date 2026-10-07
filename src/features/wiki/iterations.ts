@@ -47,6 +47,13 @@ export function extractSummary(proposal: string): string | undefined {
   return undefined
 }
 
+/**
+ * Bare paths without backticks are common in real proposals (`src/main/java/.../Foo.java`);
+ * they are still evidence, so accept path-like tokens too. Kept conservative: must look
+ * like a path or carry a source-file extension, otherwise Chinese prose would flood in.
+ */
+const BARE_PATH = /(?:[\w.-]+\/)+[\w.-]+\.\w{1,5}|[\w.-]+\.(?:java|kt|ts|tsx|js|jsx|vue|py|go|sql|xml|yml|yaml|json|md)\b/g
+
 /** Backticked code paths listed under `## Impact` (their Impact bullets mention them). */
 export function extractTouches(proposal: string): string[] {
   const impactIndex = proposal.search(/^##\s*(Impact|影响)/m)
@@ -60,7 +67,14 @@ export function extractTouches(proposal: string): string[] {
     // Keep things that look like paths or file names, skip symbols/short identifiers.
     if (/[./]/.test(value) || /\.(java|ts|tsx|js|vue|xml|sql|md)$/i.test(value)) paths.add(value)
   }
-  return [...paths]
+  if (paths.size === 0) {
+    // Fall back to bare paths, but only for the value — never the whole prose line.
+    for (const match of section.matchAll(BARE_PATH)) {
+      const value = match[0]
+      if (value !== undefined && value.length > 3) paths.add(value)
+    }
+  }
+  return [...paths].slice(0, 12)
 }
 
 /** `[proposal:<id>]` marks: one git scan, indexed by id. */

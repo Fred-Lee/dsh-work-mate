@@ -245,7 +245,21 @@ GitNexus 生成的是"原料"；这一步把它整理成**人能读、AI 能直�
 | `index.md` | 入口（MOC）：项目概览 + 模块表 + **迭代表（状态 / depends_on / supersedes）** |
 | `modules/<slug>.md` | 每模块一篇：front-matter（project/module/source/commit/generated/pages/tags）+ 正文 + 返回索引的 wikilink |
 | `iterations/<proposal-id>.md` | **来自 WorkMate 提案**：`status`、`depends_on`（提案 `relatesTo`）、`supersedes`（决策链）→ Obsidian 图上就是真实的依赖与取代边 |
+| `views.md` | **Dataview 视图**：迭代时间线 / 按年分组 / 被触及最多的模块 / 模块清单（未装插件也有手读说明） |
 | `changelog.md` | 追加式：日期 / commit / 模块数 / 页数（同一天同一 commit 不重复） |
+
+vault 根还有 `_views.md`（跨项目总览）。**依赖边的两种来源**分开标注：声明式
+（提案 `relatesTo` → `depends_on`、决策 `supersedes`）与推导式（按时间的前序 `sequence`，
+front-matter 里 `derived: true`）；`touches` 来自归档 Impact 段的路径，路径都没命中时会问一次
+判断层（`module-match`，**只采信 `act` 档**，每次导出最多 20 次）。
+
+**AI 侧检索**（同一批文件，返回文件:行号，可直接引用）：
+
+```
+/workmate search 批改并发 --limit 20      # 口语法
+workmate_wiki_search { query: "批改并发", project: "internal-homework" }   # 工具
+```
+这是**词法（grep 式）检索**，不是语义检索——可解释、永远与文件同步；向量索引以后可加而不改契约。
 
 **人读**：Obsidian 打开 vault → Graph 看模块与迭代的关系；装 **Dataview** 可把 front-matter 变成
 "所有迭代 × 依赖 × 状态"的表/时间线；Canvas 可手绘发展脉络。

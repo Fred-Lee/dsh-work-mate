@@ -15,6 +15,8 @@ export type DecisionNode =
   | 'injection-risk'
   | 'risk-tier'
   | 'task-satisfied'
+  /** change `classify-touches-by-decision`: which module does a change affect? */
+  | 'module-match'
 
 export interface DecisionQuestion {
   node: DecisionNode

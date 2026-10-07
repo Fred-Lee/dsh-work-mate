@@ -10,7 +10,7 @@
  * Parsing is pure and testable; the handler only wires existing bridges.
  */
 
-export type WorkmateAction = 'help' | 'status' | 'wiki' | 'export'
+export type WorkmateAction = 'help' | 'status' | 'wiki' | 'export' | 'search'
 
 export interface WorkmateInput {
   action: WorkmateAction
@@ -22,6 +22,10 @@ export interface WorkmateInput {
   vaultPath?: string
   /** `export`: skip the git commit even when enabled by config. */
   noGit?: boolean
+  /** `search`: free-text query. */
+  query?: string
+  /** `search`: maximum hits. */
+  limit?: number
 }
 
 export interface ParseFailure {
@@ -32,6 +36,7 @@ const USAGE = [
   '/workmate wiki [项目] [--force] [--reanalyze] [--lang chinese]  — 生成 / 更新项目 wiki',
   '/workmate status [项目]                                        — 只读：索引新鲜度 + wiki 产物',
   '/workmate export [项目] [--vault <路径>] [--no-git]             — 导出到 Obsidian/Tolaria vault（人读 + AI 语料）',
+  '/workmate search <关键词> [--limit <n>]                          — 在 vault 里检索（返回 文件:行号，给 AI 用）',
   '  项目可省略（= 当前项目 / 会话工作目录），也可给项目名、相对路径或绝对路径',
   '/workmate help                                                 — 显示本帮助',
 ].join('\n')
@@ -50,9 +55,36 @@ export function parseWorkmateInput(rawInput: string): WorkmateInput | ParseFailu
     return { action: 'help', force: false, reanalyze: false }
   }
   const [action, ...rest] = tokens
-  if (action !== 'wiki' && action !== 'status' && action !== 'export') {
+  if (action !== 'wiki' && action !== 'status' && action !== 'export' && action !== 'search') {
     return { error: `未知子命令 '${action}'。\n\n${USAGE}` }
   }
+  // `search` takes free text: everything after the subcommand is the query (flags still parsed).
+  if (action === 'search') {
+    let limit: number | undefined
+    const words: string[] = []
+    for (let index = 0; index < rest.length; index += 1) {
+      const token = rest[index] as string
+      if (token === '--limit') {
+        const value = rest[index + 1]
+        const parsedLimit = value === undefined ? Number.NaN : Number(value)
+        if (!Number.isFinite(parsedLimit) || parsedLimit <= 0) return { error: '--limit 需要一个正整数' }
+        limit = Math.floor(parsedLimit)
+        index += 1
+        continue
+      }
+      words.push(token)
+    }
+    const query = words.join(' ').trim()
+    if (query === '') return { error: `search 需要关键词。\n\n${USAGE}` }
+    return {
+      action,
+      force: false,
+      reanalyze: false,
+      query,
+      ...(limit !== undefined ? { limit } : {}),
+    }
+  }
+
   let projectRoot: string | undefined
   let force = false
   let reanalyze = false

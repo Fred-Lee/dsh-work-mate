@@ -56,6 +56,7 @@ import { ensureSseProxy } from './features/knowledge-bridge/sse-proxy.ts'
 import { resolveProjectRoot } from './features/project/implicit-root.ts'
 import { exportWikiToVault, iterationsFromProposals } from './features/wiki/vault.ts'
 import { collectArchivedIterations, mergeIterations } from './features/wiki/iterations.ts'
+import { searchVault } from './features/wiki/search.ts'
 import { describeGitnexusCredentials } from './features/knowledge-bridge/gitnexus-credentials.ts'
 import { createWeknoraClient } from './features/knowledge-bridge/weknora.ts'
 import { mountWorkmateApi, createProposal, type WebServerLike } from './api.ts'
@@ -257,6 +258,23 @@ export function apply(ctx: Context, config: Config = {}): void {
       vaultPath,
       subdir: resolved.wikiVaultSubdir,
       iterations,
+      // Semantic fallback for iterations whose Impact section names no file: the judgement
+      // layer picks one module (or abstains), and only `act` answers become graph edges.
+      ...(decision.enabled
+        ? {
+            classifyModule: async (text: string, modules: readonly { name: string; slug: string }[]) => {
+              const outcome = await decision.decide({
+                node: 'module-match',
+                state: text,
+                question: '这次变更主要影响哪个模块？',
+                options: [...modules.map((module) => module.slug), 'none'],
+              })
+              return outcome?.action === 'act' && outcome.choice !== undefined && outcome.choice !== 'none'
+                ? outcome.choice
+                : undefined
+            },
+          }
+        : {}),
     })
     const wantCommit = options.noGit !== true && resolved.wikiVaultGitCommit
     if (!wantCommit) {
@@ -298,6 +316,13 @@ export function apply(ctx: Context, config: Config = {}): void {
         upstream: resolved.gitnexusSseProxyUpstream,
       }),
     projects: () => registry.list(),
+    searchVault: (input) =>
+      searchVault({
+        vaultPath: input.vaultPath ?? resolved.wikiVaultPath,
+        subdir: resolved.wikiVaultSubdir,
+        query: input.query,
+        ...(input.limit !== undefined ? { limit: input.limit } : {}),
+      }),
     exportToVault: (input) =>
       runVaultExport({
         projectRoot: input.projectRoot,
@@ -1028,6 +1053,36 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
           ...(args.gitCommit === true ? { noGit: false } : {}),
         })
         return asJson({ projectRoot: resolvedRoot.root, how: resolvedRoot.how, ...exported })
+      },
+    }),
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_wiki_search',
+      description:
+        'Search the exported wiki vault (Obsidian/Tolaria) for a query and return ranked hits WITH file and line numbers, so answers can cite the human-readable notes directly. Lexical (grep-style), not semantic: results are explainable and always in sync with the files. Scope with project to search one project directory.',
+      parameters: {
+        query: { type: 'string', required: true, description: 'Search terms (CJK kept whole, latin words split).' },
+        project: { type: 'string', description: 'Limit to one project directory inside the vault.' },
+        limit: { type: 'integer', description: 'Maximum hits (default 20).' },
+        vaultPath: { type: 'string', description: 'Vault root override; defaults to Config.wikiVaultPath.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      timeoutMs: 60_000,
+      isConcurrencySafe: () => true,
+      async execute(args) {
+        const vaultPath = args.vaultPath ?? resolved.wikiVaultPath
+        if (vaultPath === '') throw new Error('未配置 wikiVaultPath：先 /workmate export 或设置配置')
+        return asJson(
+          await searchVault({
+            vaultPath,
+            subdir: resolved.wikiVaultSubdir,
+            ...(args.project !== undefined ? { project: args.project } : {}),
+            query: args.query,
+            ...(args.limit !== undefined ? { limit: args.limit } : {}),
+          }),
+        )
       },
     }),
   )

@@ -10,6 +10,7 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Proposal } from '../proposal/store.ts'
+import { dataviewViews, vaultViews } from './views.ts'
 
 export interface VaultIterationInput {
   id: string
@@ -44,6 +45,12 @@ export interface VaultExportInput {
   subdir?: string
   /** Proposals of this project, projected into iteration notes. */
   iterations?: readonly VaultIterationInput[]
+  /**
+   * Optional judgement hook (change `classify-touches-by-decision`): map a change's
+   * summary to one module slug. Only `act`-level answers are used downstream, so an
+   * unsure model cannot invent an edge.
+   */
+  classifyModule?: (text: string, modules: readonly { name: string; slug: string }[]) => Promise<string | undefined>
   now?: () => Date
 }
 
@@ -188,6 +195,24 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
   }
 
   // ── one note per iteration (dependencies come from proposals) ──────────
+  // Optional semantic fallback: when neither paths nor backticks matched a module, ask the
+  // judgement layer once (cached). Bounded so a big archive cannot fan out into 100 calls.
+  let classifyBudget = 20
+  for (const iteration of iterations) {
+    const hasPathTouch = (iteration.touches ?? []).some((raw) =>
+      modules.some((module) => raw.toLowerCase().includes(module.slug)),
+    )
+    if (!hasPathTouch && modules.length > 0 && input.classifyModule !== undefined && classifyBudget > 0) {
+      classifyBudget -= 1
+      const guess = await input.classifyModule(
+        `${iteration.title}\n${iteration.summary ?? ''}`.trim(),
+        modules,
+      ).catch(() => undefined)
+      if (guess !== undefined && modules.some((module) => module.slug === guess)) {
+        iteration.touches = [...(iteration.touches ?? []), guess]
+      }
+    }
+  }
   for (const iteration of iterations) {
     const depends = iteration.dependsOn.map((id) => `"[[${subdir}/${input.project}/iterations/${id}|${id}]]"`)
     const sup = iteration.supersedes.map((id) => `"[[${subdir}/${input.project}/iterations/${id}|${id}]]"`)
@@ -210,10 +235,11 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
         proposal: iteration.id,
         status: iteration.status,
         archived: iteration.archived,
-        date: iteration.date,
+        generated,
         origin: iteration.origin,
         derived: iteration.sequence !== undefined,
-        generated,
+        ...(iteration.date !== undefined ? { date: iteration.date } : {}),
+        ...(touched.length > 0 ? { touches: touched } : {}),
         tags: ['workmate', 'iteration', input.project],
       }) +
       `# ${iteration.title}\n\n` +
@@ -280,6 +306,21 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
     await writeFile(changelogPath, `${existing.trimEnd()}\n${line}\n`, 'utf8')
   }
   written.push(changelogRel)
+
+  // ── Dataview view note (and the vault-level one, once) ─────────────────
+  const viewsRel = join(projectDirRel, 'views.md')
+  await writeFile(
+    join(input.vaultPath, viewsRel),
+    dataviewViews({ project: input.project, subdir, modules: modules.length, pages, iterations: iterations.length }),
+    'utf8',
+  )
+  written.push(viewsRel)
+
+  const rootViewsRel = join(subdir, '_views.md')
+  const knownProjects = await readdir(join(input.vaultPath, subdir)).catch(() => [] as string[])
+  const projects = knownProjects.filter((entry) => !entry.startsWith('_') && !entry.startsWith('.'))
+  await writeFile(join(input.vaultPath, rootViewsRel), vaultViews(projects, subdir), 'utf8')
+  written.push(rootViewsRel)
 
   return {
     projectDir,
