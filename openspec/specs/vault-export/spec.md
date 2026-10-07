@@ -5,15 +5,16 @@ TBD - created by archiving change export-wiki-to-vault. Update Purpose after arc
 ## Requirements
 ### Requirement: 项目 wiki 导出到 vault
 
-导出 SHALL 在无法从判断层得到任何 `act` 档结论时，于返回中说明最可能的原因（至少包含
-当前 `decisionModel` 与"provider 模型列表为空则路由失败"这一判据）；
-聚合 `decision` 事件 SHALL 记录 provider 与模型列表规模等路由诊断字段，使"判断层未生效"
-可从事件流复查，SHALL NOT 仅以静默成功返回。
+判断层 provider SHALL 将宿主归一化的终态 `finish` 块视为失败信号：当终态原因不属于正常停止
+（`stop` / `tool-calls` / `end_turn`）时，SHALL 记录该原因；当整轮未出现 `tool-call-delta` 时，
+SHALL 记录"模型以文本作答"这一事实。相关记录 SHALL 追加写入 `<DSH home>/workmate/decision-diagnostics.jsonl`
+且 SHALL 失败无副作用（诊断不得影响判断结果）。
 
-#### Scenario: 问了但零命中要说原因
+#### Scenario: 失败必须可复现定位
 
-- **WHEN** `classify.llmAsked > 0` 且 `classify.llmMatched === 0`
-- **THEN** 返回内容包含可操作的原因说明，且事件流里该次导出的事件含 `listedModels` 字段
+- **WHEN** 适配器调用失败或被超时中断
+- **THEN** 诊断文件出现一条含 `failure` / `finishReason` / `provider` / `model` 的记录，
+  且调用方仍按"无结论"处理（不产生边、不写缓存）
 
 ### Requirement: Vault 视图笔记
 
