@@ -31,3 +31,37 @@ describe('agent provider finish kinds (decision-call-diagnostics)', () => {
     expect(result).toBeUndefined()
   })
 })
+
+describe('route resolution resilience (decision-route-diagnostics)', () => {
+  const face = (providers: unknown[]) => ({
+    llm: () => ({ listProviders: () => providers, stream: () => (async function* () {})() }),
+    samples: 1,
+    timeoutMs: 500,
+  })
+
+  it('falls back to the first provider when the configured one is absent', async () => {
+    const { AgentProvider } = await import('./agent.ts')
+    const provider = new AgentProvider({
+      ...face([{ id: 'deepseek-account', models: [{ id: 'deepseek-v4-pro' }] }]),
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+    } as never)
+
+    // Reaches the adapter (no route → no call would leave llmAsked at 0 forever).
+    const answer = await provider.ask({ node: 'module-match', state: 's', question: 'q', options: ['a', 'none'] })
+    expect(answer).toBeUndefined()          // empty stream ⇒ no answer
+    expect(provider.available()).toBe(true)
+  })
+
+  it('answers nothing when no provider is registered at all', async () => {
+    const { AgentProvider } = await import('./agent.ts')
+    const answer = await new AgentProvider(face([]) as never).ask({
+      node: 'module-match',
+      state: 's',
+      question: 'q',
+      options: ['a'],
+    })
+
+    expect(answer).toBeUndefined()
+  })
+})

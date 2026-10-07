@@ -71,6 +71,9 @@ async function recordDiagnostic(line: Record<string, unknown>): Promise<void> {
 export class AgentProvider implements DecisionProvider {
   readonly name = 'agent'
 
+  /** Set when the configured provider had to be swapped/loosened; reported once per call. */
+  private lastRouteNote: string | undefined
+
   constructor(private readonly options: AgentProviderOptions) {}
 
   available(): boolean {
@@ -80,8 +83,23 @@ export class AgentProvider implements DecisionProvider {
   async ask(question: DecisionQuestion, signal?: AbortSignal): Promise<DecisionAnswer | undefined> {
     const llm = this.options.llm()
     if (llm === undefined) return undefined
-    const route = this.resolveRoute(llm)
-    if (route === undefined) return undefined
+    const route = await this.resolveRoute(llm)
+    if (route === undefined) {
+      // The last silent exit: no call is attempted, so nothing else would ever say why.
+      await recordDiagnostic({
+        node: question.node,
+        failure: 'no route resolved (call not attempted)',
+        wantedProvider: this.options.provider === undefined || this.options.provider === '' ? '(first)' : this.options.provider,
+        wantedModel: this.options.model === undefined || this.options.model === '' ? '(route default)' : this.options.model,
+        listed: llm.listProviders().map((entry) => ({
+          id: entry.id,
+          name: entry.name,
+          models: entry.models?.length ?? 0,
+          sample: entry.models?.[0]?.id ?? entry.models?.[0]?.name,
+        })),
+      })
+      return undefined
+    }
 
     const samples = Math.max(1, Math.floor(this.options.samples ?? 1))
     const votes: string[] = []
@@ -104,14 +122,31 @@ export class AgentProvider implements DecisionProvider {
     }
   }
 
-  private resolveRoute(llm: HostLlmFace): { provider: string; model: string } | undefined {
+  private async resolveRoute(llm: HostLlmFace): Promise<{ provider: string; model: string } | undefined> {
     const listed = llm.listProviders()
     if (listed.length === 0) return undefined
     const wanted = this.options.provider
-    const provider =
+    // Exact id/name first, then a forgiving contains-match; if the configured provider is
+    // absent we still fall back to the first one — a slightly wrong config must not be able
+    // to disable the judgement layer entirely (the fallback is recorded, never silent).
+    const exact =
       wanted !== undefined && wanted !== ''
         ? listed.find((entry) => entry.id === wanted || entry.name === wanted)
-        : listed[0]
+        : undefined
+    const loose =
+      exact ??
+      (wanted !== undefined && wanted !== ''
+        ? listed.find((entry) => {
+            const identity = `${entry.id ?? ''} ${entry.name ?? ''}`.toLowerCase()
+            return identity.includes(wanted.toLowerCase()) || wanted.toLowerCase().includes((entry.id ?? entry.name ?? '').toLowerCase())
+          })
+        : undefined)
+    const provider = loose ?? listed[0]
+    if (provider === undefined) return undefined
+    this.lastRouteNote =
+      wanted !== undefined && wanted !== '' && exact === undefined
+        ? `provider '${wanted}' 未精确匹配，实际用 '${provider.id ?? provider.name ?? '?'}'`
+        : undefined
     if (provider === undefined) return undefined
     const providerId = provider.id ?? provider.name
     if (providerId === undefined) return undefined
@@ -119,7 +154,19 @@ export class AgentProvider implements DecisionProvider {
       this.options.model !== undefined && this.options.model !== ''
         ? this.options.model
         : (provider.models?.[0]?.id ?? provider.models?.[0]?.name ?? '')
-    if (model === '') return undefined
+    if (model === '') {
+      await recordDiagnostic({
+        node: 'route',
+        failure: 'provider has no model and none configured',
+        provider: providerId,
+        listedModels: provider.models?.length ?? 0,
+      })
+      return undefined
+    }
+    if (this.lastRouteNote !== undefined) {
+      await recordDiagnostic({ node: 'route', note: this.lastRouteNote, provider: providerId, model })
+      this.lastRouteNote = undefined
+    }
     return { provider: providerId, model }
   }
 
