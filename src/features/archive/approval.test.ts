@@ -198,3 +198,29 @@ describe('approval gate (separation of duties)', () => {
     expect(record?.commit).toBeUndefined()
   })
 })
+
+describe('unassessed risk must not bypass the risk gate (risk-gate-bypass)', () => {
+  it('refuses an agent entering a risk-gated state while risk is unknown', async () => {
+    const lifecycle = lifecycleFor({
+      approvalsRequired: [],
+      highRiskExtraGates: ['implementing'],
+      riskGateEnabled: true,
+    })
+    await proposals.setStatus('p1', 'ready', { actor: 'human' })
+
+    await expect(lifecycle.transition('p1', 'implementing', { actor: 'agent' })).rejects.toThrow(
+      /必须先判定风险|risk/i,
+    )
+  })
+
+  it('keeps working when the judgement layer is off', async () => {
+    const lifecycle = lifecycleFor({ approvalsRequired: [], highRiskExtraGates: ['implementing'] })
+    await proposals.setStatus('p1', 'ready', { actor: 'human' })
+
+    // No risk concept without the judgement layer: the configured gate list is empty,
+    // so the only possible failure is the unrelated project-root check.
+    await expect(lifecycle.transition('p1', 'implementing', { actor: 'agent' })).rejects.toThrow(
+      /无关联项目根|no resolvable project|project root/i,
+    )
+  })
+})

@@ -171,6 +171,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     allowAgentApproval: resolved.allowAgentApproval,
     planDriftGate: resolved.planDriftGate,
     highRiskExtraGates: resolved.highRiskExtraGates,
+    riskGateEnabled: resolved.decisionEnabled,
     orchestrate(proposal, targets, opts) {
       return orchestrateArchive(proposal, targets, {
         openspecRoot: opts.openspecRoot,

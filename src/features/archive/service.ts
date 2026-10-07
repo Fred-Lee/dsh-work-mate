@@ -85,6 +85,11 @@ export interface LifecycleDeps {
   planDriftGate?: boolean
   /** Extra states a HIGH-risk proposal needs a human approval for (`Config.highRiskExtraGates`). */
   highRiskExtraGates?: string[]
+  /**
+   * When the judgement layer is on, an UNASSESSED risk must not silently pass a gated state
+   * (a real bypass: `proposal.risk === undefined` made the high-risk gate a no-op).
+   */
+  riskGateEnabled?: boolean
   now?: () => Date
 }
 
@@ -210,9 +215,27 @@ export class LifecycleServiceImpl {
     to: ProposalState,
     options: TransitionOptions,
   ): Promise<void> {
+    const gatedByRisk = (this.deps.highRiskExtraGates ?? CONFIG_DEFAULTS.highRiskExtraGates).includes(to)
+    const actor = options.actor ?? 'system'
+    // Close the bypass: with the judgement layer on, an agent must not slip into a risk-gated
+    // state while the risk is still unknown — assess it first (humans may still decide).
+    if (
+      gatedByRisk &&
+      this.deps.riskGateEnabled === true &&
+      proposal.risk === undefined &&
+      actor === 'agent' &&
+      this.deps.allowAgentApproval !== true
+    ) {
+      const unassessed = new InvalidTransitionError(
+        `推进到 ${to} 前必须先判定风险：调用 workmate_assess_risk（高风险会在 approvalsRequired 之外追加人工批准门）`,
+      )
+      await this.recordGateFailure(proposal, to, unassessed, actor, 'risk-unassessed')
+      throw unassessed
+    }
+
     const reason = this.gateReason(to, proposal)
     if (reason === undefined || this.deps.allowAgentApproval === true) return
-    if ((options.actor ?? 'system') !== 'agent') return
+    if (actor !== 'agent') return
     const error = new InvalidTransitionError(
       reason === 'high-risk'
         ? `${to} 需要人工批准：该提案被判为高风险（由 Config.highRiskExtraGates 追加）——请在面板点「推进到 ${to}` +
