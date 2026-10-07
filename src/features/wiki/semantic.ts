@@ -22,7 +22,9 @@ export interface Chunk {
 
 /** Split one note into chunks on H2 boundaries, capped so a chunk stays comparable. */
 export function chunkNote(content: string, file: string, maxLines = 60): Chunk[] {
-  const lines = content.split('\n')
+  // YAML front-matter is metadata, not prose: embedding it dilutes every chunk.
+  const body = content.replace(/^---\n[\s\S]*?\n---\n/, '')
+  const lines = body.split('\n')
   const chunks: Chunk[] = []
   let start = 0
   let buffer: string[] = []
@@ -59,6 +61,10 @@ async function walkMarkdown(dir: string, acc: string[] = []): Promise<string[]> 
     if (info.isDirectory()) {
       if (!entry.startsWith('.')) await walkMarkdown(full, acc)
     } else if (entry.endsWith('.md')) {
+      // Structural notes (index/changelog/views) are generated hub pages: they repeat
+      // every module name, so embedding them makes them win unrelated queries. They stay
+      // available to lexical search, which is where they belong.
+      if (/^(index|changelog|views|_views)\.md$/.test(entry)) continue
       acc.push(full)
     }
   }

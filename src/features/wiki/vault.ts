@@ -51,6 +51,8 @@ export interface VaultExportInput {
    * unsure model cannot invent an edge.
    */
   classifyModule?: (text: string, modules: readonly { name: string; slug: string }[]) => Promise<string | undefined>
+  /** Budget for `classifyModule` calls per run (`Config.wikiVaultClassifyMax`). @default 20 */
+  classifyMax?: number
   now?: () => Date
 }
 
@@ -161,6 +163,8 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
   const meta = await readMeta(wikiDir)
   const iterations = [...(input.iterations ?? [])]
   const generated = now().toISOString()
+  /** Module slug → number of iterations that touched it (graph centrality, made readable). */
+  const moduleHeat = new Map<string, string[]>()
 
   await mkdir(modulesDir, { recursive: true })
   const written: string[] = []
@@ -197,7 +201,7 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
   // ── one note per iteration (dependencies come from proposals) ──────────
   // Optional semantic fallback: when neither paths nor backticks matched a module, ask the
   // judgement layer once (cached). Bounded so a big archive cannot fan out into 100 calls.
-  let classifyBudget = 20
+  let classifyBudget = input.classifyMax ?? 20
   for (const iteration of iterations) {
     const hasPathTouch = (iteration.touches ?? []).some((raw) =>
       modules.some((module) => raw.toLowerCase().includes(module.slug)),
@@ -219,10 +223,24 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
     const touched = (iteration.touches ?? [])
       .map((raw) => {
         const lower = raw.toLowerCase()
-        const hit = modules.find((module) => lower.includes(module.slug))
+        // Exact slug containment first, then token overlap: `WrongQuesRate.java` must reach
+        // `wrong-questions-system` without a model, because the graph edge is evidence the
+        // reader can check by clicking through.
+        const hit =
+          modules.find((module) => lower.includes(module.slug)) ??
+          modules.find((module) => {
+            const tokens = module.slug.split('-').filter((token) => token.length >= 4)
+            return tokens.some((token) => lower.includes(token))
+          })
         return hit !== undefined ? `[[${subdir}/${input.project}/modules/${hit.slug}|${hit.name}]]` : `\`${raw}\``
       })
       .filter((value) => value !== '')
+    const touchedUnique = [...new Set(touched)].filter((value) => value.startsWith('[['))
+    for (const link of touchedUnique) {
+      const slug = /modules\/([^|\]]+)/.exec(link)?.[1]
+      if (slug === undefined) continue
+      moduleHeat.set(slug, [...(moduleHeat.get(slug) ?? []), iteration.id])
+    }
     const sequenceLine =
       iteration.sequence !== undefined
         ? `- 上一迭代（按时间推导）：[[${subdir}/${input.project}/iterations/${iteration.sequence}|${iteration.sequence}]]\n`
@@ -239,14 +257,18 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
         origin: iteration.origin,
         derived: iteration.sequence !== undefined,
         ...(iteration.date !== undefined ? { date: iteration.date } : {}),
-        ...(touched.length > 0 ? { touches: touched } : {}),
+        ...(touchedUnique.length > 0
+          ? { touches: touchedUnique.map((value) => value.split('|')[1]?.replace(']]', '') ?? value) }
+          : touched.length > 0
+            ? { touches: [...new Set(touched)] }
+            : {}),
         tags: ['workmate', 'iteration', input.project],
       }) +
       `# ${iteration.title}\n\n` +
       (iteration.summary !== undefined ? `${iteration.summary}\n\n` : '') +
       `- 迭代 id：\`${iteration.id}\`\n- 状态：**${iteration.status}**${iteration.date !== undefined ? `\n- 日期：${iteration.date}` : ''}\n- 提交：${iteration.commits.map((c) => `\`${c}\``).join(' ') || '（无标记提交）'}\n` +
       sequenceLine +
-      (touched.length > 0 ? `\n## 触及的模块（由 Impact 推导）\n\n${touched.map((value) => `- ${value}`).join('\n')}\n` : '') +
+      (touched.length > 0 ? `\n## 触及的模块（由 Impact 推导）\n\n${[...new Set(touched)].map((value) => `- ${value}`).join('\n')}\n` : '') +
       `\n` +
       `## 依赖（depends_on）\n\n${depends.length > 0 ? depends.map((line) => `- ${line.replaceAll('"', '')}`).join('\n') : '- （无声明）'}\n\n` +
       `## 取代（supersedes）\n\n${sup.length > 0 ? sup.map((line) => `- ${line.replaceAll('"', '')}`).join('\n') : '- （无）'}\n\n` +
@@ -286,6 +308,18 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
     `## 模块\n\n| 模块 | slug |\n| --- | --- |\n${moduleTable || '| （无） | — |'}\n\n` +
     (iterations.length > 0
       ? `## 迭代与依赖\n\n| ${hasDates ? '日期 | ' : ''}迭代 | 状态 | depends_on | supersedes |\n| ${hasDates ? '--- | ' : ''}--- | --- | --- | --- |\n${iterationTable}\n\n`
+      : '') +
+    (moduleHeat.size > 0
+      ? `## 模块热度（被多少次迭代触及）\n\n` +
+        `| 模块 | 触及迭代数 | 最近一次 |\n| --- | --- | --- |\n` +
+        [...moduleHeat.entries()]
+          .sort((left, right) => right[1].length - left[1].length)
+          .map(([slug, ids]) => {
+            const name = modules.find((module) => module.slug === slug)?.name ?? slug
+            return `| [[${subdir}/${input.project}/modules/${slug}\\|${name}]] | ${ids.length} | ${ids[ids.length - 1]} |`
+          })
+          .join('\n') +
+        `\n\n> 热度只统计**能连到模块**的迭代（路径/token 或判断层归类命中）；未被触及的模块不出现在表里。\n\n`
       : '') +
     `## 说明\n\n- 人读：本文件是入口；模块笔记在 \`modules/\`，迭代笔记在 \`iterations/\`。\n- AI 读：直接读同一批文件即可；检索建议返回**文件 + 行号**。\n`
   const indexRel = join(projectDirRel, 'index.md')

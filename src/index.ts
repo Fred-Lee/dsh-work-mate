@@ -274,6 +274,7 @@ export function apply(ctx: Context, config: Config = {}): void {
                 ? outcome.choice
                 : undefined
             },
+            classifyMax: resolved.wikiVaultClassifyMax,
           }
         : {}),
     })

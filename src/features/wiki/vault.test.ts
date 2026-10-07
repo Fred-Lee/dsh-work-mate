@@ -126,3 +126,73 @@ describe('vault export (export-wiki-to-vault)', () => {
     expect(iteration?.archived).toBe(true)
   })
 })
+
+describe('module heat and classify budget (vault-views-search follow-up)', () => {
+  it('renders a module-heat section sourced from iteration touches', async () => {
+    const repo = await seedRepo()
+    const vault = await mkdtemp(join(tmpdir(), 'wm-vault-heat-'))
+
+    await exportWikiToVault({
+      projectRoot: repo,
+      project: 'internal-homework',
+      vaultPath: vault,
+      iterations: [
+        {
+          id: 'iter-a',
+          title: 'A',
+          status: 'archived',
+          archived: true,
+          dependsOn: [],
+          supersedes: [],
+          commits: [],
+          origin: 'archive',
+          date: '2026-01-01',
+          touches: ['HomeworkManagementService.java'],
+        },
+      ],
+    })
+
+    const index = await readFile(join(vault, 'WorkMate', 'internal-homework', 'index.md'), 'utf8')
+    expect(index).toContain('## 模块热度')
+    expect(index).toContain('| 触及迭代数 |')
+    expect(index).toContain('iter-a')
+    await rm(repo, { recursive: true, force: true })
+    await rm(vault, { recursive: true, force: true })
+  })
+
+  it('respects classifyMax and only uses act-level answers', async () => {
+    const repo = await seedRepo()
+    const vault = await mkdtemp(join(tmpdir(), 'wm-vault-classify-'))
+    const asked: string[] = []
+    const iterations = ['a', 'b', 'c'].map((id) => ({
+      id: `iter-${id}`,
+      title: `迭代 ${id}`,
+      status: 'archived',
+      archived: true,
+      dependsOn: [],
+      supersedes: [],
+      commits: [],
+      origin: 'archive' as const,
+      date: '2026-01-01',
+      summary: '描述里没有任何路径',
+    }))
+
+    await exportWikiToVault({
+      projectRoot: repo,
+      project: 'internal-homework',
+      vaultPath: vault,
+      iterations,
+      classifyMax: 2,
+      classifyModule: async (text, modules) => {
+        asked.push(text)
+        return modules[0]?.slug
+      },
+    })
+
+    expect(asked).toHaveLength(2)                       // budget honoured
+    const note = await readFile(join(vault, 'WorkMate', 'internal-homework', 'iterations', 'iter-a.md'), 'utf8')
+    expect(note).toContain('homework-management')       // classified module became an edge
+    await rm(repo, { recursive: true, force: true })
+    await rm(vault, { recursive: true, force: true })
+  })
+})

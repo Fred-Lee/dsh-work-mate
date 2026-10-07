@@ -135,6 +135,8 @@ export interface Config {
   wikiVaultOllamaUrl?: string
   /** Vector cache file; empty = <workmateHome>/wiki-embeddings.json. @default '' */
   wikiVaultEmbeddingCache?: string
+  /** Judgement-layer module classifications per export run (`module-match`). @default 20 */
+  wikiVaultClassifyMax?: number
 }
 
 /** Runtime schema the host collects (validation + config-UI projection). */
@@ -205,6 +207,7 @@ export const Config: z<Config> = z.object({
   wikiVaultEmbeddingModel: z.string().default('').description('Local Ollama embedding model for semantic vault search.'),
   wikiVaultOllamaUrl: z.string().default('http://127.0.0.1:11434').description('Ollama base URL.'),
   wikiVaultEmbeddingCache: z.string().default('').description('Vector cache file (empty = workmateHome/wiki-embeddings.json).'),
+  wikiVaultClassifyMax: z.number().default(20).description('Judgement-layer module classifications per export run.'),
 })
 
 export type ResolvedConfig = Required<Config>
@@ -255,6 +258,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   wikiVaultEmbeddingModel: '',
   wikiVaultOllamaUrl: 'http://127.0.0.1:11434',
   wikiVaultEmbeddingCache: '',
+  wikiVaultClassifyMax: 20,
 }
 
 /**

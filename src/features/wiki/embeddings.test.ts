@@ -83,6 +83,15 @@ describe('local embeddings (semantic-vault-search)', () => {
     await rm(dir, { recursive: true, force: true })
   })
 
+  it('ignores YAML front-matter when chunking', () => {
+    const note = ['---', 'title: x', 'type: moc', '---', '## 正文', '内容'.repeat(30)].join('\n')
+    const chunks = chunkNote(note, 'a.md')
+
+    expect(chunks).toHaveLength(1)
+    expect(chunks[0]?.text).not.toContain('type: moc')
+    expect(chunks[0]?.text).toContain('## 正文')
+  })
+
   it('chunks notes on H2 boundaries with the right starting lines', () => {
     const content = ['# 标题', '', '## 第一节', '正文一'.repeat(30), '', '## 第二节', '正文二'.repeat(30)].join('\n')
     const chunks = chunkNote(content, 'a.md')
