@@ -58,6 +58,7 @@ import { exportWikiToVault, iterationsFromProposals } from './features/wiki/vaul
 import { collectArchivedIterations, mergeIterations } from './features/wiki/iterations.ts'
 import { searchVault } from './features/wiki/search.ts'
 import { searchVaultSmart } from './features/wiki/semantic.ts'
+import { EmbeddingCache, cosine, embedText, embeddingKey } from './features/wiki/embeddings.ts'
 import { describeGitnexusCredentials } from './features/knowledge-bridge/gitnexus-credentials.ts'
 import { createWeknoraClient } from './features/knowledge-bridge/weknora.ts'
 import { mountWorkmateApi, createProposal, type WebServerLike } from './api.ts'
@@ -183,7 +184,32 @@ export function apply(ctx: Context, config: Config = {}): void {
       }, {
         // The judgement layer reaches the archive orchestration as a hook: absent
         // means disabled, and everything behaves exactly as before.
-        ...(decision.enabled ? { decide: (question, signal) => decision.decide(question, signal) } : {}),
+        ...(decision.enabled
+          ? {
+              decide: async (question, signal) => {
+                const outcome = await decision.decide(question, signal)
+                if (outcome !== undefined) {
+                  await events
+                    .append({
+                      at: new Date().toISOString(),
+                      kind: 'decision',
+                      proposalId: proposal.id,
+                      actor: 'agent',
+                      node: outcome.node,
+                      action: outcome.action,
+                      ...(outcome.choice !== undefined ? { choice: outcome.choice } : {}),
+                      certainty: outcome.certainty,
+                      provider: outcome.provider,
+                      threshold: outcome.threshold,
+                      ...(outcome.cached !== undefined ? { cached: outcome.cached } : {}),
+                      ...(outcome.degraded !== undefined ? { degraded: outcome.degraded } : {}),
+                    })
+                    .catch(() => undefined)
+                }
+                return outcome
+              },
+            }
+          : {}),
       })
     },
     reopen(proposal, targets, opts) {
@@ -261,6 +287,37 @@ export function apply(ctx: Context, config: Config = {}): void {
       iterations,
       // Semantic fallback for iterations whose Impact section names no file: the judgement
       // layer picks one module (or abstains), and only `act` answers become graph edges.
+      // Local embedding match first: free, deterministic, no provider needed. It also
+      // tells us whether the judgement layer is even reachable (see `classify.llm`).
+      matchModuleByVector: async (text, modules) => {
+        const model = resolved.wikiVaultEmbeddingModel
+        if (model === '') return undefined
+        const cache = new EmbeddingCache(
+          resolved.wikiVaultEmbeddingCache !== ''
+            ? resolved.wikiVaultEmbeddingCache
+            : join(proposals.rootDir(), 'wiki-embeddings.json'),
+        )
+        const asked = await embedText(text, { model, baseUrl: resolved.wikiVaultOllamaUrl })
+        if (asked.vector === undefined) return undefined
+        let best: { slug: string; score: number } | undefined
+        for (const module of modules) {
+          const key = embeddingKey(model, `${module.name} ${module.slug}`)
+          let vector = await cache.get(key)
+          if (vector === undefined) {
+            const embedded = await embedText(`${module.name} ${module.slug}`, {
+              model,
+              baseUrl: resolved.wikiVaultOllamaUrl,
+            })
+            if (embedded.vector === undefined) continue
+            vector = embedded.vector
+            await cache.put(key, vector)
+          }
+          const score = cosine(asked.vector, vector)
+          if (best === undefined || score > best.score) best = { slug: module.slug, score }
+        }
+        // Only a clearly better-than-noise match becomes a graph edge.
+        return best !== undefined && best.score >= 0.55 ? best : undefined
+      },
       ...(decision.enabled
         ? {
             classifyModule: async (text: string, modules: readonly { name: string; slug: string }[]) => {
@@ -278,6 +335,26 @@ export function apply(ctx: Context, config: Config = {}): void {
           }
         : {}),
     })
+    // One aggregate trace per export: batch judgements must not vanish silently.
+    await events
+      .append({
+        at: new Date().toISOString(),
+        kind: 'decision',
+        proposalId: `_wiki_${project}`,
+        actor: 'system',
+        node: 'module-match-batch',
+        action: (result.classify?.vectorMatched ?? 0) + (result.classify?.llmMatched ?? 0) > 0 ? 'act' : 'abstain',
+        certainty: 0,
+        provider: result.classify?.llm === 'ok' ? 'agent' : 'rules',
+        threshold: resolved.decisionActThreshold,
+        detail: JSON.stringify({
+          ...result.classify,
+          llmReachable: llmRef !== undefined,
+          model: resolved.decisionModel,
+        }),
+      })
+      .catch(() => undefined)
+
     const wantCommit = options.noGit !== true && resolved.wikiVaultGitCommit
     if (!wantCommit) {
       return { ...result, git: { committed: false, note: 'git 提交未开启（wikiVaultGitCommit=false 或 --no-git）' } }
@@ -363,6 +440,26 @@ export function apply(ctx: Context, config: Config = {}): void {
       reviewBlockingSeverities: resolved.reviewBlockingSeverities,
       decision,
       events,
+      vaultExport: (input) =>
+        runVaultExport({
+          projectRoot: input.projectRoot,
+          ...(input.vaultPath !== undefined ? { vaultPath: input.vaultPath } : {}),
+          ...(input.gitCommit === true ? { noGit: false } : {}),
+        }),
+      wikiSearch: (input) =>
+        searchVaultSmart({
+          vaultPath: resolved.wikiVaultPath,
+          subdir: resolved.wikiVaultSubdir,
+          model: input.semantic === true ? resolved.wikiVaultEmbeddingModel : '',
+          baseUrl: resolved.wikiVaultOllamaUrl,
+          cachePath:
+            resolved.wikiVaultEmbeddingCache !== ''
+              ? resolved.wikiVaultEmbeddingCache
+              : join(proposals.rootDir(), 'wiki-embeddings.json'),
+          ...(input.project !== undefined ? { project: input.project } : {}),
+          ...(input.limit !== undefined ? { limit: input.limit } : {}),
+          query: input.query,
+        }),
       gitnexusEnabled: resolved.gitnexusEnabled,
       gitnexusWikiLang: resolved.gitnexusWikiLang,
       gitnexusWikiTimeoutMs: resolved.gitnexusWikiTimeoutMs,

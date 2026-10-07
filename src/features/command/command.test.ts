@@ -233,3 +233,15 @@ describe('up-to-date outcome clarity (clarify-wiki-outcome)', () => {
     await rm(dir, { recursive: true, force: true })
   })
 })
+
+describe('search flags (classify-diagnostics)', () => {
+  it('parses free-text queries with --limit and --semantic', () => {
+    const parsed = parseWorkmateInput('search 批改 并发 --limit 5 --semantic')
+
+    expect(parsed).toMatchObject({ action: 'search', query: '批改 并发', limit: 5, semantic: true })
+  })
+
+  it('requires a query for search', () => {
+    expect(parseWorkmateInput('search')).toHaveProperty('error')
+  })
+})

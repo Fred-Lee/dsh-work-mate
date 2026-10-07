@@ -53,6 +53,13 @@ export interface VaultExportInput {
   classifyModule?: (text: string, modules: readonly { name: string; slug: string }[]) => Promise<string | undefined>
   /** Budget for `classifyModule` calls per run (`Config.wikiVaultClassifyMax`). @default 20 */
   classifyMax?: number
+  /**
+   * Free, local fallback: match an iteration to a module by embedding similarity.
+   * Preferred over the judgement layer because it costs no tokens and is reproducible.
+   */
+  matchModuleByVector?: (text: string, modules: readonly { name: string; slug: string }[]) => Promise<
+    { slug: string; score: number } | undefined
+  >
   now?: () => Date
 }
 
@@ -65,6 +72,15 @@ export interface VaultExportResult {
   iterations: number
   commit?: string
   note?: string
+  /** How the iteration→module edges were produced (change `classify-diagnostics`). */
+  classify?: {
+    pathMatched: number
+    vectorMatched: number
+    llmAsked: number
+    llmMatched: number
+    unanswered: number
+    llm: 'ok' | 'missing'
+  }
 }
 
 /** Build the iteration projection from WorkMate proposals (dependencies are real data). */
@@ -202,20 +218,37 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
   // Optional semantic fallback: when neither paths nor backticks matched a module, ask the
   // judgement layer once (cached). Bounded so a big archive cannot fan out into 100 calls.
   let classifyBudget = input.classifyMax ?? 20
+  const classify = { pathMatched: 0, vectorMatched: 0, llmAsked: 0, llmMatched: 0, unanswered: 0 }
   for (const iteration of iterations) {
     const hasPathTouch = (iteration.touches ?? []).some((raw) =>
       modules.some((module) => raw.toLowerCase().includes(module.slug)),
     )
-    if (!hasPathTouch && modules.length > 0 && input.classifyModule !== undefined && classifyBudget > 0) {
-      classifyBudget -= 1
-      const guess = await input.classifyModule(
-        `${iteration.title}\n${iteration.summary ?? ''}`.trim(),
-        modules,
-      ).catch(() => undefined)
-      if (guess !== undefined && modules.some((module) => module.slug === guess)) {
-        iteration.touches = [...(iteration.touches ?? []), guess]
+    if (hasPathTouch) {
+      classify.pathMatched += 1
+      continue
+    }
+    const text = `${iteration.title}\n${iteration.summary ?? ''}`.trim()
+    // 1) local embedding match (free, reproducible)
+    if (modules.length > 0 && input.matchModuleByVector !== undefined) {
+      const hit = await input.matchModuleByVector(text, modules).catch(() => undefined)
+      if (hit !== undefined && modules.some((module) => module.slug === hit.slug)) {
+        iteration.touches = [...(iteration.touches ?? []), hit.slug]
+        classify.vectorMatched += 1
+        continue
       }
     }
+    // 2) judgement layer (bounded, only act-level answers count)
+    if (modules.length > 0 && input.classifyModule !== undefined && classifyBudget > 0) {
+      classifyBudget -= 1
+      classify.llmAsked += 1
+      const guess = await input.classifyModule(text, modules).catch(() => undefined)
+      if (guess !== undefined && modules.some((module) => module.slug === guess)) {
+        iteration.touches = [...(iteration.touches ?? []), guess]
+        classify.llmMatched += 1
+        continue
+      }
+    }
+    classify.unanswered += 1
   }
   for (const iteration of iterations) {
     const depends = iteration.dependsOn.map((id) => `"[[${subdir}/${input.project}/iterations/${id}|${id}]]"`)
@@ -360,6 +393,7 @@ export async function exportWikiToVault(input: VaultExportInput): Promise<VaultE
     projectDir,
     written,
     modules: modules.length,
+    classify: { ...classify, llm: input.classifyModule === undefined ? ('missing' as const) : ('ok' as const) },
     pages,
     iterations: iterations.length,
     ...(meta.commit !== undefined ? { commit: meta.commit } : {}),

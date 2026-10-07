@@ -26,6 +26,8 @@ export interface WorkmateInput {
   query?: string
   /** `search`: maximum hits. */
   limit?: number
+  /** `search`: force the local embedding engine. */
+  semantic?: boolean
 }
 
 export interface ParseFailure {
@@ -36,7 +38,7 @@ const USAGE = [
   '/workmate wiki [项目] [--force] [--reanalyze] [--lang chinese]  — 生成 / 更新项目 wiki',
   '/workmate status [项目]                                        — 只读：索引新鲜度 + wiki 产物',
   '/workmate export [项目] [--vault <路径>] [--no-git]             — 导出到 Obsidian/Tolaria vault（人读 + AI 语料）',
-  '/workmate search <关键词> [--limit <n>]                          — 在 vault 里检索（返回 文件:行号，给 AI 用）',
+  '/workmate search <关键词> [--limit <n>] [--semantic]             — 在 vault 里检索（返回 文件:行号；--semantic 强制本地向量）',
   '  项目可省略（= 当前项目 / 会话工作目录），也可给项目名、相对路径或绝对路径',
   '/workmate help                                                 — 显示本帮助',
 ].join('\n')
@@ -61,9 +63,14 @@ export function parseWorkmateInput(rawInput: string): WorkmateInput | ParseFailu
   // `search` takes free text: everything after the subcommand is the query (flags still parsed).
   if (action === 'search') {
     let limit: number | undefined
+    let semantic = false
     const words: string[] = []
     for (let index = 0; index < rest.length; index += 1) {
       const token = rest[index] as string
+      if (token === '--semantic') {
+        semantic = true
+        continue
+      }
       if (token === '--limit') {
         const value = rest[index + 1]
         const parsedLimit = value === undefined ? Number.NaN : Number(value)
@@ -82,6 +89,7 @@ export function parseWorkmateInput(rawInput: string): WorkmateInput | ParseFailu
       reanalyze: false,
       query,
       ...(limit !== undefined ? { limit } : {}),
+      ...(semantic ? { semantic: true } : {}),
     }
   }
 

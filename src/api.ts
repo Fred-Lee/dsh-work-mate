@@ -46,6 +46,10 @@ export interface ApiDeps {
   qualitySyncEnabled: boolean
   /** Also distribute the Claude Code asset set (.claude/**). @default true */
   claudeAssetsEnabled: boolean
+  /** Wiki vault export (shared with the tool and `/workmate export`). */
+  vaultExport?: (input: { projectRoot: string; vaultPath?: string; gitCommit?: boolean }) => Promise<unknown>
+  /** Vault search (lexical-first, semantic fallback). */
+  wikiSearch?: (input: { query: string; project?: string; limit?: number; semantic?: boolean }) => Promise<unknown>
   /** Proposal event log; omitted in tests that do not measure. */
   events?: EventLog
   /** Control-band file; defaults to `<DSH home>/<workmateHome>/bands.json`. */
@@ -247,6 +251,31 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
       return { id, metrics: proposalMetrics(proposal, read.events), skippedLines: read.skippedLines }
     }
     return { metrics: aggregateMetrics(await deps.proposals.list(), read.events, { skippedLines: read.skippedLines }) }
+  })
+
+  router.post('/api/wiki/export', async (r) => {
+    if (deps.vaultExport === undefined) throw new Error('vault export is not wired in this profile')
+    type ExportBody = { projectRoot?: string; vaultPath?: string; gitCommit?: boolean }
+    const body = await readJsonBody<ExportBody>(r.req).catch((): ExportBody => ({}))
+    const projectRoot = resolveRoot(deps, body.projectRoot)
+    return deps.vaultExport({
+      projectRoot,
+      ...(body.vaultPath !== undefined ? { vaultPath: body.vaultPath } : {}),
+      ...(body.gitCommit !== undefined ? { gitCommit: body.gitCommit } : {}),
+    })
+  })
+
+  router.post('/api/wiki/search', async (r) => {
+    if (deps.wikiSearch === undefined) throw new Error('vault search is not wired in this profile')
+    type SearchBody = { query?: string; project?: string; limit?: number; semantic?: boolean }
+    const body = await readJsonBody<SearchBody>(r.req).catch((): SearchBody => ({}))
+    if (body.query === undefined || body.query === '') throw new Error('query is required')
+    return deps.wikiSearch({
+      query: body.query,
+      ...(body.project !== undefined ? { project: body.project } : {}),
+      ...(body.limit !== undefined ? { limit: body.limit } : {}),
+      ...(body.semantic !== undefined ? { semantic: body.semantic } : {}),
+    })
   })
 
   router.post('/api/wiki', async (r) => {

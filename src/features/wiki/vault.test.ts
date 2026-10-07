@@ -196,3 +196,58 @@ describe('module heat and classify budget (vault-views-search follow-up)', () =>
     await rm(vault, { recursive: true, force: true })
   })
 })
+
+describe('classify diagnostics and vector fallback (classify-diagnostics)', () => {
+  const iterations = (ids: string[]) =>
+    ids.map((id) => ({
+      id: `iter-${id}`,
+      title: `迭代 ${id}`,
+      status: 'archived',
+      archived: true,
+      dependsOn: [],
+      supersedes: [],
+      commits: [],
+      origin: 'archive' as const,
+      date: '2026-01-01',
+      summary: '描述里没有任何路径',
+    }))
+
+  it('prefers the free vector match and reports what happened', async () => {
+    const repo = await seedRepo()
+    const vault = await mkdtemp(join(tmpdir(), 'wm-vault-diag-'))
+    let llmCalls = 0
+
+    const result = await exportWikiToVault({
+      projectRoot: repo,
+      project: 'internal-homework',
+      vaultPath: vault,
+      iterations: iterations(['a', 'b']),
+      matchModuleByVector: async () => ({ slug: 'homework-management', score: 0.8 }),
+      classifyModule: async () => {
+        llmCalls += 1
+        return undefined
+      },
+    })
+
+    expect(result.classify).toMatchObject({ vectorMatched: 2, llmAsked: 0, llm: 'ok' })
+    expect(llmCalls).toBe(0)                       // free path wins, no tokens spent
+    await rm(repo, { recursive: true, force: true })
+    await rm(vault, { recursive: true, force: true })
+  })
+
+  it('reports missing judgement layer and unanswered iterations', async () => {
+    const repo = await seedRepo()
+    const vault = await mkdtemp(join(tmpdir(), 'wm-vault-diag2-'))
+
+    const result = await exportWikiToVault({
+      projectRoot: repo,
+      project: 'internal-homework',
+      vaultPath: vault,
+      iterations: iterations(['a', 'b']),
+    })
+
+    expect(result.classify).toMatchObject({ vectorMatched: 0, llmAsked: 0, unanswered: 2, llm: 'missing' })
+    await rm(repo, { recursive: true, force: true })
+    await rm(vault, { recursive: true, force: true })
+  })
+})

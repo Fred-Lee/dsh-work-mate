@@ -116,6 +116,7 @@ export function workmateCommandDefinition(deps: CommandDeps): {
         const found = await deps.searchVault({
           query: parsed.query ?? '',
           ...(parsed.limit !== undefined ? { limit: parsed.limit } : {}),
+          ...(parsed.semantic === true ? { semantic: true } : {}),
         })
         if (found.hits.length === 0) {
           return fail(`没有命中：${parsed.query ?? ''}${found.note !== undefined ? `（${found.note}）` : ''}`)
