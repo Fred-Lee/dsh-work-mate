@@ -65,3 +65,32 @@ describe('route resolution resilience (decision-route-diagnostics)', () => {
     expect(answer).toBeUndefined()
   })
 })
+
+describe('message shape (decision-content-block)', () => {
+  it('sends user content as a block array, not a bare string', async () => {
+    const { AgentProvider } = await import('./agent.ts')
+    let seen: unknown
+    const provider = new AgentProvider({
+      llm: () => ({
+        listProviders: () => [{ id: 'p', models: [{ id: 'm' }] }],
+        stream: (options: { messages: unknown }) => {
+          seen = options.messages
+          return (async function* () {
+            yield { type: 'tool-call-delta', index: 0, id: 'c', name: 'answer', argumentsDelta: '{"choice":"a"}' }
+            yield { type: 'finish', reason: { kind: 'tool-calls' } }
+          })()
+        },
+      }),
+      provider: 'p',
+      model: 'm',
+      samples: 1,
+    } as never)
+
+    const answer = await provider.ask({ node: 'module-match', state: 'S', question: 'Q', options: ['a', 'none'] })
+
+    expect(answer?.choice).toBe('a')
+    const content = (seen as Array<{ content: unknown }>)[0]?.content
+    expect(Array.isArray(content)).toBe(true)          // adapters call content.some()
+    expect((content as Array<{ type: string }>)[0]?.type).toBe('text')
+  })
+})

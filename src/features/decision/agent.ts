@@ -22,7 +22,8 @@ export interface HostLlmFace {
     provider: string
     model: string
     system?: string
-    messages: Array<{ role: 'user'; content: string }>
+    /** Host accepts block arrays; some adapters call `.some()` on the content, so a bare string breaks them. */
+    messages: Array<{ role: 'user'; content: string | Array<{ type: 'text'; text: string }> }>
     tools?: Array<{ name: string; description?: string; parameters?: unknown }>
     temperature?: number
     maxTokens?: number
@@ -207,7 +208,12 @@ export class AgentProvider implements DecisionProvider {
         messages: [
           {
             role: 'user',
-            content: `STATE:\n${question.state}\n\nQUESTION:\n${question.question}\n\nOPTIONS: ${question.options.join(' | ')}`,
+            content: [
+              {
+                type: 'text',
+                text: `STATE:\n${question.state}\n\nQUESTION:\n${question.question}\n\nOPTIONS: ${question.options.join(' | ')}`,
+              },
+            ],
           },
         ],
         tools: [tool],
