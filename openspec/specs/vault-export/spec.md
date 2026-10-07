@@ -116,20 +116,14 @@ detail 中记录命中的特征名。前置筛 SHALL NOT 单独把文本判为 `
 
 ### Requirement: 孤儿提案的终止出口
 
-实现 SHALL 提供「终止（abandon）」能力：不运行归档编排、不要求提案的项目根存在，
-把提案置为终态并记录 `abandonedAt`、`abandonedReason`，同时 SHALL 追加一条
-`transition` 事件（`actor: human`、`reason` 以 `abandoned:` 开头）。
-终止 SHALL 要求非空原因；对已归档提案 SHALL 拒绝重复终止。
+实现 SHALL 提供工具入口 `workmate_proposal_abandon`（`id` 与非空 `reason`），
+该入口 SHALL 以 `actor: 'agent'` 写入 `transition` 事件；面板与 REST 入口 SHALL 以 `actor: 'human'` 记账。
+实现 SHALL NOT 把 agent 的终止动作记为 human。
 
-#### Scenario: 终止需要原因
+#### Scenario: 归属不造假
 
-- **WHEN** 调用终止但原因为空
-- **THEN** 拒绝并提示必须给原因
-
-#### Scenario: 终止后不再出现在待办
-
-- **WHEN** 一个字段、无项目根的孤儿提案被终止
-- **THEN** 其状态为 `archived`，带 `abandonedAt`/`abandonedReason`，事件流有对应记录
+- **WHEN** agent 通过工具终止一个提案
+- **THEN** 事件的 `actor` 为 `agent`；同理由面板终止时为 `human`
 
 ### Requirement: 面板动作不随详情失败消失
 
