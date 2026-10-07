@@ -142,6 +142,7 @@ node $DSH web                                                # http://127.0.0.1:
 | M27 | 导出到 Obsidian/Tolaria vault（index/模块/迭代依赖 front-matter + 可选 git commit） | ✅ 已归档 `2026-10-07-export-wiki-to-vault` |
 | M28 | 从 OpenSpec 归档派生迭代（日期/摘要/touches/派生血缘，声明与推导分开标注） | ✅ 已归档 `2026-10-07-derive-iterations-from-archive` |
 | M29 | vault 视图笔记 + touches 增强（front-matter/裸路径/判断层归类）+ `workmate_wiki_search` | ✅ 已归档 `2026-10-07-vault-views-search` |
+| M30 | 本地 Ollama 嵌入的语义检索（词法优先、语义兜底；向量哈希缓存，零新依赖） | ✅ 已归档 `2026-10-07-semantic-vault-search` |
 
 待办（依赖外部条件）：@快捷指令（`@hucj/dsh-file-mention` 未装）、WeKnora 真机契约核验、
 `dsh-mcp-client` 的 profile patch 行（库已装但惰性）。swarm 的任务级载体已落地（M14）：

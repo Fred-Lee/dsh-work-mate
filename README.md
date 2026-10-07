@@ -259,7 +259,18 @@ front-matter 里 `derived: true`）；`touches` 来自归档 Impact 段的路径
 /workmate search 批改并发 --limit 20      # 口语法
 workmate_wiki_search { query: "批改并发", project: "internal-homework" }   # 工具
 ```
-这是**词法（grep 式）检索**，不是语义检索——可解释、永远与文件同步；向量索引以后可加而不改契约。
+`/workmate search` 默认是**词法（grep 式）**检索：可解释、永远与文件同步。
+配好本地嵌入模型后按**词法优先、语义兜底**工作——词法有命中就用词法，词法 0 命中才走向量，
+结果里回传 `engine`（`lexical` / `semantic`）说明本次用了哪个引擎；语义命中的行号是**分块起始行**。
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `wikiVaultEmbeddingModel` | `''` | 本地 Ollama 嵌入模型（本机设为 `nomic-embed-text`，768 维）；空 = 关闭语义检索 |
+| `wikiVaultOllamaUrl` | `http://127.0.0.1:11434` | Ollama 地址 |
+| `wikiVaultEmbeddingCache` | `''` | 向量缓存文件（空 = `$DSH_HOME/workmate/wiki-embeddings.json`），按 `sha256(model+text)` 复用、原子写、fail-open；单次最多新嵌入 400 块 |
+
+Ollama 本机安装（已完成）：`brew install ollama && brew services start ollama && ollama pull nomic-embed-text`（274 MB）。
+Ollama 不可用时自动退回词法并给出原因，不会抛错。
 
 **人读**：Obsidian 打开 vault → Graph 看模块与迭代的关系；装 **Dataview** 可把 front-matter 变成
 "所有迭代 × 依赖 × 状态"的表/时间线；Canvas 可手绘发展脉络。

@@ -57,6 +57,7 @@ import { resolveProjectRoot } from './features/project/implicit-root.ts'
 import { exportWikiToVault, iterationsFromProposals } from './features/wiki/vault.ts'
 import { collectArchivedIterations, mergeIterations } from './features/wiki/iterations.ts'
 import { searchVault } from './features/wiki/search.ts'
+import { searchVaultSmart } from './features/wiki/semantic.ts'
 import { describeGitnexusCredentials } from './features/knowledge-bridge/gitnexus-credentials.ts'
 import { createWeknoraClient } from './features/knowledge-bridge/weknora.ts'
 import { mountWorkmateApi, createProposal, type WebServerLike } from './api.ts'
@@ -317,10 +318,16 @@ export function apply(ctx: Context, config: Config = {}): void {
       }),
     projects: () => registry.list(),
     searchVault: (input) =>
-      searchVault({
+      searchVaultSmart({
         vaultPath: input.vaultPath ?? resolved.wikiVaultPath,
         subdir: resolved.wikiVaultSubdir,
         query: input.query,
+        model: input.semantic === true ? (resolved.wikiVaultEmbeddingModel || '') : '',
+        baseUrl: resolved.wikiVaultOllamaUrl,
+        cachePath:
+          resolved.wikiVaultEmbeddingCache !== ''
+            ? resolved.wikiVaultEmbeddingCache
+            : join(proposals.rootDir(), 'wiki-embeddings.json'),
         ...(input.limit !== undefined ? { limit: input.limit } : {}),
       }),
     exportToVault: (input) =>
@@ -1066,6 +1073,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         query: { type: 'string', required: true, description: 'Search terms (CJK kept whole, latin words split).' },
         project: { type: 'string', description: 'Limit to one project directory inside the vault.' },
         limit: { type: 'integer', description: 'Maximum hits (default 20).' },
+        semantic: { type: 'boolean', description: 'Use the local embedding model (Config.wikiVaultEmbeddingModel) instead of lexical-only search.' },
         vaultPath: { type: 'string', description: 'Vault root override; defaults to Config.wikiVaultPath.' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
@@ -1074,12 +1082,22 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
       async execute(args) {
         const vaultPath = args.vaultPath ?? resolved.wikiVaultPath
         if (vaultPath === '') throw new Error('未配置 wikiVaultPath：先 /workmate export 或设置配置')
+        const model = args.semantic === true ? resolved.wikiVaultEmbeddingModel : ''
+        if (args.semantic === true && model === '') {
+          throw new Error('语义检索未配置：设置 Config.wikiVaultEmbeddingModel（本机可用 nomic-embed-text）')
+        }
         return asJson(
-          await searchVault({
+          await searchVaultSmart({
             vaultPath,
             subdir: resolved.wikiVaultSubdir,
             ...(args.project !== undefined ? { project: args.project } : {}),
             query: args.query,
+            model,
+            baseUrl: resolved.wikiVaultOllamaUrl,
+            cachePath:
+              resolved.wikiVaultEmbeddingCache !== ''
+                ? resolved.wikiVaultEmbeddingCache
+                : join(proposals.rootDir(), 'wiki-embeddings.json'),
             ...(args.limit !== undefined ? { limit: args.limit } : {}),
           }),
         )

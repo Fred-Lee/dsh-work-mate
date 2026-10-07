@@ -129,6 +129,12 @@ export interface Config {
   wikiVaultSubdir?: string
   /** Commit exported changes when the vault is a git repository. @default false */
   wikiVaultGitCommit?: boolean
+  /** Local Ollama embedding model for semantic vault search (e.g. nomic-embed-text); empty disables it. @default '' */
+  wikiVaultEmbeddingModel?: string
+  /** Ollama base URL. @default 'http://127.0.0.1:11434' */
+  wikiVaultOllamaUrl?: string
+  /** Vector cache file; empty = <workmateHome>/wiki-embeddings.json. @default '' */
+  wikiVaultEmbeddingCache?: string
 }
 
 /** Runtime schema the host collects (validation + config-UI projection). */
@@ -196,6 +202,9 @@ export const Config: z<Config> = z.object({
   wikiVaultPath: z.string().default('').description('Obsidian/Tolaria vault root for wiki export.'),
   wikiVaultSubdir: z.string().default('WorkMate').description('Subdirectory inside the vault.'),
   wikiVaultGitCommit: z.boolean().default(false).description('Commit exported vault changes (git vaults only).'),
+  wikiVaultEmbeddingModel: z.string().default('').description('Local Ollama embedding model for semantic vault search.'),
+  wikiVaultOllamaUrl: z.string().default('http://127.0.0.1:11434').description('Ollama base URL.'),
+  wikiVaultEmbeddingCache: z.string().default('').description('Vector cache file (empty = workmateHome/wiki-embeddings.json).'),
 })
 
 export type ResolvedConfig = Required<Config>
@@ -243,6 +252,9 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   wikiVaultPath: '',
   wikiVaultSubdir: 'WorkMate',
   wikiVaultGitCommit: false,
+  wikiVaultEmbeddingModel: '',
+  wikiVaultOllamaUrl: 'http://127.0.0.1:11434',
+  wikiVaultEmbeddingCache: '',
 }
 
 /**

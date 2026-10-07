@@ -57,7 +57,7 @@ export interface CommandDeps {
   /** Export the project wiki into the vault (Obsidian/Tolaria). */
   exportToVault(input: { projectRoot: string; vaultPath?: string; noGit?: boolean }): Promise<VaultExportSummary>
   /** Lexical vault search; returns file+line citations for the AI to quote. */
-  searchVault(input: { query: string; limit?: number; vaultPath?: string }): Promise<{
+  searchVault(input: { query: string; limit?: number; vaultPath?: string; semantic?: boolean }): Promise<{
     hits: Array<{ file: string; line: number; text: string }>
     scannedFiles: number
     note?: string
