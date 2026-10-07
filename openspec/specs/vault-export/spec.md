@@ -5,19 +5,19 @@ TBD - created by archiving change export-wiki-to-vault. Update Purpose after arc
 ## Requirements
 ### Requirement: 项目 wiki 导出到 vault
 
-归档编排读取验收证据（`tasks.md` / `review.md`）时 SHALL 解析 change 目录：
-先看活动路径 `changes/<id>/`，不存在时 SHALL 回退到 `changes/archive/<date>-<id>/`，
-使归档后的复查与重跑仍能读到证据。编排结果 SHALL 明确报告本次是否由 `force` 跳过门禁（`forced`）。
+归档编排的审查归级 SHALL 对每条未标注严重度的发现逐条询问判断层，使用节点 `review-severity`
+与选项 `CRIT/HIGH/MED/LOW`，SHALL 仅采信 `act` 档结论；判断层弃权或选项越界时 SHALL NOT
+产出分级（不得编造严重度）；归级数量 SHALL 受上限约束。
 
-#### Scenario: 归档后仍读得到证据
+#### Scenario: 逐条归级
 
-- **WHEN** change 目录已位于 `changes/archive/<date>-<id>/`
-- **THEN** 编排仍能读到 `tasks.md` 与 `review.md`（审查分级据此执行）
+- **WHEN** review.md 有 2 条未标注问题/建议且判断层均给出 act 档
+- **THEN** 产出 2 条分级，节点名与选项符合约定
 
-#### Scenario: force 可见
+#### Scenario: 弃权不编造
 
-- **WHEN** 调用方以 `reviewGate: false` 或 `tasksGate: false` 运行归档
-- **THEN** 返回结果 `forced: true`
+- **WHEN** 判断层对某条发现弃权
+- **THEN** 该条不出现在分级结果中
 
 ### Requirement: Vault 视图笔记
 
