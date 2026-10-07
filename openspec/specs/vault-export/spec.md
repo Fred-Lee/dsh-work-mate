@@ -47,18 +47,18 @@ TBD - created by archiving change export-wiki-to-vault. Update Purpose after arc
 
 ### Requirement: 注入判定在所有创建入口生效
 
-判断层解析模型路由时 SHALL 生成**有序候选列表**（精确 id/name 优先，其余按注册顺序），
-SHALL 逐个尝试直到某条路由给出答案；单条路由不可用（账号登录要求、传输失败、空流等）
-SHALL NOT 导致整个判断失败，且每次失败 SHALL 留下诊断记录。
-当所有候选都失败时，实现 SHALL 返回无结论且不抛错。
+判断层解析模型答复时 SHALL 以**参数 schema 与选项枚举**为准，SHALL NOT 仅因工具名不同而丢弃
+工具调用增量；当出现多个工具名时 SHALL 优先使用约定的 `answer`。
+诊断记录 SHALL 包含各块类型计数（`chunkTypes`）与出现过的工具名（`toolNames`），
+并 SHALL 把推理块计入内容长度。
 
-#### Scenario: 坏路由不拖死判断
+#### Scenario: 异名工具调用被采信
 
-- **WHEN** 首选 provider 返回 `ACCOUNT_SIGN_IN_REQUIRED` 而次选 provider 正常
-- **THEN** 判断返回次选 provider 的答案（`provider: 'agent'`，含所用模型）
+- **WHEN** 模型以 `choose_option` 之类的名字发出参数为 `{"choice": "<枚举值>"}` 的工具调用
+- **THEN** 该答案被采信，不记为"模型未作答"
 
-#### Scenario: 精确匹配优先
+#### Scenario: 诊断可辨
 
-- **WHEN** 配置的 provider 存在且可用
-- **THEN** 只调用该 provider，不尝试其他候选
+- **WHEN** 一轮调用仍无有效答案
+- **THEN** 诊断含 chunkTypes 与 toolNames，可区分"只吐推理块"与"用了别的工具名"
 
