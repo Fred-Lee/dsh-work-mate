@@ -18,6 +18,7 @@ import { CONFIG_DEFAULTS } from './config.ts'
 import type { DecisionService } from './features/decision/service.ts'
 import { gitnexusAnalyze, gitnexusStatus, gitnexusWiki } from './features/knowledge-bridge/gitnexus.ts'
 import { ensureSseProxy } from './features/knowledge-bridge/sse-proxy.ts'
+import { prescreenInjection } from './features/decision/injection.ts'
 import { describeGitnexusCredentials } from './features/knowledge-bridge/gitnexus-credentials.ts'
 import type { ProposalSource, Provenance } from './features/proposal/store.ts'
 import type { ProposalService } from './features/proposal/service.ts'
@@ -400,7 +401,12 @@ export async function createProposal(
   // remember to mark external text. Only a confident `risky` verdict SETS the flag;
   // a benign verdict never clears one the caller declared (design D2).
   let provenance = body.provenance
-  if (deps.decision?.enabled === true && (body.notes !== undefined || body.provenance !== undefined)) {
+  const screened = prescreenInjection(`${body.notes ?? ''}\n${body.sourceRef ?? ''}`.trim())
+  if (
+    deps.decision?.enabled === true &&
+    (body.notes !== undefined || body.provenance !== undefined) &&
+    screened.suspicious
+  ) {
     const outcome = await deps.decision.decide({
       node: 'injection-risk',
       state: `${body.notes ?? ''}\n${body.sourceRef ?? ''}`.trim(),
@@ -424,6 +430,7 @@ export async function createProposal(
         degraded: outcome.degraded,
         ...(outcome.cached === true ? { cached: true } : {}),
         ...(outcome.reason !== undefined ? { reason: outcome.reason } : {}),
+        detail: JSON.stringify({ prescreen: screened.markers }),
       })
     }
     const risky = outcome?.action === 'act' && outcome.choice === 'risky'
@@ -434,6 +441,31 @@ export async function createProposal(
         ...(risky || body.provenance?.untrusted === true ? { untrusted: true } : {}),
       }
     }
+  }
+
+  // No markers → record a deterministic benign judgement instead of paying for a model call.
+  // Either way the decision is visible in the event stream (the lesson from module-match).
+  if (
+    deps.decision?.enabled === true &&
+    (body.notes !== undefined || body.provenance !== undefined) &&
+    !screened.suspicious &&
+    deps.events !== undefined
+  ) {
+    await deps.events
+      .append({
+        at: new Date().toISOString(),
+        proposalId: id,
+        kind: 'decision',
+        actor: 'system',
+        node: 'injection-risk',
+        action: 'act',
+        choice: 'benign',
+        certainty: 1,
+        provider: 'rules',
+        threshold: 0,
+        detail: JSON.stringify({ prescreen: 'no injection markers' }),
+      })
+      .catch(() => undefined)
   }
 
   const proposal = await deps.proposals.upsert({
