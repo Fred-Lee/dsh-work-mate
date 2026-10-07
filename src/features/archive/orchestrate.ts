@@ -64,7 +64,7 @@ export function parseTasksMd(content: string): TaskSnapshot {
  * Only an `act` judgement becomes a finding — `review`/`abstain` mean "not decided",
  * and inventing a severity there would block archiving on a guess.
  */
-async function gradeUntaggedFindings(
+export async function gradeUntaggedFindings(
   report: { questions: string[]; suggestions: string[] },
   decide: DecideHook,
   max: number,
