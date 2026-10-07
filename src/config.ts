@@ -137,6 +137,8 @@ export interface Config {
   wikiVaultEmbeddingCache?: string
   /** Judgement-layer module classifications per export run (`module-match`). @default 20 */
   wikiVaultClassifyMax?: number
+  /** Let the model reorder semantic search candidates (recall stays cosine-based). @default false */
+  wikiVaultRerank?: boolean
 }
 
 /** Runtime schema the host collects (validation + config-UI projection). */
@@ -208,6 +210,7 @@ export const Config: z<Config> = z.object({
   wikiVaultOllamaUrl: z.string().default('http://127.0.0.1:11434').description('Ollama base URL.'),
   wikiVaultEmbeddingCache: z.string().default('').description('Vector cache file (empty = workmateHome/wiki-embeddings.json).'),
   wikiVaultClassifyMax: z.number().default(20).description('Judgement-layer module classifications per export run.'),
+  wikiVaultRerank: z.boolean().default(false).description('Model rerank of semantic search candidates.'),
 })
 
 export type ResolvedConfig = Required<Config>
@@ -259,6 +262,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   wikiVaultOllamaUrl: 'http://127.0.0.1:11434',
   wikiVaultEmbeddingCache: '',
   wikiVaultClassifyMax: 20,
+  wikiVaultRerank: false,
 }
 
 /**

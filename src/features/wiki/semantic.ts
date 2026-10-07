@@ -20,6 +20,18 @@ export interface Chunk {
   text: string
 }
 
+/**
+ * Move the model's pick to the front. Out-of-range or missing picks leave the retrieval
+ * order untouched — a reranker must never drop or invent results.
+ */
+export function applyRerank<T>(hits: readonly T[], best: number | undefined): { hits: T[]; note: string } {
+  if (best === undefined || best <= 0 || best >= hits.length) return { hits: [...hits], note: '' }
+  return {
+    hits: [hits[best] as T, ...hits.filter((_, index) => index !== best)],
+    note: `；已用模型重排（首选原第 ${best + 1} 位）`,
+  }
+}
+
 /** Split one note into chunks on H2 boundaries, capped so a chunk stays comparable. */
 export function chunkNote(content: string, file: string, maxLines = 60): Chunk[] {
   // YAML front-matter is metadata, not prose: embedding it dilutes every chunk.
@@ -85,6 +97,22 @@ export interface SemanticOptions {
   signal?: AbortSignal
   /** Test seam: replace lexical+embedding with fixed results. */
   lexical?: (query: string) => Promise<VaultSearchResult>
+  /** Model rerank of the semantic candidate list. */
+  rerank?: (input: RerankInput, signal?: AbortSignal) => Promise<number | undefined>
+}
+
+export interface RerankInput {
+  query: string
+  hits: Array<{ file: string; line: number; text: string }>
+}
+
+export interface SmartSearchOptionsExtra {
+  /**
+   * Optional model rerank (change `llm-rerank-vault-search`): pick the single best hit.
+   * Cosine recall decides the candidate set; the model only reorders it, and any failure
+   * leaves the retrieval order untouched — the reranker can never lose results.
+   */
+  rerank?: (input: RerankInput, signal?: AbortSignal) => Promise<number | undefined>
 }
 
 export interface SmartSearchResult extends VaultSearchResult {
@@ -158,15 +186,25 @@ export async function searchVaultSmart(options: SemanticOptions): Promise<SmartS
     score: Number(score.toFixed(4)),
   }))
 
+  // Rerank only the semantic candidate list; a failure keeps the cosine order.
+  let reranked: typeof hits = hits
+  let rerankNote = ''
+  if (options.rerank !== undefined && hits.length > 1) {
+    const best = await options.rerank({ query: options.query, hits }).catch(() => undefined)
+    const applied = applyRerank(hits, best)
+    reranked = applied.hits
+    rerankNote = applied.note
+  }
+
   return {
-    hits,
+    hits: reranked,
     scannedFiles: files.length,
     engine: hits.length > 0 ? 'semantic' : 'none',
     indexed: indexed.fresh,
     cached: indexed.cached,
     ...(indexed.note !== undefined ? { note: indexed.note } : {}),
     ...(hits.length > 0
-      ? { note: `语义检索（${hits.length} 条，行号为分块起始行；模型 ${options.model}）` }
+      ? { note: `语义检索（${hits.length} 条，行号为分块起始行；模型 ${options.model}${rerankNote}）` }
       : { note: indexed.note ?? '语义检索无命中' }),
   }
 }

@@ -17,6 +17,8 @@ export type DecisionNode =
   | 'task-satisfied'
   /** change `classify-touches-by-decision`: which module does a change affect? */
   | 'module-match'
+  /** change `llm-rerank-vault-search`: which retrieved snippet fits the query best? */
+  | 'search-rerank'
 
 export interface DecisionQuestion {
   node: DecisionNode

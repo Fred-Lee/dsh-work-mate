@@ -104,3 +104,23 @@ describe('local embeddings (semantic-vault-search)', () => {
     expect(chunkNote('太短', 'b.md')).toEqual([])
   })
 })
+
+describe('rerank contract (llm-rerank-vault-search)', () => {
+  it('moves the pick to the front and annotates it', async () => {
+    const { applyRerank } = await import('./semantic.ts')
+    const hits = ['a', 'b', 'c']
+
+    const applied = applyRerank(hits, 2)
+
+    expect(applied.hits).toEqual(['c', 'a', 'b'])
+    expect(applied.note).toContain('第 3 位')
+  })
+
+  it('leaves order untouched for missing or out-of-range picks', async () => {
+    const { applyRerank } = await import('./semantic.ts')
+
+    expect(applyRerank(['a', 'b'], undefined)).toEqual({ hits: ['a', 'b'], note: '' })
+    expect(applyRerank(['a', 'b'], 0)).toEqual({ hits: ['a', 'b'], note: '' })
+    expect(applyRerank(['a', 'b'], 9)).toEqual({ hits: ['a', 'b'], note: '' })
+  })
+})

@@ -46,6 +46,7 @@ describe('resolveConfig', () => {
       wikiVaultOllamaUrl: 'http://127.0.0.1:11434',
       wikiVaultEmbeddingCache: '',
       wikiVaultClassifyMax: 20,
+      wikiVaultRerank: false,
       packageManager: 'pnpm',
       weknoraEnabled: true,
       weknoraKbId: '',

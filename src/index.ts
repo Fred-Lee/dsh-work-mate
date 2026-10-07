@@ -238,6 +238,28 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.provide('workmate.worktree', worktree)
 
   /**
+   * Model rerank for semantic hits: cosine召回给出候选集，模型只从中挑一个最相关的放首位。
+   * 任何失败都返回 undefined → 调用方保持召回顺序（重排不能丢结果）。
+   */
+  const rerankHits = async (input: {
+    query: string
+    hits: Array<{ file: string; line: number; text: string }>
+  }): Promise<number | undefined> => {
+    const candidates = input.hits.slice(0, 8)
+    const outcome = await decision.decide({
+      node: 'search-rerank',
+      state: `查询：${input.query}\n\n候选片段：\n${candidates
+        .map((hit, index) => `[${index + 1}] ${hit.file}:${hit.line} ${hit.text.slice(0, 160)}`)
+        .join('\n')}`,
+      question: '哪个候选片段与查询最相关？',
+      options: [...candidates.map((_, index) => String(index + 1)), 'none'],
+    })
+    if (outcome?.action !== 'act' || outcome.choice === undefined || outcome.choice === 'none') return undefined
+    const picked = Number(outcome.choice) - 1
+    return Number.isInteger(picked) && picked >= 0 && picked < candidates.length ? picked : undefined
+  }
+
+  /**
    * One code path for both the tool and `/workmate export`: git history in the vault is
    * optional and never fatal — an export that fails to commit is still a successful export.
    */
@@ -411,6 +433,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         vaultPath: input.vaultPath ?? resolved.wikiVaultPath,
         subdir: resolved.wikiVaultSubdir,
         query: input.query,
+        ...(resolved.wikiVaultRerank && decision.enabled ? { rerank: rerankHits } : {}),
         model: input.semantic === true ? (resolved.wikiVaultEmbeddingModel || '') : '',
         baseUrl: resolved.wikiVaultOllamaUrl,
         cachePath:
@@ -461,6 +484,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         searchVaultSmart({
           vaultPath: resolved.wikiVaultPath,
           subdir: resolved.wikiVaultSubdir,
+          ...(resolved.wikiVaultRerank && decision.enabled ? { rerank: rerankHits } : {}),
           model: input.semantic === true ? resolved.wikiVaultEmbeddingModel : '',
           baseUrl: resolved.wikiVaultOllamaUrl,
           cachePath:
