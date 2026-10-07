@@ -74,7 +74,7 @@ describe('client module dependency shape', () => {
     const { ctx, slots, sidebar } = fakeCtx({ betterSidebar: fakeSidebar() })
     apply(ctx)
 
-    expect(sidebar?.registerTab).toHaveBeenCalledTimes(1)
+    expect(sidebar?.registerTab).toHaveBeenCalledTimes(2)
     expect(slots).toBeUndefined()
   })
 
@@ -82,8 +82,9 @@ describe('client module dependency shape', () => {
     const { ctx, slots, sidebar } = fakeCtx({ slots: fakeSlots(), betterSidebar: fakeSidebar() })
     apply(ctx)
 
-    expect(sidebar?.registerTab).toHaveBeenCalledTimes(1)
+    expect(sidebar?.registerTab).toHaveBeenCalledTimes(2)
     expect(slots?.register).toHaveBeenCalledTimes(4)
     expect(sidebar?.registerTab.mock.calls[0]?.[0]).toMatchObject({ id: 'workmate:proposals' })
+    expect(sidebar?.registerTab.mock.calls[1]?.[0]).toMatchObject({ id: 'workmate:wiki' })
   })
 })

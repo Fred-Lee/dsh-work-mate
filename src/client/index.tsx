@@ -22,6 +22,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import './slot-types'
 import './better-sidebar-types'
 import { ProposalPanel } from './App'
+import { WikiPanel } from './WikiPanel'
 import { ChatProposalAction } from './ChatProposalAction'
 import { WorkmatePanelIcon } from './PanelIcon'
 import {
@@ -44,6 +45,15 @@ export function apply(ctx: ClientContext): void {
         single: true,
         order: 45,
         component: () => <ProposalPanel />,
+      }),
+    )
+    scope.effect(() =>
+      scope.betterSidebar.registerTab({
+        id: 'workmate:wiki',
+        title: '📚 Wiki',
+        single: true,
+        order: 46,
+        component: () => <WikiPanel />,
       }),
     )
   })
