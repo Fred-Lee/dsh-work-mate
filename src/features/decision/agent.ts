@@ -191,6 +191,7 @@ export class AgentProvider implements DecisionProvider {
       },
     }
     let argumentsJson = ''
+    let chunksSeen = 0
     let finishKind = '(no finish chunk)'
     let finishFailure: unknown
     let textChars = 0
@@ -221,6 +222,7 @@ export class AgentProvider implements DecisionProvider {
         maxTokens: 200,
       })
       for await (const chunk of stream) {
+        chunksSeen += 1
         if (abort.signal.aborted) {
           failure = failure === '' ? 'aborted (timeout or caller signal)' : failure
           break
@@ -258,8 +260,14 @@ export class AgentProvider implements DecisionProvider {
         model: route.model,
         finishKind,
         ...(finishFailure !== undefined ? { finishFailure } : {}),
-        failure: failure === '' ? 'no tool-call emitted (model answered in text?)' : failure,
+        failure:
+          failure === ''
+            ? chunksSeen === 0
+              ? 'empty stream (no chunk at all)'
+              : 'no tool-call emitted (model answered in text?)'
+            : failure,
         textChars,
+        chunksSeen,
       })
       return undefined
     }
