@@ -351,9 +351,20 @@ export function apply(ctx: Context, config: Config = {}): void {
           ...result.classify,
           llmReachable: llmRef !== undefined,
           model: resolved.decisionModel,
+          // A route needs a non-empty model: the agent provider resolves it from config or
+          // from the provider's model list, and an empty model means "no answer, silently".
+          listedProviders: llmRef?.listProviders?.().length ?? 0,
+          listedModels: llmRef?.listProviders?.()[0]?.models?.length ?? 0,
         }),
       })
       .catch(() => undefined)
+
+    if ((result.classify?.llmAsked ?? 0) > 0 && (result.classify?.llmMatched ?? 0) === 0) {
+      result.note =
+        `判断层问了 ${result.classify?.llmAsked} 次但没有一条 act 档结论——` +
+        `先查 decisionModel（当前 '${resolved.decisionModel}'）与 provider 的模型列表：` +
+        '路由解析不到非空 model 时 agent provider 会直接放弃且不写缓存。'
+    }
 
     const wantCommit = options.noGit !== true && resolved.wikiVaultGitCommit
     if (!wantCommit) {
