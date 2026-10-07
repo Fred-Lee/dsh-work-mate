@@ -5,15 +5,14 @@ TBD - created by archiving change export-wiki-to-vault. Update Purpose after arc
 ## Requirements
 ### Requirement: 项目 wiki 导出到 vault
 
-判断层向宿主发起模型调用时，用户消息的 `content` SHALL 使用内容块数组
-（`[{ type: 'text', text }]`，宿主 `TextBlock` 形态），SHALL NOT 传裸字符串——
-宿主请求装配与部分适配器会对内容调用 `.some()`。
+判断层的诊断记录 SHALL 区分"适配器未产生任何流块"（`chunksSeen === 0`，记为
+`empty stream (no chunk at all)`）与"产生了块但没有工具调用"（记为
+`no tool-call emitted (model answered in text?)`），SHALL 记录 `chunksSeen` 字段。
 
-#### Scenario: 调用形态正确
+#### Scenario: 空流可辨认
 
-- **WHEN** 判断层发起一次带工具调用的请求
-- **THEN** `messages[0].content` 是数组且首块 `type === 'text'`，适配器不再抛
-  `content.some is not a function`
+- **WHEN** 适配器返回的流里没有任何块
+- **THEN** 诊断记录 `chunksSeen: 0` 且 failure 为 `empty stream (no chunk at all)`
 
 ### Requirement: Vault 视图笔记
 
