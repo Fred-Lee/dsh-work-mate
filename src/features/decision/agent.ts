@@ -84,8 +84,8 @@ export class AgentProvider implements DecisionProvider {
   async ask(question: DecisionQuestion, signal?: AbortSignal): Promise<DecisionAnswer | undefined> {
     const llm = this.options.llm()
     if (llm === undefined) return undefined
-    const route = await this.resolveRoute(llm)
-    if (route === undefined) {
+    const routes = await this.resolveRoutes(llm)
+    if (routes.length === 0) {
       // The last silent exit: no call is attempted, so nothing else would ever say why.
       await recordDiagnostic({
         node: question.node,
@@ -103,72 +103,79 @@ export class AgentProvider implements DecisionProvider {
     }
 
     const samples = Math.max(1, Math.floor(this.options.samples ?? 1))
-    const votes: string[] = []
-    for (let index = 0; index < samples; index += 1) {
-      if (signal?.aborted === true) break
-      const choice = await this.sampleOnce(llm, route, question, signal)
-      if (choice !== undefined) votes.push(choice)
-    }
-    if (votes.length === 0) return undefined
+    // Try every candidate route: one provider may be unusable for this deployment
+    // (`ACCOUNT_SIGN_IN_REQUIRED`, transport failure…) while the next one answers fine.
+    for (const route of routes) {
+      const votes: string[] = []
+      for (let index = 0; index < samples; index += 1) {
+        if (signal?.aborted === true) break
+        const choice = await this.sampleOnce(llm, route, question, signal)
+        if (choice !== undefined) votes.push(choice)
+      }
+      if (votes.length === 0) continue
 
-    const tally = new Map<string, number>()
-    for (const vote of votes) tally.set(vote, (tally.get(vote) ?? 0) + 1)
-    const [choice, count] = [...tally.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0] as [string, number]
-    return {
-      choice,
-      certainty: count / votes.length,
-      provider: this.name,
-      ...(route.model !== '' ? { model: route.model } : {}),
-      samples: votes.length,
+      const tally = new Map<string, number>()
+      for (const vote of votes) tally.set(vote, (tally.get(vote) ?? 0) + 1)
+      const [choice, count] = [...tally.entries()].sort(
+        (left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
+      )[0] as [string, number]
+      return {
+        choice,
+        certainty: count / votes.length,
+        provider: this.name,
+        ...(route.model !== '' ? { model: route.model } : {}),
+        samples: votes.length,
+      }
     }
+    return undefined
   }
 
-  private async resolveRoute(llm: HostLlmFace): Promise<{ provider: string; model: string } | undefined> {
+  private async resolveRoutes(llm: HostLlmFace): Promise<Array<{ provider: string; model: string }>> {
     const listed = llm.listProviders()
-    if (listed.length === 0) return undefined
+    if (listed.length === 0) return []
     const wanted = this.options.provider
-    // Exact id/name first, then a forgiving contains-match; if the configured provider is
-    // absent we still fall back to the first one — a slightly wrong config must not be able
-    // to disable the judgement layer entirely (the fallback is recorded, never silent).
-    const exact =
-      wanted !== undefined && wanted !== ''
-        ? listed.find((entry) => entry.id === wanted || entry.name === wanted)
-        : undefined
-    const loose =
-      exact ??
-      (wanted !== undefined && wanted !== ''
-        ? listed.find((entry) => {
-            const identity = `${entry.id ?? ''} ${entry.name ?? ''}`.toLowerCase()
-            return identity.includes(wanted.toLowerCase()) || wanted.toLowerCase().includes((entry.id ?? entry.name ?? '').toLowerCase())
-          })
-        : undefined)
-    const provider = loose ?? listed[0]
-    if (provider === undefined) return undefined
-    this.lastRouteNote =
-      wanted !== undefined && wanted !== '' && exact === undefined
-        ? `provider '${wanted}' 未精确匹配，实际用 '${provider.id ?? provider.name ?? '?'}'`
-        : undefined
-    if (provider === undefined) return undefined
-    const providerId = provider.id ?? provider.name
-    if (providerId === undefined) return undefined
-    const model =
-      this.options.model !== undefined && this.options.model !== ''
-        ? this.options.model
-        : (provider.models?.[0]?.id ?? provider.models?.[0]?.name ?? '')
-    if (model === '') {
+    const idOf = (entry: { id?: string; name?: string }): string | undefined => entry.id ?? entry.name
+
+    // Exact id/name first; everything else follows in registration order as a fallback so a
+    // provider that cannot serve this deployment (e.g. account sign-in required) is skipped
+    // instead of silently sinking the judgement.
+    const exact = wanted !== undefined && wanted !== '' ? listed.find((entry) => idOf(entry) === wanted) : undefined
+    const ordered = exact !== undefined ? [exact, ...listed.filter((entry) => entry !== exact)] : [...listed]
+
+    const routes: Array<{ provider: string; model: string }> = []
+    const unroutable: Array<Record<string, unknown>> = []
+    for (const provider of ordered) {
+      const providerId = idOf(provider)
+      if (providerId === undefined) continue
+      const model =
+        this.options.model !== undefined && this.options.model !== ''
+          ? this.options.model
+          : (provider.models?.[0]?.id ?? provider.models?.[0]?.name ?? '')
+      if (model === '') {
+        unroutable.push({ provider: providerId, listedModels: provider.models?.length ?? 0 })
+        continue
+      }
+      routes.push({ provider: providerId, model })
+    }
+
+    if (routes.length === 0) {
       await recordDiagnostic({
         node: 'route',
-        failure: 'provider has no model and none configured',
-        provider: providerId,
-        listedModels: provider.models?.length ?? 0,
+        failure: 'no provider could supply a model',
+        wantedProvider: wanted === undefined || wanted === '' ? '(first)' : wanted,
+        unroutable,
       })
-      return undefined
+      return []
     }
-    if (this.lastRouteNote !== undefined) {
-      await recordDiagnostic({ node: 'route', note: this.lastRouteNote, provider: providerId, model })
-      this.lastRouteNote = undefined
+    if (wanted !== undefined && wanted !== '' && exact === undefined) {
+      await recordDiagnostic({
+        node: 'route',
+        note: `provider '${wanted}' 未精确匹配，候选顺序：${routes.map((route) => route.provider).join(' → ')}`,
+        provider: routes[0]?.provider,
+        model: routes[0]?.model,
+      })
     }
-    return { provider: providerId, model }
+    return routes
   }
 
   /** One forced tool call; anything unparseable or off-enum is "no answer". */

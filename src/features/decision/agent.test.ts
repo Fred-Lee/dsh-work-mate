@@ -94,3 +94,66 @@ describe('message shape (decision-content-block)', () => {
     expect((content as Array<{ type: string }>)[0]?.type).toBe('text')
   })
 })
+
+describe('multi-route fallback (decision-route-fallback)', () => {
+  it('skips an unusable provider and answers from the next one', async () => {
+    const { AgentProvider } = await import('./agent.ts')
+    const tried: string[] = []
+    const provider = new AgentProvider({
+      llm: () => ({
+        listProviders: () => [
+          { id: 'deepseek-account', models: [{ id: 'deepseek-v4-pro' }] },
+          { id: 'deepseek-official', models: [{ id: 'deepseek-v4-pro' }] },
+        ],
+        stream: (options: { provider: string }) => {
+          tried.push(options.provider)
+          return (async function* () {
+            if (options.provider === 'deepseek-account') {
+              yield {
+                type: 'finish',
+                reason: { kind: 'error', failure: { message: 'ACCOUNT_SIGN_IN_REQUIRED' } },
+              }
+              return
+            }
+            yield { type: 'tool-call-delta', index: 0, id: 'c', name: 'answer', argumentsDelta: '{"choice":"low"}' }
+            yield { type: 'finish', reason: { kind: 'tool-calls' } }
+          })()
+        },
+      }),
+      model: 'deepseek-v4-pro',
+      samples: 1,
+    } as never)
+
+    const answer = await provider.ask({ node: 'risk-tier', state: 's', question: 'q', options: ['low', 'high'] })
+
+    expect(tried).toEqual(['deepseek-account', 'deepseek-official'])   // first failed, second used
+    expect(answer?.choice).toBe('low')
+  })
+
+  it('keeps the exact provider first when it works', async () => {
+    const { AgentProvider } = await import('./agent.ts')
+    const tried: string[] = []
+    const provider = new AgentProvider({
+      provider: 'b',
+      llm: () => ({
+        listProviders: () => [
+          { id: 'a', models: [{ id: 'm' }] },
+          { id: 'b', models: [{ id: 'm' }] },
+        ],
+        stream: (options: { provider: string }) => {
+          tried.push(options.provider)
+          return (async function* () {
+            yield { type: 'tool-call-delta', index: 0, id: 'c', name: 'answer', argumentsDelta: '{"choice":"x"}' }
+            yield { type: 'finish', reason: { kind: 'tool-calls' } }
+          })()
+        },
+      }),
+      model: 'm',
+      samples: 1,
+    } as never)
+
+    await provider.ask({ node: 'risk-tier', state: 's', question: 'q', options: ['x'] })
+
+    expect(tried).toEqual(['b'])
+  })
+})
