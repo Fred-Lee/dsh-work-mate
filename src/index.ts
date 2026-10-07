@@ -752,6 +752,22 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
   )
   ctx.tools.register(
     defineTool({
+      name: 'workmate_proposal_abandon',
+      description:
+        'Abandon a proposal deliberately: move it to the terminal state WITHOUT running the archive orchestration (no review gate, no openspec archive). Use it for orphaned proposals (their project root is gone) or changes nobody will finish. A non-empty reason is required and is recorded with actor=agent in the event log.',
+      parameters: {
+        id: { type: 'string', required: true, description: 'Proposal id.' },
+        reason: { type: 'string', required: true, description: 'Why it is abandoned — recorded for audit.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+      async execute(args) {
+        const proposal = await proposals.abandon(args.id, args.reason, 'agent')
+        return asJson({ proposal })
+      },
+    }),
+  )
+  ctx.tools.register(
+    defineTool({
       name: 'workmate_proposal_unblock',
       description: 'Answer and resolve one open blocker (blockerId from workmate_proposal_block or the panel). WorkMate flow: workmate-proposal-flow skill.',
       parameters: {

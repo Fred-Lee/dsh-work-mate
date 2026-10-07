@@ -77,8 +77,8 @@ export interface BlockInput {
 }
 
 export interface ProposalService {
-  /** Deliberate exit without the archive orchestration (`POST …/abandon`). */
-  abandon(id: string, reason: string): Promise<Proposal>
+  /** Deliberate exit without the archive orchestration; `actor` keeps the audit honest. */
+  abandon(id: string, reason: string, actor?: EventActor): Promise<Proposal>
   rootDir(): string
   list(): Promise<Proposal[]>
   get(id: string): Promise<Proposal | undefined>
@@ -274,7 +274,7 @@ export class ProposalServiceImpl implements ProposalService {
    * archive orchestration (no openspec archive, no review gate): it records WHO decided and
    * WHY, and moves the proposal to the terminal state so the board stops showing it as work.
    */
-  async abandon(id: string, reason: string): Promise<Proposal> {
+  async abandon(id: string, reason: string, actor: EventActor = 'human'): Promise<Proposal> {
     const trimmed = reason.trim()
     if (trimmed === '') throw new Error('abandon 需要说明原因（便于审计）')
     const proposals = await this.store.load()
@@ -295,7 +295,7 @@ export class ProposalServiceImpl implements ProposalService {
         kind: 'transition',
         from,
         to: 'archived',
-        actor: 'human',
+        actor,
         reason: `abandoned: ${trimmed}`,
       })
     }

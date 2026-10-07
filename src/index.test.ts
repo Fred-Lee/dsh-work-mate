@@ -148,7 +148,7 @@ describe('host entry dependency shape', () => {
     const { ctx, registered, routes } = fakeCtx({})
     apply(ctx)
 
-    expect(registered).toHaveLength(19)
+    expect(registered).toHaveLength(20)
     expect(registered.map((tool) => (tool as { name: string }).name)).toContain('workmate_metrics')
     expect(registered.map((tool) => (tool as { name: string }).name)).toContain('workmate_bands')
     expect(registered.map((tool) => (tool as { name: string }).name)).toContain('workmate_swarm_plan')
@@ -171,7 +171,7 @@ describe('host entry dependency shape', () => {
     const { ctx, registered, routes } = fakeCtx({ webServer: { register: () => {} } })
     apply(ctx)
 
-    expect(registered).toHaveLength(19)
+    expect(registered).toHaveLength(20)
     expect(routes.map((route) => ({ kind: route.kind, path: route.path }))).toEqual([
       { kind: 'prefix', path: '/workmate' },
     ])
@@ -240,6 +240,6 @@ describe('host entry dependency shape', () => {
   it('stays ACTIVE with no guidance services (tools still register)', () => {
     const { ctx, registered } = fakeCtx({})
     expect(() => apply(ctx)).not.toThrow()
-    expect(registered).toHaveLength(19)
+    expect(registered).toHaveLength(20)
   })
 })

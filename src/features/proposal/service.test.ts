@@ -203,3 +203,22 @@ describe('abandon (deliberate exit)', () => {
     await rm(dir, { recursive: true, force: true })
   })
 })
+
+describe('abandon keeps the actor honest (abandon-tool-entry)', () => {
+  it('records actor=agent when an agent abandons, and human by default', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wm-abandon-actor-'))
+    const log = new EventLog({ homeRoot: dir, subdir: 'workmate' })
+    const service = new ProposalServiceImpl(new ProposalStore({ homeRoot: dir, subdir: 'workmate' }), undefined, log)
+    await service.upsert({ id: 'a1', title: 'agent 终止' })
+    await service.upsert({ id: 'h1', title: 'human 终止' })
+
+    await service.abandon('a1', '孤儿提案', 'agent')
+    await service.abandon('h1', '不做了')
+
+    const { events } = await log.read()
+    const byId = (id: string) => events.find((event) => event.proposalId === id && event.kind === 'transition')
+    expect(byId('a1')?.actor).toBe('agent')
+    expect(byId('h1')?.actor).toBe('human')
+    await rm(dir, { recursive: true, force: true })
+  })
+})
