@@ -9,6 +9,7 @@
 - [x] 4. 接线：`src/index.ts:134` 的 providers 数组加入 `jev` 实例（顺序 `jev → agent → rules`）；回归确认 `src/index.ts:138` 白名单不会把 `jev` 吞成 `agent` <!-- writes: src/index.ts -->
 - [x] 5. 单测 `systemone.test.ts`：choice/noul 映射、枚举外答案、非 2xx、超时/abort、缺字段与非法 JSON；并断言"模型 provider 的回答进缓存、`rules` 的不进" <!-- writes: src/features/decision/systemone.test.ts -->
 - [ ] 6. 真机验收（`nimble`，本机 Ollama）：7 个节点各跑一次并记录 `choice`/`certainty`/`latencyMs`；对同一批题目与 `agent` 做分歧对比；把"验了什么 / 用什么方式（单测 or 真机）/ 明确没验什么"写进 review.md <!-- writes: openspec/changes/add-systemone-decision-provider/review.md -->
+  <!-- 已就绪的验收载体：`scripts/systemone-acceptance.mjs [baseUrl] [model]` 把 7 个节点的真实题目逐个打给本机 System One 并打印 choice/certainty/latencyMs。`nimble` 权重仍在拉取（96%），模型未落地前无法产出真机数据；已用它验证过失败链路（未拉取时 7/7 全部返回无结论、诊断留痕为 http 404）。 -->
 - [x] 7. 文档：`README.md` 5.9 的 Jev 接入说明补"本机 Ollama 的 `/v1/systemone` 亦可用（无需 key）"；把 `clef-flash` 的机器约束（权重 11.5 GiB vs Metal 工作集上限 11.8 GiB）写进运维提示，避免下一个使用者重踩 <!-- writes: README.md -->
 - [ ] 8. 落地后重导出项目 wiki：`workmate_wiki_export`，让 `index.md`/`changelog.md` 与迭代笔记反映最终状态；若届时已能产出 GitNexus 模块页（当前 `modules: 0`），顺带确认迭代笔记能链接到受影响模块 <!-- 无仓库内写入：产物落在 vault -->
 
