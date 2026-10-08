@@ -167,6 +167,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     worktree,
     resolveProjectRoots: resolveRoots,
     openspecRoot: resolved.openspecRoot,
+    mainBranch: resolved.lifecycleMainBranch,
     approvalsRequired: resolved.approvalsRequired,
     allowAgentApproval: resolved.allowAgentApproval,
     planDriftGate: resolved.planDriftGate,

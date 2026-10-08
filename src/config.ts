@@ -83,6 +83,13 @@ export interface Config {
    * @default false (declarations are new; record and show, do not block)
    */
   planDriftGate?: boolean
+  /**
+   * Integration trunk the git gates and the proposal worktree use: the branch a
+   * proposal branch must be merged into (`ready`) and a feature branch must be
+   * merged into (`archiving`), and the branch the `implementing` worktree is cut
+   * from. @default 'main'
+   */
+  lifecycleMainBranch?: string
   /** Enable the judgement layer (a model call inside a gate must be opt-in). @default false */
   decisionEnabled?: boolean
   /** Preferred judgement provider: agent | rules | jev. @default 'agent' */
@@ -184,6 +191,10 @@ export const Config: z<Config> = z.object({
     .boolean()
     .default(false)
     .description('Fail archiving when the diff touches files the plan never declared.'),
+  lifecycleMainBranch: z
+    .string()
+    .default('main')
+    .description('Integration trunk for the git gates and the proposal worktree (default: main).'),
   decisionEnabled: z.boolean().default(false).description('Enable the judgement layer (model-backed gates).'),
   decisionProvider: z.string().default('agent').description('Judgement provider: agent | rules | jev.'),
   decisionLlmProvider: z.string().default('').description('LLM route for the agent provider; empty = first registered.'),
@@ -241,6 +252,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   allowAgentApproval: false,
   reviewBlockingSeverities: ['CRIT'],
   planDriftGate: false,
+  lifecycleMainBranch: 'main',
   decisionEnabled: false,
   decisionProvider: 'agent',
   decisionLlmProvider: '',
