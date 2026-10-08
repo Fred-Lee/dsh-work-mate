@@ -12,7 +12,7 @@
 - [x] 7. 文档：`README.md` 5.9 的 Jev 接入说明补"本机 Ollama 的 `/v1/systemone` 亦可用（无需 key）"；把 `clef-flash` 的机器约束（权重 11.5 GiB vs Metal 工作集上限 11.8 GiB）写进运维提示，避免下一个使用者重踩 <!-- writes: README.md -->
 - [ ] 8. 落地后重导出项目 wiki：`workmate_wiki_export`，让 `index.md`/`changelog.md` 与迭代笔记反映最终状态；若届时已能产出 GitNexus 模块页（当前 `modules: 0`），顺带确认迭代笔记能链接到受影响模块 <!-- 无仓库内写入：产物落在 vault -->
 
-- [ ] 9. **前置**：主干可配 —— 新增 `Config.lifecycleMainBranch`（默认 `'main'`，本机配 `'feat/workmate'`），替换 `src/features/archive/service.ts:327`/`:353` 的 `'main'` 字面量，并把它透传给 `worktree.create`（`WorktreeManager` 已支持 `mainBranch` 入参，`manager.ts:142` 默认值不变） <!-- writes: src/config.ts, src/features/archive/service.ts, src/index.ts -->（与第 2/4 项同文件，**不得并行**）
+- [x] 9. **前置**：主干可配 —— 新增 `Config.lifecycleMainBranch`（默认 `'main'`，本机配 `'feat/workmate'`），替换 `src/features/archive/service.ts:327`/`:353` 的 `'main'` 字面量，并把它透传给 `worktree.create`（`WorktreeManager` 已支持 `mainBranch` 入参，`manager.ts:142` 默认值不变） <!-- writes: src/config.ts, src/features/archive/service.ts, src/index.ts -->（与第 2/4 项同文件，**不得并行**）
 
 ## 验收命令（每步都跑，不以退出码判定）
 
