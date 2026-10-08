@@ -166,18 +166,25 @@
 
 ## 建议补充项
 
-- [ ] MED-3 **三个实现提交缺 `[proposal:<id>]` 标记，导致工件账本与漂移度量失真。**
-  实测：`git log --all --grep "[proposal:add-systemone-decision-provider]"` 只命中
-  `3cbc9e4`（规划）、`a263f3d`（主干前置）；而 `533d5f6`（provider 实现，8 个文件）、
-  `cef52d4`、`e3979dc`（验收脚本）**均无标记**（`cef52d4` 与 `e3979dc` 本次审查时已补上，
-  `533d5f6` 仍缺）。`collectProjectDrift`（`orchestrate.ts:601-608`）的 `actual` 只取标记提交
-  触及的文件 → `workmate_plan_drift` 报 `driftRatio 0.4`、`undeclared: [src/config.test.ts,
+- [ ] MED-3 **实现提交缺 `[proposal:<id>]` 标记，导致工件账本与漂移度量失真。**
+  实测（`git log --all`）：带标记的只有 `3cbc9e4`（规划）、`a263f3d`（主干前置）、
+  `cef52d4`（补勾选）与本次审查补的两个提交；而 `533d5f6`（provider 实现，8 个文件）
+  与 `e3979dc`（验收脚本）**无标记**。
+  `collectProjectDrift`（`orchestrate.ts:601-608`）的 `actual` 只取标记提交触及的文件
+  → `workmate_plan_drift` 报 `driftRatio 0.4`、`undeclared: [src/config.test.ts,
   src/features/archive/trunk.test.ts]`，并把只存在于 worktree 的
   `specs/**`、`systemone.ts`、`systemone.test.ts`、`review.md`、`README.md` 一并列入 `missing`。
   即：**该漂移报告度量的是提交记号缺失，不是真的计划漂移**。
-  影响：`workmate_plan_drift` 的证据可靠性；`planDriftGate` 默认 false（`src/config.ts:276`，profile 未覆盖），
-  故不阻断归档。修复方向：实现提交补标记（`533d5f6` 已在主干前，可只对后续提交守纪律），
-  或让度量回退到"工作区变更 vs 声明"而非只认标记提交。
+  同源现象：vault 迭代笔记显示 `提交：（无标记提交）` —— 该行取自 `proposal.commits`
+  （`src/features/wiki/vault.ts:99`），而该字段只由归档编排的 manifest 填充，归档前恒为空，
+  所以这条"无标记提交"在归档前**必然**出现，不能当作证据读（`LOW-10` 已记）。
+  另一条链路分歧：`markedCommits`（`orchestrate.ts:537`）跑 `git log --grep` **不带 `--all`**，
+  只覆盖当前检出分支（本机根仓检出的是 `feat/workmate`），而本变更的实现提交在
+  `feature/add-systemone-decision-provider` 上 → 归档 manifest 会漏掉它们，直到合并后才可见。
+  影响：`workmate_plan_drift` 与归档 manifest 的证据可靠性；`planDriftGate` 默认 false
+  （`src/config.ts:276`，profile 未覆盖），故不阻断归档。
+  修复方向：对后续实现提交守标记纪律（`533d5f6` 已在主干前，无法追溯）；`markedCommits`
+  补 `--all`；或让漂移度量回退到"工作区变更 vs 声明"而非只认标记提交。
 - [ ] MED-4 **`tasks.md` 第 9 项引用的行号与实际落点不符。**
   第 9 项写"替换 `src/features/archive/service.ts:327`/`:353` 的 `'main'` 字面量"，
   实测这两行不是 `'main'` 字面量；真正被替换的是 `:341`/`:368` 的 `const trunk = this.mainBranch`
