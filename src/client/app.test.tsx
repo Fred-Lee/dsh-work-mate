@@ -8,6 +8,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsoleView, ProposalPanel } from './App'
+import { PANEL_STYLE } from './styles'
 import type { Proposal } from './types'
 
 function proposal(overrides: Partial<Proposal> = {}): Proposal {
@@ -329,5 +330,90 @@ describe('console view tolerance (regression)', () => {
 
     expect(await screen.findByText('提案总数')).toBeTruthy()
     expect(screen.getByText(/窗口 0 天/)).toBeTruthy()
+  })
+})
+
+/**
+ * Panel scroll contract (change `fix-panel-scroll`, design C1–C6).
+ *
+ * jsdom has no layout engine — these assertions cannot prove scrolling (the
+ * real proof is the post-restart screenshot, task 7). What they lock is the
+ * STRUCTURE the fix stands on, so a future refactor cannot silently delete
+ * the height contract and reintroduce the ancestor-clipping bug.
+ */
+describe('panel scroll contract (fix-panel-scroll)', () => {
+  const cssBlock = (selector: string): string => {
+    const match = new RegExp(`${selector} \\{[^}]*\\}`).exec(PANEL_STYLE)
+    if (match === null) throw new Error(`css block not found: ${selector}`)
+    return match[0]
+  }
+
+  it('keeps the header outside and the board inside the single scroll layer (C3/C4)', async () => {
+    fetchMock.mockResolvedValue(ok({ proposals: [proposal()] }))
+    const { container } = render(<ProposalPanel />)
+    await screen.findByText('批量批改 v2.1')
+
+    const root = container.querySelector('.wm-root') as HTMLElement
+    const body = root.querySelector('.wm-body') as HTMLElement
+    const header = root.querySelector('.wm-header') as HTMLElement
+
+    // Header and body are both DIRECT children of the root — the header stays
+    // outside the scroll layer so navigation is reachable at any scroll depth.
+    expect(header.parentElement).toBe(root)
+    expect(body.parentElement).toBe(root)
+    expect(body.contains(header)).toBe(false)
+    // The board view is what the scroll layer carries.
+    expect(body.querySelector('.wm-board')).toBeTruthy()
+  })
+
+  it('renders the console and graph views inside the same scroll layer (C4)', async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input)
+      if (url.includes('/api/graph')) {
+        return Promise.resolve(ok({ nodes: [], edges: [], generatedAt: '2026-10-08T00:00:00.000Z' }))
+      }
+      return Promise.resolve(ok({ proposals: [] }))
+    })
+    const { container } = render(<ProposalPanel />)
+    const root = container.querySelector('.wm-root') as HTMLElement
+    const body = root.querySelector('.wm-body') as HTMLElement
+
+    fireEvent.click(screen.getByText('控制台'))
+    await waitFor(() => expect(body.querySelector('.wm-console')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('知识图谱'))
+    // GraphView's loading/empty/error roots are all `.wm-*` divs; whichever one
+    // the mocked payload produces must live inside the scroll layer.
+    await waitFor(() => expect(body.querySelector('.wm-graph, .wm-empty, .wm-error')).toBeTruthy())
+  })
+
+  it('does not put the create modal inside the scroll layer (C6)', async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input)
+      if (url.includes('/api/projects')) return Promise.resolve(ok({ projects: [] }))
+      return Promise.resolve(ok({ proposals: [] }))
+    })
+    const { container } = render(<ProposalPanel />)
+    await screen.findAllByText('暂无提案')
+
+    fireEvent.click(screen.getByText('＋ 新提案'))
+    const modal = container.querySelector('.wm-modal') as HTMLElement
+    expect(modal).toBeTruthy()
+    // The modal is a sibling of the scroll layer, never a descendant — the
+    // overlay must not inherit the body's scrolling context.
+    expect(modal.closest('.wm-body')).toBeNull()
+  })
+
+  it('locks the height/scroll CSS contract in the stylesheet text (C1/C2)', () => {
+    const root = cssBlock('\\.wm-root')
+    expect(root).toMatch(/display:\s*flex/)
+    expect(root).toMatch(/flex-direction:\s*column/)
+    expect(root).toMatch(/height:\s*100%/)
+    expect(root).toMatch(/min-height:\s*0/)
+
+    const body = cssBlock('\\.wm-body')
+    expect(body).toMatch(/flex:\s*1 1 auto/)
+    expect(body).toMatch(/min-height:\s*0/)
+    expect(body).toMatch(/overflow-y:\s*auto/)
   })
 })

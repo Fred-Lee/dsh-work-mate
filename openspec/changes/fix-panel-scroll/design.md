@@ -1,7 +1,7 @@
 # Design — 修复宿主面板内提案卡片超长时无法滚动
 
 <!-- 关键决策、权衡、替代方案。非平凡变更必填。 -->
-<!-- files: src/client/styles.ts, src/client/App.tsx, src/client/app.test.tsx, openspec/changes/fix-panel-scroll/specs/workbench-panel/spec.md -->
+<!-- files: src/client/styles.ts, src/client/App.tsx, src/client/app.test.tsx, openspec/changes/fix-panel-scroll/specs/workbench-panel/spec.md, AGENTS.md -->
 
 外部契约来源（宿主实现，属参考而非本仓库代码事实）：
 `@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.module.css`（`.centerCol`）、

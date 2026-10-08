@@ -70,6 +70,11 @@ node $DSH web                                                # http://127.0.0.1:
   `inject` 是字符串数组 / external 只在白名单内且**默认拒绝**）——它替代不了真机，
   但把"装载契约"从真机前移到了门禁。
 - `cordis.patch.yml` 只写本包条目；引用未安装的插件同样断链。
+- **客户端面板根必须自带高度与滚动契约**（2026-10-08 `fix-panel-scroll`）：宿主 `main` 槽是
+  `display:flex; flex-direction:column; overflow:hidden` 的确定高度列——面板根要 `height:100%` +
+  纵向 flex，并提供**唯一**滚动子层（`min-height:0` + `overflow-y:auto`）。只靠文档流的面板在宿主内
+  会被祖先**静默裁剪**（内容在、无滚动条、滚不到）；jsdom 没有布局引擎，这类缺陷单测测不出，
+  必须真机截图验收。
 
 ## 跟随 DSH 升级（升级仪式）
 

@@ -35,7 +35,30 @@ export const PANEL_STYLE = `
   font-size: 13px;
   color: var(--wm-fg);
   background: var(--wm-bg);
-  padding: 0 0 24px;
+
+  /* Height contract for the host "main" slot: the central column is a
+     definite-height flex container with overflow hidden (host
+     AppFrame.module.css .centerCol), so a plain block root gets its overflow
+     silently clipped by the ancestor — content present, unreachable, without
+     any scrollbar. Fill the column (flex, height 100%) and delegate
+     scrolling to .wm-body below (fix-panel-scroll, design D1/D2). */
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+/* The single vertical scroll layer (fix-panel-scroll D1). min-height: 0 is
+   what lets a flex child shrink below its content height — without it the
+   default auto refuses to shrink and overflow never engages. On the
+   standalone page there are no CSS ancestors, so height: 100% degrades to
+   auto, this layer simply grows, and the document keeps scrolling (C5). */
+.wm-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 24px;
 }
 
 /* Modal exit as a fixed scope root: when the panel opens a modal from inside
