@@ -75,6 +75,15 @@ export interface LifecycleDeps {
   /** OpenSpec root relative to the target project (`Config.openspecRoot`). @default 'openspec' */
   openspecRoot?: string
   /**
+   * The integration trunk the git gates compare against and the proposal worktree is
+   * cut from (`Config.lifecycleMainBranch`). Defaults to `'main'`, which is right for
+   * a standalone repository; a project developed on a long-lived feature line must set
+   * it, otherwise `implementing` branches off a stale `main` and `archiving` can never
+   * see the feature branch as merged.
+   * @default 'main'
+   */
+  mainBranch?: string
+  /**
    * States that require a human approval to enter (change `add-approval-records`).
    * `Config.approvalsRequired`; empty disables the gate.
    */
@@ -128,6 +137,11 @@ export class LifecycleServiceImpl {
   /** Configured OpenSpec directory name; the single source for every path below. */
   private get openspecRoot(): string {
     return this.deps.openspecRoot ?? 'openspec'
+  }
+
+  /** Integration trunk for the git gates and the proposal worktree. */
+  private get mainBranch(): string {
+    return this.deps.mainBranch ?? 'main'
   }
 
   async getState(id: string): Promise<LifecycleState> {
@@ -324,9 +338,10 @@ export class LifecycleServiceImpl {
       }
       case 'ready': {
         if (proposal.proposalBranch === undefined) return
-        if (!(await isMergedInto(root, proposal.proposalBranch, 'main'))) {
+        const trunk = this.mainBranch
+        if (!(await isMergedInto(root, proposal.proposalBranch, trunk))) {
           throw new InvalidTransitionError(
-            `提案分支 ${proposal.proposalBranch} 尚未合并进 main — 等待提案评审合并`,
+            `提案分支 ${proposal.proposalBranch} 尚未合并进 ${trunk} — 等待提案评审合并`,
           )
         }
         return
@@ -350,9 +365,10 @@ export class LifecycleServiceImpl {
       }
       case 'archiving': {
         if (proposal.featureBranch === undefined) return
-        if (!(await isMergedInto(root, proposal.featureBranch, 'main'))) {
+        const trunk = this.mainBranch
+        if (!(await isMergedInto(root, proposal.featureBranch, trunk))) {
           throw new InvalidTransitionError(
-            `实现分支 ${proposal.featureBranch} 尚未合并进 main — 先完成实现合并再归档`,
+            `实现分支 ${proposal.featureBranch} 尚未合并进 ${trunk} — 先完成实现合并再归档`,
           )
         }
         return
@@ -378,6 +394,7 @@ export class LifecycleServiceImpl {
       const created = await this.deps.worktree.create({
         projectRoot: root,
         proposalId: proposal.id,
+        mainBranch: this.mainBranch,
         ...(options.signal !== undefined ? { signal: options.signal } : {}),
       })
       await this.deps.proposals.patchFields(proposal.id, {

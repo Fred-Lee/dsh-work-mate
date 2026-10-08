@@ -19,6 +19,7 @@ describe('resolveConfig', () => {
       allowAgentApproval: false,
       reviewBlockingSeverities: ['CRIT'],
       planDriftGate: false,
+      lifecycleMainBranch: 'main',
       decisionEnabled: false,
       decisionProvider: 'agent',
       decisionLlmProvider: '',
