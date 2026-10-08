@@ -59,7 +59,10 @@ const DEFAULT_MAX_STATE_BYTES = 64 * 1024
 const DEFAULTS = {
   baseUrl: 'http://127.0.0.1:11434',
   keepAlive: '60s',
-  timeoutMs: 20_000,
+  // Covers a COLD load: measured TTFB is 18.6-23.5s while a ~9GB model is read from
+  // disk, so a 20s default made the first judgement after `keep_alive` expiry fail
+  // intermittently (observed: `aborted after 20012ms`, silently degrading to `agent`).
+  timeoutMs: 60_000,
 } as const
 
 /** Diagnostics share the agent provider's file so one place explains a silent judge. */

@@ -104,6 +104,12 @@
   `src/features/decision/{systemone.ts,systemone.test.ts}`、`scripts/systemone-acceptance.mjs`、
   变更目录内的 `tasks.md` 与 `specs/decision-layer/spec.md`。**未新增运行时依赖、未触碰 `.claude/**`**，
   符合 `tasks.md:4` 的范围声明。
+- [x] 确认：`HIGH-1` **已在本次审查中修复**（决策 `decision-8`）— `src/config.ts` 的
+  interface 注释 / schema `description` / `CONFIG_DEFAULTS` 三处同步从 `20000` 提到 `60000`，
+  provider 自身 `DEFAULTS.timeoutMs` 同步为 `60_000`（`systemone.ts:59-67`），
+  `src/config.test.ts` 断言同步更新；`README.md:535` 与 §5.9.1 补上"首判会冷加载 + 本超时只覆盖响应头"的说明。
+  修复后复测：卸载模型 → 用新默认 `60000` 发一次冷启动判断 → **成功返回、不再降级**（见下方 HIGH-1 处置）。
+  该修复只改默认值与文案，不触碰 provider 逻辑与任何降级语义。
 - [x] 确认：provider 的消费方清单完整（静态核验，GitNexus 不可用）— 全仓 `SystemOneProvider` 仅出现于
   `src/index.ts:33`（import）、`:150`（实例化）与该 provider 自身及其测试；
   `decisionSystemone*` 除 `src/config.ts` 外只在 `src/index.ts:151-154` 与 `src/config.test.ts` 出现。
@@ -111,7 +117,7 @@
 
 ## 疑问项
 
-- [ ] HIGH-1 **`decisionSystemoneTimeoutMs` 的出厂默认 `20 000 ms` 压不住冷启动，文档承诺与实测相反。**
+- [x] HIGH-1 **已修复**（原报告：`decisionSystemoneTimeoutMs` 的出厂默认 `20 000 ms` 压不住冷启动）。
   证据：`src/config.ts:234` 的字段描述写着 `Per-request timeout for the jev provider (cold model load)`，
   而 `D8`/`D5` 明确把"冷启动读约 9 GB 磁盘"作为既定代价（`design.md:69`）。
   实测 TTFB（响应头到达）**23 034 ms**；两次验收运行的首个节点为 18 617 / 21 793 ms
@@ -121,9 +127,13 @@
   `{"provider":"jev","model":"nimble","failure":"aborted after 20012ms (timeout 20000ms)"}`。
   → 冷启动 TTFB（18.6–23.5 s）**跨在 20 s 两侧**，同一台机器上首次判断时好时坏，
   失败即静默降级到 `agent`，使用者只会看到"本地模型没生效"。
-  影响：`D5`/`README.md:742` 承诺的"本机 Ollama 当判官（无需 key）"在文档给出的默认配置下**首判不可靠**。
-  修复方向（一行级）：默认值提到 60 000 ms，或把描述改成"不含冷加载，首判前请预热"，
-  并在 §5.9.1 补一句"首次判断含加载，建议预热或加大该值"。不阻断归档。
+  **处置（决策 `decision-8`）**：默认值提到 `60000`（`src/config.ts` 三处 + `systemone.ts:62` 的
+  `DEFAULTS.timeoutMs`），`README.md:535` 与 §5.9.1 补"首判会冷加载 + 本超时只覆盖响应头"的运维提示。
+  **修复后复测**：卸载模型确认 `/api/ps` 为空 → 用新默认 `60000` 发同一题 → 返回 `low`、耗时 **23 742 ms**、
+  **未降级**（修复前同条件为 20 020 ms 超时降级）。两次实测夹住了 20 s 这个旧默认值。
+  该修复只改默认值与文案，不触碰 provider 逻辑与任何降级语义（超时仍返回无结论）。
+  > 残余风险（`LOW-11`）：修复后 23 742 ms 已用掉 60 s 预算的 40%，机器更繁忙时仍有降级可能；
+  > 想彻底稳就走预热，而不是无限加大超时。
 - [ ] MED-1 **超时只覆盖响应头，body 读取不受 `timeoutMs` 约束；外部 `AbortSignal` 也不生效。**
   代码事实：`timer` 在 `src/features/decision/systemone.ts:126` 设置，`finally` 在 `:146-149`
   **同一函数体内**就 `clearTimeout(timer)` 并 `removeEventListener('abort', …)`，而
@@ -220,6 +230,10 @@
   `task 8` 里"顺带确认迭代笔记能链接到受影响模块"这一半**无从验证**（无模块页可链）。
   当前迭代笔记反映的是导出时点的状态（`status: implementing`、`提交：（无标记提交）`，
   后者与 `MED-3` 同源），归档编排第 8 步会再自动导出一次。
+- [ ] LOW-11 **`HIGH-1` 的修复是缓解而非根治**（残余风险）— 修后实测冷加载 **23 742 ms**，
+  已占 60 s 预算的约 40%；机器负载更高或缓存更冷时仍可能触顶降级。
+  真正的根治是"首判前预热"（运维动作）或把冷加载与推理拆成两笔账（代码改动，超出本变更范围）。
+  建议把"归档前先预热本机判断模型"写进运维提示，而不是继续加大超时。
 
 ## 范围外发现（本变更不修，逐条取证，供开新提案）
 
@@ -237,8 +251,12 @@
 > 审查结论：任务 1–5、7、9 逐条有落点、有单测；任务 6 的 7 个节点在真机上有可复现量测
 > （两次运行逐位一致），且经出货 `DecisionService` 复核；D2 与 D9 各有反事实/边界实验支撑，
 > **D2 的反事实证据（改用 `confidence` 会让 2/7 节点静默降档）是本次审查最强的结论**。
-> 无未解决 CRITICAL，不阻断归档。
-> 必须先处理的**交付层**问题只有一条：`HIGH-1`（出厂默认超时 20 s < 冷启动实测 TTFB 18.6–23.5 s）
-> —— 它不影响正确性，但会让 `D5`/`README` 承诺的默认体验时好时坏，建议在归档前一行改掉。
-> `MED-1`（超时/取消不覆盖 body）为既有实现边界缺陷，`MED-3`（提交标记）为流程记号，
-> 建议各自独立处理；`MED-6` 直接决定本提案归档后能否收拾干净，优先级最高。
+> 唯一的交付层阻断候选 `HIGH-1` 已在本次审查中修复（决策 `decision-8`）并复测通过，
+> 故**无未解决 CRITICAL、无未解决 HIGH**，不阻断归档。
+> 剩余开放项均为非阻断记录：`MED-1`（超时/取消不覆盖 body，既有实现边界缺陷）、
+> `MED-3`（提交标记缺失，属流程记号，`planDriftGate` 默认关闭）、
+> `MED-4`（`tasks.md` 第 9 项行号引用过时）、`MED-5`（README 的"云 Jev 配 key 即可"与实现不符）、
+> `LOW-1`–`LOW-11`（证据等级与文档澄清），以及**明确未验证的三项**：云 Jev 端点、
+> 真机 harness 以 `provider: jev` 装配、阈值校准（`LOW-6`–`LOW-9`）。
+> 优先处理的**范围外**项是 `MED-6`：`worktree.remove` 不透传 `mainBranch`，
+> 直接决定本提案归档后能否收回自己的 worktree（`fix-panel-scroll` 已实测被卡住）。

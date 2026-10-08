@@ -35,7 +35,7 @@ describe('resolveConfig', () => {
       decisionSystemoneUrl: 'http://127.0.0.1:11434',
       decisionSystemoneModel: '',
       decisionSystemoneKeepAlive: '60s',
-      decisionSystemoneTimeoutMs: 20000,
+      decisionSystemoneTimeoutMs: 60000,
       decisionCacheEnabled: true,
       decisionCacheMax: 500,
       gitnexusWikiLang: '',

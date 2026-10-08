@@ -532,7 +532,7 @@ pnpm dsh web                                            # 启动，默认 http:/
 | `decisionSystemoneUrl` | `'http://127.0.0.1:11434'` | `jev` provider 的 System One 地址（Ollama 的 `/v1/systemone` 挂在同一个 base 上） |
 | `decisionSystemoneModel` | `''` | `jev` 用的模型名；**空 = 该 provider 不可用**（判断链照常降级到 `agent → rules`） |
 | `decisionSystemoneKeepAlive` | `'60s'` | 请求里的 Ollama `keep_alive`：本机判断模型约 9 GiB，不值得常驻 |
-| `decisionSystemoneTimeoutMs` | `20000` | `jev` 单次请求超时。**故意不复用 `decisionTimeoutMs`(4s)**：冷模型要从磁盘读约 9 GB，4 秒会让 keep-alive 过期后的第一次判断次次超时 |
+| `decisionSystemoneTimeoutMs` | `60000` | `jev` 单次请求超时，**必须覆盖冷加载**。故意不复用 `decisionTimeoutMs`(4s)：冷模型要从磁盘读约 9 GB，实测 TTFB **18.6–23.5 s**，20 s 会让 keep-alive 过期后的第一次判断**时好时坏地静默降级**（实测留痕 `aborted after 20012ms (timeout 20000ms)`）。**注意本超时只覆盖响应头**：body 读取阶段不受它约束（见 `review.md` 的 `MED-1`） |
 | `gitnexusWikiLang` / `gitnexusWikiTimeoutMs` | `''` / `900000` | wiki 输出语言（本机设为 `chinese`）与生成超时 |
 | `gitnexusApiKeyKeychainService` | `''` | macOS 钥匙串服务名（本机 `ESP_XKW_KEY`）。**harness 环境里没有 key 也能生成**：子进程凭据按「环境变量 → 配置的变量名 → 钥匙串 → `~/.gitnexus/config.json`」解析，只报来源不回声值 |
 | `gitnexusApiKeyFromEnv` | `''` | 把该环境变量的值**仅对子进程**映射为 `GITNEXUS_API_KEY`（GitNexus 只认这个名字）；已在环境里的 `GITNEXUS_API_KEY` 不会被覆盖。本机设为 `ESP_XKW_KEY`——key 存 macOS 钥匙串，不在任何配置文件里 |
@@ -764,6 +764,14 @@ decisionSystemoneUrl: http://127.0.0.1:11434
    静默截断会让留痕里的依据与模型实际看到的题面不一致。
 3. **枚举外/非 2xx/非法 JSON/超时 → 无结论**，绝不回落到 `options[0]`；
    `available()` 只看配置（不做启动期探测并缓存——Ollama 可能在本 harness 之后才起）。
+
+**首判会冷加载（务必知道）**：`keep_alive` 到期后第一次判断要从磁盘读约 9 GB，
+实测 TTFB 18.6–23.5 s，所以默认超时定在 `60s`；调小会让首判在 20 s 附近**时好时坏地
+静默降级到 `agent`**（现象是"本地模型好像没生效"）。想稳定就走预热（先打一次再归档）。
+
+> 已知边界（`review.md` 的 `HIGH-1` / `MED-1`）：provider 的 `timeoutMs` 实际只覆盖
+> **响应头到达**那一段，`await response.json()` 不受它约束；同一函数体的 `finally` 还会
+> 摘掉外部 `AbortSignal` 监听，使编排的取消信号在 body 阶段失效。
 
 **机器约束（务必先看再选模型）**：判断模型必须同时满足
 「权重 ≤ Metal 工作集上限 − 约 0.5 GiB 的 MLX 固定保留」。本机
