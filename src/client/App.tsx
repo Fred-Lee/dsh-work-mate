@@ -190,369 +190,371 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
 
       {error !== '' && <div className="wm-error">{error}</div>}
 
-      {view === 'graph' ? (
-        <GraphView projectRoot={projectRootDraft || undefined} />
-      ) : view === 'console' ? (
-        <ConsoleView onError={setError} />
-      ) : (
-        <div className="wm-board">
-          {columns.map((column) => (
-            <section className="wm-col" key={column.label}>
-              <header className="wm-col-head">
-                <i className="wm-dot" style={{ background: column.tone }} />
-                <span>{column.label}</span>
-                <span className="wm-col-count">{column.cards.length}</span>
-              </header>
-              <div className="wm-col-body">
-                {column.cards.length === 0 && <div className="wm-col-empty">暂无提案</div>}
-                {column.cards.map((proposal) => {
-                  const detail = details[proposal.id]
-                  const tasks = detail?.openspec?.tasks
-                  return (
-                    <article
-                      className="wm-card"
-                      key={proposal.id}
-                      onClick={() => setExpanded((prev) => (prev === proposal.id ? null : proposal.id))}
-                    >
-                      <span className="wm-card-bar" style={{ background: STATE_META[proposal.status].tone }} />
-                      <h3 className="wm-card-title">{proposal.title}</h3>
-                      <div className="wm-card-id">{proposal.id}</div>
-                      {tasks !== undefined && tasks.total > 0 && (
-                        <div>
-                          <div className="wm-progress-track">
-                            <div
-                              className="wm-progress-fill"
-                              style={{ width: `${Math.round((tasks.done / tasks.total) * 100)}%` }}
-                            />
-                          </div>
-                          <div className="wm-progress-label">
-                            tasks {tasks.done}/{tasks.total}
-                          </div>
-                        </div>
-                      )}
-                      <div className="wm-meta">
-                        <span>{STATE_META[proposal.status].label}</span>
-                        <span>{relativeTime(proposal.updatedAt)}</span>
-                        {proposal.projects.length > 0 && <span>{proposal.projects.length} 个关联项目</span>}
-                        {detail?.pendingApproval !== undefined && (
-                          <span className="wm-tier wm-tier-diagnose" title={detail.pendingApproval.reason}>
-                            ⏳ 等待人工批准
-                          </span>
-                        )}
-                      </div>
-
-                      {expanded === proposal.id && (
-                        <div className="wm-detail" onClick={(event) => event.stopPropagation()}>
-                          {detail === undefined ? (
-                            <div className="wm-actions">
-                              <button className="wm-btn mini" type="button" onClick={() => void loadDetail(proposal.id)}>
-                                加载详情
-                              </button>
+      <div className="wm-body">
+        {view === 'graph' ? (
+          <GraphView projectRoot={projectRootDraft || undefined} />
+        ) : view === 'console' ? (
+          <ConsoleView onError={setError} />
+        ) : (
+          <div className="wm-board">
+            {columns.map((column) => (
+              <section className="wm-col" key={column.label}>
+                <header className="wm-col-head">
+                  <i className="wm-dot" style={{ background: column.tone }} />
+                  <span>{column.label}</span>
+                  <span className="wm-col-count">{column.cards.length}</span>
+                </header>
+                <div className="wm-col-body">
+                  {column.cards.length === 0 && <div className="wm-col-empty">暂无提案</div>}
+                  {column.cards.map((proposal) => {
+                    const detail = details[proposal.id]
+                    const tasks = detail?.openspec?.tasks
+                    return (
+                      <article
+                        className="wm-card"
+                        key={proposal.id}
+                        onClick={() => setExpanded((prev) => (prev === proposal.id ? null : proposal.id))}
+                      >
+                        <span className="wm-card-bar" style={{ background: STATE_META[proposal.status].tone }} />
+                        <h3 className="wm-card-title">{proposal.title}</h3>
+                        <div className="wm-card-id">{proposal.id}</div>
+                        {tasks !== undefined && tasks.total > 0 && (
+                          <div>
+                            <div className="wm-progress-track">
+                              <div
+                                className="wm-progress-fill"
+                                style={{ width: `${Math.round((tasks.done / tasks.total) * 100)}%` }}
+                              />
                             </div>
-                          ) : (
-                            <>
-                              {(detail.projects ?? []).map((project) => (
-                                <div className="wm-section" key={project.project}>
-                                  <b>
-                                    📦 {project.project}
-                                    {project.git !== undefined && project.git.branch !== '' && (
-                                      <code style={{ marginLeft: 6 }}>⎇ {project.git.branch}</code>
+                            <div className="wm-progress-label">
+                              tasks {tasks.done}/{tasks.total}
+                            </div>
+                          </div>
+                        )}
+                        <div className="wm-meta">
+                          <span>{STATE_META[proposal.status].label}</span>
+                          <span>{relativeTime(proposal.updatedAt)}</span>
+                          {proposal.projects.length > 0 && <span>{proposal.projects.length} 个关联项目</span>}
+                          {detail?.pendingApproval !== undefined && (
+                            <span className="wm-tier wm-tier-diagnose" title={detail.pendingApproval.reason}>
+                              ⏳ 等待人工批准
+                            </span>
+                          )}
+                        </div>
+
+                        {expanded === proposal.id && (
+                          <div className="wm-detail" onClick={(event) => event.stopPropagation()}>
+                            {detail === undefined ? (
+                              <div className="wm-actions">
+                                <button className="wm-btn mini" type="button" onClick={() => void loadDetail(proposal.id)}>
+                                  加载详情
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                {(detail.projects ?? []).map((project) => (
+                                  <div className="wm-section" key={project.project}>
+                                    <b>
+                                      📦 {project.project}
+                                      {project.git !== undefined && project.git.branch !== '' && (
+                                        <code style={{ marginLeft: 6 }}>⎇ {project.git.branch}</code>
+                                      )}
+                                      {project.git?.isWorktree === true && (
+                                        <code style={{ marginLeft: 4 }}>worktree</code>
+                                      )}
+                                    </b>
+                                    {project.root === undefined ? (
+                                      <span>{project.note ?? '未注册项目根'}</span>
+                                    ) : (
+                                      <div>
+                                        {project.git !== undefined && (
+                                          <div className="wm-meta" style={{ marginTop: 2 }}>
+                                            <code>{project.git.headShort}</code>
+                                            {project.git.dirtyCount > 0 && (
+                                              <span>{project.git.dirtyCount} 个未提交变更</span>
+                                            )}
+                                          </div>
+                                        )}
+                                        {project.openspec !== undefined && (
+                                          <div>
+                                            openspec <code>{project.openspec.state}</code>
+                                            {project.openspec.tasks !== undefined && (
+                                              <span className="wm-progress-label">
+                                                {' '}
+                                                · tasks {project.openspec.tasks.done}/{project.openspec.tasks.total}
+                                              </span>
+                                            )}
+                                          </div>
+                                        )}
+                                        {project.commits !== undefined && project.commits.length > 0 && (
+                                          <ul>
+                                            {project.commits.map((commit) => (
+                                              <li key={commit.hash}>
+                                                <code>{commit.short}</code> {commit.subject}
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        )}
+                                      </div>
                                     )}
-                                    {project.git?.isWorktree === true && (
-                                      <code style={{ marginLeft: 4 }}>worktree</code>
-                                    )}
-                                  </b>
-                                  {project.root === undefined ? (
-                                    <span>{project.note ?? '未注册项目根'}</span>
-                                  ) : (
-                                    <div>
-                                      {project.git !== undefined && (
-                                        <div className="wm-meta" style={{ marginTop: 2 }}>
-                                          <code>{project.git.headShort}</code>
-                                          {project.git.dirtyCount > 0 && (
-                                            <span>{project.git.dirtyCount} 个未提交变更</span>
-                                          )}
-                                        </div>
-                                      )}
-                                      {project.openspec !== undefined && (
-                                        <div>
-                                          openspec <code>{project.openspec.state}</code>
-                                          {project.openspec.tasks !== undefined && (
-                                            <span className="wm-progress-label">
-                                              {' '}
-                                              · tasks {project.openspec.tasks.done}/{project.openspec.tasks.total}
-                                            </span>
-                                          )}
-                                        </div>
-                                      )}
-                                      {project.commits !== undefined && project.commits.length > 0 && (
-                                        <ul>
-                                          {project.commits.map((commit) => (
-                                            <li key={commit.hash}>
-                                              <code>{commit.short}</code> {commit.subject}
-                                            </li>
-                                          ))}
-                                        </ul>
-                                      )}
+                                  </div>
+                                ))}
+                                {(proposal.blockers?.length ?? 0) > 0 && (
+                                  <div className="wm-section">
+                                    <b>🚧 卡点</b>
+                                    {proposal.blockers?.map((blocker) => (
+                                      <div
+                                        key={blocker.id}
+                                        style={{
+                                          marginBottom: 4,
+                                          color: blocker.status === 'open' ? '#ef4444' : 'var(--wm-muted)',
+                                          fontWeight: blocker.status === 'open' ? 600 : 400,
+                                        }}
+                                      >
+                                        {blocker.status === 'open' ? '✖ 待答复' : '✓ 已解除'} <code>{blocker.id}</code>{' '}
+                                        {blocker.question}
+                                        {blocker.answer !== undefined && <div>↳ {blocker.answer}</div>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                {(proposal.decisions?.length ?? 0) > 0 && (
+                                  <div className="wm-section">
+                                    <b>🧭 决策日志</b>
+                                    {proposal.decisions?.map((entry) => (
+                                      <div key={entry.id} style={{ marginBottom: 4 }}>
+                                        <code>{entry.id}</code> {entry.decision}
+                                        {entry.supersedes !== undefined && (
+                                          <span style={{ color: '#b45309' }}>（推翻 {entry.supersedes}）</span>
+                                        )}
+                                        <div style={{ color: 'var(--wm-muted)', fontSize: 11 }}>↳ {entry.rationale}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                {(detail.proposal.swarmTasks ?? []).length > 0 && (
+                                  <div className="wm-section">
+                                    <b>🧩 并行任务</b>
+                                    {(detail.proposal.swarmTasks ?? []).map((task) => (
+                                      <div key={task.id} className="wm-meta" title={task.writes.join(', ') || '未声明 writes'}>
+                                        <span>
+                                          [{task.id}] {task.title}
+                                        </span>
+                                        <span
+                                          className={`wm-tier ${
+                                            task.status === 'merged'
+                                              ? 'wm-tier-normal'
+                                              : task.status === 'failed'
+                                                ? 'wm-tier-propose'
+                                                : task.status === 'running'
+                                                  ? 'wm-tier-diagnose'
+                                                  : 'wm-tier-log'
+                                          }`}
+                                        >
+                                          {task.status}
+                                        </span>
+                                        {task.commit !== undefined && <code>{task.commit}</code>}
+                                      </div>
+                                    ))}
+                                    <div className="wm-kpi-note">
+                                      每任务一个 worktree + 分支；未 merged 的任务会阻断归档（force 可跳过）。
                                     </div>
+                                  </div>
+                                )}
+
+                                {detail.proposal.archiveManifest !== undefined && (
+                                  <div className="wm-section">
+                                    <b>📦 交付物</b>
+                                    <div className="wm-kpi-note">
+                                      归档于 {detail.proposal.archiveManifest.at}
+                                    </div>
+                                    {detail.proposal.archiveManifest.projects.map((entry) => (
+                                      <div key={entry.project} style={{ marginTop: 4 }}>
+                                        <code>{entry.project}</code>
+                                        <div className="wm-meta">
+                                          <span>{entry.commits.length} 个标记提交</span>
+                                          <span>{entry.specsUpdated === true ? 'spec 已更新' : '无 spec 更新'}</span>
+                                          <span>{entry.reindexed ? '知识图谱已重建' : '未重建知识图谱'}</span>
+                                        </div>
+                                        {entry.commits.length > 0 && (
+                                          <div className="wm-kpi-note">{entry.commits.slice(0, 6).join(' · ')}</div>
+                                        )}
+                                        {entry.diffStat !== undefined && <div className="wm-kpi-note">{entry.diffStat}</div>}
+                                        {entry.note !== undefined && <div className="wm-kpi-note">{entry.note}</div>}
+                                        {entry.drift !== undefined && (
+                                          <div className="wm-meta">
+                                            <span className={`wm-tier ${entry.drift.undeclared.length === 0 ? 'wm-tier-normal' : 'wm-tier-diagnose'}`}>
+                                              漂移 {(entry.drift.driftRatio * 100).toFixed(0)}%
+                                            </span>
+                                            <span>声明 {entry.drift.declared.length} 项</span>
+                                            <span>实际 {entry.drift.actual.length} 个文件</span>
+                                          </div>
+                                        )}
+                                        {entry.drift !== undefined && entry.drift.undeclared.length > 0 && (
+                                          <div className="wm-kpi-note">
+                                            未声明改动：{entry.drift.undeclared.slice(0, 5).join(' · ')}
+                                          </div>
+                                        )}
+                                        {(entry.artifacts ?? []).length > 0 && (
+                                          <div className="wm-kpi-note">
+                                            账本 {entry.artifacts?.length} 个工件（sha256 已记录）
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {(detail.projects ?? []).some((p) => p.reviewReport !== undefined) && (
+                                  <div className="wm-section">
+                                    <b>
+                                      🔍 审查报告
+                                      <button
+                                        className="wm-btn mini"
+                                        type="button"
+                                        style={{ marginLeft: 6 }}
+                                        onClick={() => void loadDetail(proposal.id)}
+                                      >
+                                        重新审查
+                                      </button>
+                                    </b>
+                                    {(detail.projects ?? []).map((project) =>
+                                      project.reviewReport === undefined ? null : (
+                                        <div key={project.project} style={{ marginBottom: 6 }}>
+                                          <code>{project.project}</code>
+                                          {project.reviewTally !== undefined && (
+                                            <div className="wm-meta">
+                                              {(['CRIT', 'HIGH', 'MED', 'LOW'] as const)
+                                                .filter((severity) => (project.reviewTally?.bySeverity[severity]?.total ?? 0) > 0)
+                                                .map((severity) => (
+                                                  <span key={severity} className="wm-tier wm-tier-log">
+                                                    {severity} {project.reviewTally?.bySeverity[severity]?.open}/
+                                                    {project.reviewTally?.bySeverity[severity]?.total}
+                                                  </span>
+                                                ))}
+                                              {project.reviewTally.shadow && (
+                                                <span className="wm-tier wm-tier-diagnose" title="影子审查者只记录不阻断">
+                                                  shadow
+                                                </span>
+                                              )}
+                                              {project.reviewTally.reviewer !== undefined && (
+                                                <span>{project.reviewTally.reviewer}</span>
+                                              )}
+                                            </div>
+                                          )}
+                                          {project.reviewReport.criticals.map((issue, index) => (
+                                            <div
+                                              key={index}
+                                              style={{ color: issue.resolved ? 'var(--wm-muted)' : '#ef4444', fontWeight: issue.resolved ? 400 : 600 }}
+                                            >
+                                              {issue.resolved ? '✓' : '✖'} CRITICAL: {issue.text}
+                                            </div>
+                                          ))}
+                                          {project.reviewReport.questions.map((question, index) => (
+                                            <div key={index} style={{ color: '#b45309' }}>？疑问：{question}</div>
+                                          ))}
+                                          {project.reviewReport.confirms.map((confirm, index) => (
+                                            <div key={index} style={{ color: 'var(--wm-muted)' }}>✓ {confirm}</div>
+                                          ))}
+                                        </div>
+                                      ),
+                                    )}
+                                  </div>
+                                )}
+                                <div className="wm-actions">
+                                  {detail.lifecycle !== undefined && (
+                                    <span className="wm-progress-label">下一步：{detail.lifecycle.hint}</span>
+                                  )}
+                                  {proposal.status !== 'archived' && (
+                                    <button
+                                      className="wm-btn mini"
+                                      type="button"
+                                      disabled={busy}
+                                      title="终止：不跑归档编排（不经审查门），记录原因后置为终态——用于孤儿提案/放弃的变更"
+                                      onClick={() => void act(proposal.id, 'abandon')}
+                                    >
+                                      {pending === `${proposal.id}:abandon` ? '终止中…' : '终止'}
+                                    </button>
+                                  )}
+                                  {detail.lifecycle?.prev !== undefined && (
+                                    <button
+                                      className="wm-btn mini"
+                                      type="button"
+                                      disabled={busy}
+                                      title="相邻回退（归档回退会把 change 目录搬回 changes/）"
+                                      onClick={() => void act(proposal.id, 'back', detail.lifecycle?.prev)}
+                                    >
+                                      ‹ 回退到 {STATE_META[detail.lifecycle.prev].label}
+                                    </button>
+                                  )}
+                                  {detail.lifecycle?.next !== undefined && detail.lifecycle.next !== 'archived' && (
+                                    <button
+                                      className="wm-btn mini primary"
+                                      type="button"
+                                      disabled={busy}
+                                      title={detail.lifecycle.hint}
+                                      onClick={() => void act(proposal.id, 'advance')}
+                                    >
+                                      {pending === `${proposal.id}:advance`
+                                        ? '推进中…'
+                                        : `推进到 ${STATE_META[detail.lifecycle.next].label} ›`}
+                                    </button>
                                   )}
                                 </div>
-                              ))}
-                              {(proposal.blockers?.length ?? 0) > 0 && (
-                                <div className="wm-section">
-                                  <b>🚧 卡点</b>
-                                  {proposal.blockers?.map((blocker) => (
-                                    <div
-                                      key={blocker.id}
-                                      style={{
-                                        marginBottom: 4,
-                                        color: blocker.status === 'open' ? '#ef4444' : 'var(--wm-muted)',
-                                        fontWeight: blocker.status === 'open' ? 600 : 400,
-                                      }}
+                                {/* Archiving only needs the proposal's status: keep these reachable even when
+                                    the detail payload fails (deleted project root), so the card is never a dead end. */}
+                                {proposal.status === 'archiving' && (
+                                  <div className="wm-actions">
+                                    <button
+                                      className="wm-btn mini primary"
+                                      type="button"
+                                      disabled={busy}
+                                      onClick={() => void act(proposal.id, 'archive')}
                                     >
-                                      {blocker.status === 'open' ? '✖ 待答复' : '✓ 已解除'} <code>{blocker.id}</code>{' '}
-                                      {blocker.question}
-                                      {blocker.answer !== undefined && <div>↳ {blocker.answer}</div>}
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                              {(proposal.decisions?.length ?? 0) > 0 && (
-                                <div className="wm-section">
-                                  <b>🧭 决策日志</b>
-                                  {proposal.decisions?.map((entry) => (
-                                    <div key={entry.id} style={{ marginBottom: 4 }}>
-                                      <code>{entry.id}</code> {entry.decision}
-                                      {entry.supersedes !== undefined && (
-                                        <span style={{ color: '#b45309' }}>（推翻 {entry.supersedes}）</span>
-                                      )}
-                                      <div style={{ color: 'var(--wm-muted)', fontSize: 11 }}>↳ {entry.rationale}</div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                              {(detail.proposal.swarmTasks ?? []).length > 0 && (
-                                <div className="wm-section">
-                                  <b>🧩 并行任务</b>
-                                  {(detail.proposal.swarmTasks ?? []).map((task) => (
-                                    <div key={task.id} className="wm-meta" title={task.writes.join(', ') || '未声明 writes'}>
-                                      <span>
-                                        [{task.id}] {task.title}
-                                      </span>
-                                      <span
-                                        className={`wm-tier ${
-                                          task.status === 'merged'
-                                            ? 'wm-tier-normal'
-                                            : task.status === 'failed'
-                                              ? 'wm-tier-propose'
-                                              : task.status === 'running'
-                                                ? 'wm-tier-diagnose'
-                                                : 'wm-tier-log'
-                                        }`}
-                                      >
-                                        {task.status}
-                                      </span>
-                                      {task.commit !== undefined && <code>{task.commit}</code>}
-                                    </div>
-                                  ))}
-                                  <div className="wm-kpi-note">
-                                    每任务一个 worktree + 分支；未 merged 的任务会阻断归档（force 可跳过）。
+                                      {pending === `${proposal.id}:archive` ? '归档中…（编排在跑）' : '完成归档'}
+                                    </button>
+                                    <button
+                                      className="wm-btn mini"
+                                      type="button"
+                                      disabled={busy}
+                                      title="只跳过审查门（缺 review.md 或有未解决 CRITICAL）；openspec archive 与 gitnexus 照常执行"
+                                      onClick={() => void act(proposal.id, 'archive', undefined, true)}
+                                    >
+                                      {pending === `${proposal.id}:archive` ? '归档中…' : '强制归档（跳过审查门）'}
+                                    </button>
                                   </div>
-                                </div>
-                              )}
-
-                              {detail.proposal.archiveManifest !== undefined && (
-                                <div className="wm-section">
-                                  <b>📦 交付物</b>
-                                  <div className="wm-kpi-note">
-                                    归档于 {detail.proposal.archiveManifest.at}
-                                  </div>
-                                  {detail.proposal.archiveManifest.projects.map((entry) => (
-                                    <div key={entry.project} style={{ marginTop: 4 }}>
-                                      <code>{entry.project}</code>
-                                      <div className="wm-meta">
-                                        <span>{entry.commits.length} 个标记提交</span>
-                                        <span>{entry.specsUpdated === true ? 'spec 已更新' : '无 spec 更新'}</span>
-                                        <span>{entry.reindexed ? '知识图谱已重建' : '未重建知识图谱'}</span>
-                                      </div>
-                                      {entry.commits.length > 0 && (
-                                        <div className="wm-kpi-note">{entry.commits.slice(0, 6).join(' · ')}</div>
-                                      )}
-                                      {entry.diffStat !== undefined && <div className="wm-kpi-note">{entry.diffStat}</div>}
-                                      {entry.note !== undefined && <div className="wm-kpi-note">{entry.note}</div>}
-                                      {entry.drift !== undefined && (
-                                        <div className="wm-meta">
-                                          <span className={`wm-tier ${entry.drift.undeclared.length === 0 ? 'wm-tier-normal' : 'wm-tier-diagnose'}`}>
-                                            漂移 {(entry.drift.driftRatio * 100).toFixed(0)}%
-                                          </span>
-                                          <span>声明 {entry.drift.declared.length} 项</span>
-                                          <span>实际 {entry.drift.actual.length} 个文件</span>
-                                        </div>
-                                      )}
-                                      {entry.drift !== undefined && entry.drift.undeclared.length > 0 && (
-                                        <div className="wm-kpi-note">
-                                          未声明改动：{entry.drift.undeclared.slice(0, 5).join(' · ')}
-                                        </div>
-                                      )}
-                                      {(entry.artifacts ?? []).length > 0 && (
-                                        <div className="wm-kpi-note">
-                                          账本 {entry.artifacts?.length} 个工件（sha256 已记录）
-                                        </div>
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-
-                              {(detail.projects ?? []).some((p) => p.reviewReport !== undefined) && (
-                                <div className="wm-section">
-                                  <b>
-                                    🔍 审查报告
+                                )}
+                                {detailErrors[proposal.id] !== undefined && (
+                                  <div className="wm-action-note error">
+                                    详情加载失败：{detailErrors[proposal.id]}
                                     <button
                                       className="wm-btn mini"
                                       type="button"
                                       style={{ marginLeft: 6 }}
                                       onClick={() => void loadDetail(proposal.id)}
                                     >
-                                      重新审查
+                                      重新加载
                                     </button>
-                                  </b>
-                                  {(detail.projects ?? []).map((project) =>
-                                    project.reviewReport === undefined ? null : (
-                                      <div key={project.project} style={{ marginBottom: 6 }}>
-                                        <code>{project.project}</code>
-                                        {project.reviewTally !== undefined && (
-                                          <div className="wm-meta">
-                                            {(['CRIT', 'HIGH', 'MED', 'LOW'] as const)
-                                              .filter((severity) => (project.reviewTally?.bySeverity[severity]?.total ?? 0) > 0)
-                                              .map((severity) => (
-                                                <span key={severity} className="wm-tier wm-tier-log">
-                                                  {severity} {project.reviewTally?.bySeverity[severity]?.open}/
-                                                  {project.reviewTally?.bySeverity[severity]?.total}
-                                                </span>
-                                              ))}
-                                            {project.reviewTally.shadow && (
-                                              <span className="wm-tier wm-tier-diagnose" title="影子审查者只记录不阻断">
-                                                shadow
-                                              </span>
-                                            )}
-                                            {project.reviewTally.reviewer !== undefined && (
-                                              <span>{project.reviewTally.reviewer}</span>
-                                            )}
-                                          </div>
-                                        )}
-                                        {project.reviewReport.criticals.map((issue, index) => (
-                                          <div
-                                            key={index}
-                                            style={{ color: issue.resolved ? 'var(--wm-muted)' : '#ef4444', fontWeight: issue.resolved ? 400 : 600 }}
-                                          >
-                                            {issue.resolved ? '✓' : '✖'} CRITICAL: {issue.text}
-                                          </div>
-                                        ))}
-                                        {project.reviewReport.questions.map((question, index) => (
-                                          <div key={index} style={{ color: '#b45309' }}>？疑问：{question}</div>
-                                        ))}
-                                        {project.reviewReport.confirms.map((confirm, index) => (
-                                          <div key={index} style={{ color: 'var(--wm-muted)' }}>✓ {confirm}</div>
-                                        ))}
-                                      </div>
-                                    ),
-                                  )}
-                                </div>
-                              )}
-                              <div className="wm-actions">
-                                {detail.lifecycle !== undefined && (
-                                  <span className="wm-progress-label">下一步：{detail.lifecycle.hint}</span>
+                                  </div>
                                 )}
-                                {proposal.status !== 'archived' && (
-                                  <button
-                                    className="wm-btn mini"
-                                    type="button"
-                                    disabled={busy}
-                                    title="终止：不跑归档编排（不经审查门），记录原因后置为终态——用于孤儿提案/放弃的变更"
-                                    onClick={() => void act(proposal.id, 'abandon')}
-                                  >
-                                    {pending === `${proposal.id}:abandon` ? '终止中…' : '终止'}
-                                  </button>
+                                {notes[proposal.id] !== undefined && (
+                                  <div className={`wm-action-note${notes[proposal.id]?.startsWith('❌') === true ? ' error' : ''}`}>
+                                    {notes[proposal.id]}
+                                  </div>
                                 )}
-                                {detail.lifecycle?.prev !== undefined && (
-                                  <button
-                                    className="wm-btn mini"
-                                    type="button"
-                                    disabled={busy}
-                                    title="相邻回退（归档回退会把 change 目录搬回 changes/）"
-                                    onClick={() => void act(proposal.id, 'back', detail.lifecycle?.prev)}
-                                  >
-                                    ‹ 回退到 {STATE_META[detail.lifecycle.prev].label}
-                                  </button>
-                                )}
-                                {detail.lifecycle?.next !== undefined && detail.lifecycle.next !== 'archived' && (
-                                  <button
-                                    className="wm-btn mini primary"
-                                    type="button"
-                                    disabled={busy}
-                                    title={detail.lifecycle.hint}
-                                    onClick={() => void act(proposal.id, 'advance')}
-                                  >
-                                    {pending === `${proposal.id}:advance`
-                                      ? '推进中…'
-                                      : `推进到 ${STATE_META[detail.lifecycle.next].label} ›`}
-                                  </button>
-                                )}
-                              </div>
-                              {/* Archiving only needs the proposal's status: keep these reachable even when
-                                  the detail payload fails (deleted project root), so the card is never a dead end. */}
-                              {proposal.status === 'archiving' && (
-                                <div className="wm-actions">
-                                  <button
-                                    className="wm-btn mini primary"
-                                    type="button"
-                                    disabled={busy}
-                                    onClick={() => void act(proposal.id, 'archive')}
-                                  >
-                                    {pending === `${proposal.id}:archive` ? '归档中…（编排在跑）' : '完成归档'}
-                                  </button>
-                                  <button
-                                    className="wm-btn mini"
-                                    type="button"
-                                    disabled={busy}
-                                    title="只跳过审查门（缺 review.md 或有未解决 CRITICAL）；openspec archive 与 gitnexus 照常执行"
-                                    onClick={() => void act(proposal.id, 'archive', undefined, true)}
-                                  >
-                                    {pending === `${proposal.id}:archive` ? '归档中…' : '强制归档（跳过审查门）'}
-                                  </button>
-                                </div>
-                              )}
-                              {detailErrors[proposal.id] !== undefined && (
-                                <div className="wm-action-note error">
-                                  详情加载失败：{detailErrors[proposal.id]}
-                                  <button
-                                    className="wm-btn mini"
-                                    type="button"
-                                    style={{ marginLeft: 6 }}
-                                    onClick={() => void loadDetail(proposal.id)}
-                                  >
-                                    重新加载
-                                  </button>
-                                </div>
-                              )}
-                              {notes[proposal.id] !== undefined && (
-                                <div className={`wm-action-note${notes[proposal.id]?.startsWith('❌') === true ? ' error' : ''}`}>
-                                  {notes[proposal.id]}
-                                </div>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </article>
-                  )
-                })}
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </article>
+                    )
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
+      </div>
 
       {createOpen && (
         <CreateModal
