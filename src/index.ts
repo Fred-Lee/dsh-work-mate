@@ -30,6 +30,7 @@ import { runBandsCheck } from './features/metrics/check.ts'
 import { parseSwarmTasks } from './features/swarm/plan.ts'
 import { AgentProvider, type HostLlmFace } from './features/decision/agent.ts'
 import { RulesProvider } from './features/decision/rules.ts'
+import { SystemOneProvider } from './features/decision/systemone.ts'
 import { DecisionService } from './features/decision/service.ts'
 import { SwarmManager } from './features/swarm/manager.ts'
 import type { ProposalSource } from './features/proposal/store.ts'
@@ -143,6 +144,15 @@ export function apply(ctx: Context, config: Config = {}): void {
       thresholds: { act: resolved.decisionActThreshold, review: resolved.decisionReviewThreshold },
     },
     providers: [
+      // The `jev` slot is the local/cloud System One client. It is first in the
+      // array only when configured; when unconfigured `available()` is false and
+      // the chain degrades to `agent` → `rules` without a failed request.
+      new SystemOneProvider({
+        baseUrl: resolved.decisionSystemoneUrl,
+        model: resolved.decisionSystemoneModel,
+        keepAlive: resolved.decisionSystemoneKeepAlive,
+        timeoutMs: resolved.decisionSystemoneTimeoutMs,
+      }),
       new AgentProvider({
         llm: () => llmRef,
         ...(resolved.decisionLlmProvider !== '' ? { provider: resolved.decisionLlmProvider } : {}),
