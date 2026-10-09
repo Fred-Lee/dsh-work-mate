@@ -179,6 +179,7 @@ node $DSH web                                                # http://127.0.0.1:
 | 审查者独立性 | `reviewerIndependence` | `'warn'` | `off`/`warn`/`block`；`block` 下 reviewer 缺失或与标记提交 author 同身份即拦归档；无 git 事实只 warn |
 | 审查证据机检 | `reviewEvidenceGate` | `'warn'` | `off`/`warn`/`block`；`block` 下反引号引用指向不存在的文件即拦归档；行号越界只 warn；GitNexus 查询结论标注为不可机检 |
 | 计划漂移 | `planDriftGate` | `false` | 想在本机开启：在 `~/.dsh/profiles/<profile>/cordis.patch.yml` 的 workmate 条目加 `planDriftGate: true` |
+| swarm 逐任务核验 | `swarmReviewRequired` | `false` | `true` 时每个已合并 swarm 任务都必须有独立核验记录（`workmate_swarm_task action=verify`），自评（`same-as-author`）或取不到 git 事实（`undetermined`）都算未核验 |
 
 强制归档（`force`）必留痕：approval 记录的 `forcedGates` 列出被跳过的门，
 `workmate_proposal_status` 返回 `forcedArchive`。**被门禁拒了不要改配置绕过**——

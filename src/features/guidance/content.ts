@@ -111,6 +111,10 @@ openspec archive**。\`force\` 只跳过审查门，其余步骤照跑——默�
   中止合并并把冲突文件交回：**在任务 worktree 里 \`git merge feature/<提案>\`、解完提交、
   再重跑 merge**——不要手工改主工作区。
 - 归档门会拦未合并的任务（\`force\` 可跳过，但那等于带着未合代码归档）。
+- **合并之后要核验**：\`workmate_swarm_task {action:"verify", taskId, reviewer, verdict:"verified"|"issues", evidence}\`。
+  合并只说明代码落地，核验才说明有人看过；插件会从 git 读该任务的提交作者，
+  判断核验者是否独立（同名即 \`same-as-author\`，不署名/无 git 事实则拒绝或记 \`undetermined\`）。
+  默认不拦归档；把 \`Config.swarmReviewRequired\` 设为 true 后，缺核验或自评都会拦归档。
 
 ## 入口溯源
 
