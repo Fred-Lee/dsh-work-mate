@@ -101,3 +101,24 @@ describe('collectArtifactLedger', () => {
     expect(ledger[0]?.note).toContain('cannot read change directory')
   })
 })
+
+describe('excluded declarations', () => {
+  it('reports declarations inside an ignored prefix as excluded, not missing', () => {
+    const report = computeDrift(
+      ['openspec/changes/p1/specs/**', 'src/a/**'],
+      ['src/b.ts'],
+      { ignoredPrefixes: ['openspec/changes/'] },
+    )
+
+    expect(report.excluded).toEqual(['openspec/changes/p1/specs/**'])
+    expect(report.missing).toEqual(['src/a/**'])
+    expect(report.undeclared).toEqual(['src/b.ts'])
+  })
+
+  it('treats a scope equal to the ignored prefix as excluded too', () => {
+    const report = computeDrift(['openspec/changes/p1'], ['src/b.ts'], { ignoredPrefixes: ['openspec/changes/p1'] })
+
+    expect(report.excluded).toEqual(['openspec/changes/p1'])
+    expect(report.missing).toEqual([])
+  })
+})

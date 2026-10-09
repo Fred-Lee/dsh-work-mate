@@ -1087,7 +1087,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     defineTool({
       name: 'workmate_plan_drift',
       description:
-        'Compare the plan against the code: declared scopes come from tasks.md (<!-- writes: ... -->) and design.md (<!-- files: ... -->), the actual set from the files the proposal\'s [proposal:<id>] commits touched. Returns undeclared changes, declared-but-untouched scopes and a drift ratio; with Config.planDriftGate enabled the same comparison blocks archiving. Run it before merging so declarations or the diff can still be fixed.',
+        'Compare the plan against the code: declared scopes come from tasks.md (<!-- writes: ... -->) and design.md (<!-- files: ... -->), the actual set from the files the proposal\'s [proposal:<id>] commits touched. Returns undeclared changes (changed but not declared — the only thing that blocks archiving under Config.planDriftGate), declared-but-untouched scopes and excluded scopes (declarations inside the plan directory, which is the plan and not a deliverable), plus a drift ratio. Untouched declarations never block, they surface as a warn step. Run it before merging so declarations or the diff can still be fixed.',
       parameters: {
         id: { type: 'string', required: true, description: 'Proposal id.' },
         projectRoot: { type: 'string', description: 'Absolute project root; defaults to Config.projectRoot or the first registered project.' },

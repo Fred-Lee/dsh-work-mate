@@ -61,6 +61,42 @@ describe('plan drift', () => {
     expect(drift?.driftRatio).toBe(1)
   })
 
+  it('reports an untouched declaration as a warn step, never as a failure', async () => {
+    // Declare what the commit actually touched (so nothing is undeclared) plus one
+    // scope nothing touched: the only finding left is the untouched declaration.
+    await writeFile(
+      join(project, 'openspec', 'changes', 'p1', 'tasks.md'),
+      '- [x] 1. 改 B <!-- writes: src/b.ts -->\n- [x] 2. 改 A <!-- writes: src/a/** -->\n',
+      'utf8',
+    )
+    const result = await orchestrateArchive(
+      proposal(),
+      [{ project: 'demo', root: project }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false, reviewGate: false, planDriftGate: true },
+    )
+
+    const driftStep = result.steps.find((step) => step.step === 'plan-drift')
+    expect(driftStep?.status).toBe('warn')
+    expect(driftStep?.summary).toContain('src/a/**')
+    // A warn step never blocks; the undeclared failure is what blocks.
+    expect(result.ok).toBe(true)
+  })
+
+  it('does not count the plan directory itself as an untouched declaration', async () => {
+    // Declaring the proposal's own spec file must not become a phantom "missing":
+    // the change directory is the plan, not a deliverable.
+    await writeFile(
+      join(project, 'openspec', 'changes', 'p1', 'tasks.md'),
+      '- [x] 1. 改 A <!-- writes: src/a/** -->\n- [x] 2. 规格 <!-- writes: openspec/changes/p1/specs/** -->\n',
+      'utf8',
+    )
+
+    const drift = await collectProjectDrift(proposal(), { project: 'demo', root: project }, { openspecRoot: 'openspec' })
+
+    expect(drift?.excluded).toEqual(['openspec/changes/p1/specs/**'])
+    expect(drift?.missing).toEqual(['src/a/**'])
+  })
+
   it('records the drift in the manifest without blocking by default', async () => {
     const result = await orchestrateArchive(
       proposal(),

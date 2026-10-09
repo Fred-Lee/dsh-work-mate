@@ -34,7 +34,12 @@ export interface OrchestrationStep {
     | 'worktree-cleanup'
     | 'vault-export'
     | 'status'
-  status: 'ok' | 'skipped' | 'failed'
+  /**
+   * `warn` is a step that succeeded but surfaced something worth reading (an
+   * untouched declaration, a tolerated out-of-range citation). It never blocks:
+   * only `failed` does, and every consumer keys on `failed`.
+   */
+  status: 'ok' | 'skipped' | 'failed' | 'warn'
   summary: string
 }
 
@@ -321,9 +326,11 @@ export async function orchestrateArchive(
 
   if (options.planDriftGate === true) {
     const undeclared: string[] = []
+    const untouched: string[] = []
     for (const target of targets) {
       const drift = await collectProjectDrift(proposal, target, options)
       for (const file of drift?.undeclared ?? []) undeclared.push(`[${target.project}] ${file}`)
+      for (const scope of drift?.missing ?? []) untouched.push(`[${target.project}] ${scope}`)
     }
     if (undeclared.length > 0) {
       steps.push({
@@ -334,6 +341,19 @@ export async function orchestrateArchive(
           .join('，')}（补声明，或 force 跳过）`,
       })
       return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }
+    }
+    // The opposite direction ("declared but never touched") is NOT blocked: a plan
+    // can legitimately declare a scope and then cover it by a different route (a
+    // rename, a shared module). But it must not be invisible either — before this
+    // step existed, an untouched declaration left no trace in the archive record.
+    if (untouched.length > 0) {
+      steps.push({
+        step: 'plan-drift',
+        status: 'warn',
+        summary: `计划里有 ${untouched.length} 处声明的范围没有任何改动落在其上 —— ${untouched
+          .slice(0, 8)
+          .join('，')}（计划写多了，或改在了别处；不阻断，但值得看一眼）`,
+      })
     }
   }
 
@@ -745,7 +765,7 @@ export async function collectProjectDrift(
       tasksMd: await readDeclared('tasks.md'),
       designMd: await readDeclared('design.md'),
     })
-    return computeDrift(declared, actual)
+    return computeDrift(declared, actual, { ignoredPrefixes: [changesPrefix] })
   } catch {
     return undefined
   }

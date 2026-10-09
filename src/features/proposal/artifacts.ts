@@ -21,10 +21,26 @@ export interface DriftReport {
   undeclared: string[]
   /** Declared but unchanged. */
   missing: string[]
+  /**
+   * Declared scopes that live under an ignored prefix (the change's own plan
+   * directory) and therefore can never show up in `actual`. They are NOT
+   * "declared but untouched" — counting them as `missing` would report a
+   * phantom miss on every proposal that declares its own spec files.
+   */
+  excluded: string[]
   /** `undeclared / actual`, 0 when there is nothing to compare. */
   driftRatio: number
   /** Set when no declaration exists — drift is then unknowable, not zero. */
   note?: string
+}
+
+export interface DriftOptions {
+  /**
+   * Path prefixes excluded from `actual` by the caller (the plan directory is
+   * the plan, not a deliverable). Declared scopes inside them are reported as
+   * `excluded` instead of `missing`.
+   */
+  ignoredPrefixes?: readonly string[]
 }
 
 export interface ArtifactRecord {
@@ -71,25 +87,36 @@ export function scopeCovers(scope: string, path: string): boolean {
 }
 
 /** Compare the declared scopes with the files the proposal actually touched. */
-export function computeDrift(declared: readonly string[], actual: readonly string[]): DriftReport {
+export function computeDrift(
+  declared: readonly string[],
+  actual: readonly string[],
+  options: DriftOptions = {},
+): DriftReport {
   const files = [...new Set(actual)].sort()
+  const ignored = (options.ignoredPrefixes ?? []).map(normalize).filter((prefix) => prefix !== '')
+  const isIgnored = (scope: string): boolean => ignored.some((prefix) => scopeCovers(prefix, scope) || scopeCovers(scope, prefix))
   if (declared.length === 0) {
     return {
       declared: [],
       actual: files,
       undeclared: [],
       missing: [],
+      excluded: [],
       driftRatio: 0,
       note: '未声明范围（tasks.md 无 writes、design.md 无 files），无法判定漂移',
     }
   }
   const undeclared = files.filter((path) => !declared.some((scope) => scopeCovers(scope, path)))
-  const missing = declared.filter((scope) => !files.some((path) => scopeCovers(scope, path)))
+  const excluded = declared.filter((scope) => isIgnored(scope))
+  const missing = declared.filter(
+    (scope) => !isIgnored(scope) && !files.some((path) => scopeCovers(scope, path)),
+  )
   return {
     declared: [...declared],
     actual: files,
     undeclared,
     missing,
+    excluded,
     driftRatio: files.length === 0 ? 0 : undeclared.length / files.length,
   }
 }

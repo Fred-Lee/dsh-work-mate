@@ -178,7 +178,7 @@ node $DSH web                                                # http://127.0.0.1:
 | 跳过门禁的权限 | `allowAgentForceArchive` | `false` | `force` 是**人的决定**：agent 调用会被拒，除非显式打开这个开关 |
 | 审查者独立性 | `reviewerIndependence` | `'warn'` | `off`/`warn`/`block`；`block` 下 reviewer 缺失或与标记提交 author 同身份即拦归档；无 git 事实只 warn |
 | 审查证据机检 | `reviewEvidenceGate` | `'warn'` | `off`/`warn`/`block`；`block` 下反引号引用指向不存在的文件即拦归档；行号越界只 warn；GitNexus 查询结论标注为不可机检 |
-| 计划漂移 | `planDriftGate` | `false` | 想在本机开启：在 `~/.dsh/profiles/<profile>/cordis.patch.yml` 的 workmate 条目加 `planDriftGate: true` |
+| 计划漂移 | `planDriftGate` | `false` | 只拦**改了没声明**（`undeclared` → failed）；**声明了没改**只产出一条 `warn` 步骤（计划写多了或改在别处，无法从 git 事实区分，不阻断）。提案自己的 `openspec/changes/<id>/` 是计划不是交付物，计入 `excluded` 而不算漂移。想在本机开启：在 `~/.dsh/profiles/<profile>/cordis.patch.yml` 的 workmate 条目加 `planDriftGate: true` |
 | swarm 逐任务核验 | `swarmReviewRequired` | `false` | `true` 时每个已合并 swarm 任务都必须有独立核验记录（`workmate_swarm_task action=verify`），自评（`same-as-author`）或取不到 git 事实（`undetermined`）都算未核验 |
 
 强制归档（`force`）必留痕：approval 记录的 `forcedGates` 列出被跳过的门，
