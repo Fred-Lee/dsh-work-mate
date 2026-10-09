@@ -32,6 +32,8 @@ export interface AddApprovalInput {
   decision?: 'approve' | 'reject'
   rationale?: string
   commit?: string
+  /** Gates waived by `force` (change `harden-archive-gates`); absent for state approvals. */
+  forcedGates?: string[]
 }
 
 /** Fields the lifecycle layer may patch directly (manager outputs, branches, wiki refs). */
@@ -259,6 +261,7 @@ export class ProposalServiceImpl implements ProposalService {
       actor: input.actor,
       decision: input.decision ?? 'approve',
       ...(input.rationale !== undefined && input.rationale !== '' ? { rationale: input.rationale } : {}),
+      ...(input.forcedGates !== undefined && input.forcedGates.length > 0 ? { forcedGates: input.forcedGates } : {}),
       at: this.now().toISOString(),
       ...(input.commit !== undefined && input.commit !== '' ? { commit: input.commit } : {}),
     }

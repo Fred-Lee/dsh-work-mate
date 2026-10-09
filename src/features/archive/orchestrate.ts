@@ -13,6 +13,8 @@ import { join } from 'node:path'
 import { readChangeState, validateProjectRoot } from '../proposal/openspec.ts'
 import { gitnexusAnalyze } from '../knowledge-bridge/gitnexus.ts'
 import { formatTally, parseReviewMd, reviewTally } from '../quality/review-parser.ts'
+import { checkCitations, fileSystemProbe, formatCitationReport } from '../quality/citations.ts'
+import { judgeReviewerIndependence, type Identity } from '../quality/reviewer-independence.ts'
 import type { Proposal } from '../proposal/store.ts'
 import type { ArchiveManifest, ArchiveManifestEntry } from './manifest.ts'
 import { collectArtifactLedger, computeDrift, declaredScopes } from '../proposal/artifacts.ts'
@@ -21,6 +23,8 @@ import type { DecisionOutcome, DecisionQuestion } from '../decision/types.ts'
 export interface OrchestrationStep {
   step:
     | 'review-gate'
+    | 'review-independent'
+    | 'review-evidence'
     | 'tasks'
     | 'plan-drift'
     | 'swarm'
@@ -206,6 +210,19 @@ export interface OrchestrateOptions {
    * @default ['CRIT']
    */
   reviewBlockingSeverities?: string[]
+  /**
+   * Reviewer independence (`Config.reviewerIndependence`, change `harden-archive-gates`).
+   * `block` fails on `missing` / `same-as-author`; `undetermined` (no git facts) only warns.
+   * @default 'off' — the host passes the configured value.
+   */
+  reviewerIndependence?: 'off' | 'warn' | 'block'
+  /**
+   * Citation probe mode (`Config.reviewEvidenceGate`). `block` fails on a missing file;
+   * an out-of-range line only warns. @default 'off'
+   */
+  reviewEvidenceGate?: 'off' | 'warn' | 'block'
+  /** Identities of this proposal's executors, collected by the caller (git authors). */
+  executorIdentities?: readonly Identity[]
   /** How many untagged findings one run may grade (`Config.reviewGradeMax`). @default 5 */
   reviewGradeMax?: number
   /** Block archiving on a judged-unsatisfied task (`Config.taskJudgementGate`). @default false */
@@ -415,6 +432,39 @@ export async function orchestrateArchive(
         deps.decide === undefined
           ? []
           : await gradeUntaggedFindings(report, deps.decide, options.reviewGradeMax ?? 5, options.signal)
+      // Reviewer independence + citation probe (change `harden-archive-gates`).
+      // Both run per target: a report without a verifiable checker or with citations
+      // that do not resolve is not evidence, and the gate must say so — in `block`
+      // mode it fails, in `warn` mode it records the fact and lets the run continue.
+      if (options.reviewerIndependence !== undefined && options.reviewerIndependence !== 'off') {
+        const executors =
+          options.executorIdentities ?? (await collectExecutorIdentities(target.root, proposal.id, options.signal))
+        const verdict = judgeReviewerIndependence({
+          ...(report.reviewer.reviewer !== undefined ? { reviewer: report.reviewer.reviewer } : {}),
+          shadow: report.reviewer.shadow,
+          executors,
+        })
+        const blockingVerdict = verdict.verdict === 'missing' || verdict.verdict === 'same-as-author'
+        const block = options.reviewerIndependence === 'block' && blockingVerdict
+        if (block) gateFailed = true
+        steps.push({
+          step: 'review-independent',
+          status: block ? 'failed' : verdict.verdict === 'independent' ? 'ok' : 'skipped',
+          summary: `${label}${verdict.note}${block ? ' —— reviewerIndependence=block，归档被阻断' : ''}`,
+        })
+      }
+      if (options.reviewEvidenceGate !== undefined && options.reviewEvidenceGate !== 'off') {
+        const probe = fileSystemProbe(target.root)
+        const citations = await checkCitations(content, probe)
+        const missing = citations.byVerdict['file-missing']
+        const block = options.reviewEvidenceGate === 'block' && missing > 0
+        if (block) gateFailed = true
+        steps.push({
+          step: 'review-evidence',
+          status: block ? 'failed' : missing > 0 || citations.byVerdict['line-out-of-range'] > 0 ? 'skipped' : 'ok',
+          summary: `${label}${formatCitationReport(citations)}${block ? ' —— reviewEvidenceGate=block，归档被阻断' : ''}`,
+        })
+      }
       const tally = reviewTally(
         { ...report, findings: [...legacy, ...report.findings, ...graded] },
         options.reviewBlockingSeverities ?? ['CRIT'],
@@ -531,6 +581,37 @@ export async function orchestrateArchive(
     forced: options.reviewGate === false || options.tasksGate === false,
     ...(tasks !== undefined ? { tasks } : {}),
   }
+}
+
+/**
+ * Distinct author identities of the commits carrying `[proposal:<id>]` — the
+ * "executor set" the reviewer-independence verdict compares against (change
+ * `harden-archive-gates`, design D2). Best-effort: a non-git root yields `[]`,
+ * which makes the verdict `undetermined` rather than a false accusation.
+ */
+async function collectExecutorIdentities(root: string, proposalId: string, signal?: AbortSignal): Promise<Identity[]> {
+  let output: string
+  try {
+    output = await execCli(
+      'git',
+      ['log', '--all', '--fixed-strings', '--grep', `[proposal:${proposalId}]`, '--format=%an%x09%ae'],
+      root,
+      20_000,
+      signal,
+    )
+  } catch {
+    return []
+  }
+  const byKey = new Map<string, Identity>()
+  for (const line of output.split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed === '') continue
+    const [name = '', email = ''] = trimmed.split('\t')
+    if (name === '' && email === '') continue
+    const key = `${name.toLowerCase()}|${email.toLowerCase()}`
+    if (!byKey.has(key)) byKey.set(key, { name, ...(email !== '' ? { email } : {}) })
+  }
+  return [...byKey.values()]
 }
 
 /** Short hashes carrying the proposal marker (`$ git log --grep '[proposal:<id>]'`). */

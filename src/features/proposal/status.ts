@@ -52,6 +52,12 @@ export interface ProposalStatus {
   pendingApproval?: { gate: Proposal['status']; reason: string }
   /** Gate approvals recorded so far. */
   approvals?: Proposal['approvals']
+  /**
+   * The most recent forced archive (change `harden-archive-gates`): a gate was skipped
+   * by `force`, so the status must be able to say who decided it and which gates were
+   * bypassed. Derived from the approval record; absent when the archive was not forced.
+   */
+  forcedArchive?: { at: string; actor: string; rationale?: string; gates?: string[] }
 }
 
 export interface StatusOptions {
@@ -96,6 +102,7 @@ export async function buildProposalStatus(
         }
       : {}),
     ...(proposal.approvals !== undefined ? { approvals: proposal.approvals } : {}),
+    ...(forcedArchiveOf(proposal) !== undefined ? { forcedArchive: forcedArchiveOf(proposal) as NonNullable<ProposalStatus['forcedArchive']> } : {}),
   }
   const associated = proposal.projects.length > 0 ? proposal.projects : []
 
@@ -221,4 +228,23 @@ async function collectProject(
     detail.reviewTally = reviewTally(report, reviewBlockingSeverities ?? CONFIG_DEFAULTS.reviewBlockingSeverities)
   }
   return detail
+}
+
+/**
+ * Find the last forced-archive approval (change `harden-archive-gates`).
+ * @param proposal - the aggregated record.
+ * @returns the newest `force-archive` approval projected for the panel, or undefined.
+ */
+export function forcedArchiveOf(proposal: Proposal): ProposalStatus['forcedArchive'] {
+  const matches = (proposal.approvals ?? []).filter(
+    (record) => record.decision === 'approve' && record.forcedGates !== undefined && record.forcedGates.length > 0,
+  )
+  const last = matches.at(-1)
+  if (last === undefined) return undefined
+  return {
+    at: last.at,
+    actor: last.actor,
+    ...(last.rationale !== undefined ? { rationale: last.rationale } : {}),
+    ...(last.forcedGates !== undefined ? { gates: last.forcedGates } : {}),
+  }
 }

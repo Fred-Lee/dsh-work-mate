@@ -241,6 +241,146 @@ describe('orchestrateArchive (fake CLIs)', () => {
     await rm(strictProject, { recursive: true, force: true })
   })
 
+  it('judges reviewer independence, and only blocks on what it can prove', async () => {
+    const seed = async (reviewer: string): Promise<string> => {
+      const project = await mkdtemp(join(tmpdir(), 'wm-indep-'))
+      await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+      await writeFile(
+        join(project, 'openspec', 'changes', 'p1', 'review.md'),
+        `${reviewer}\n\n## 确认项\n\n- [x] 已核对\n`,
+      )
+      await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n')
+      return project
+    }
+    const executors = [{ name: 'fred', email: 'fred@example.com' }]
+    const stepOf = (steps: Awaited<ReturnType<typeof orchestrateArchive>>['steps']): string =>
+      steps.find((step) => step.step === 'review-independent')?.summary ?? ''
+
+    // warn (default downstream value): an independent reviewer passes
+    const independent = await seed('<!-- reviewer: auditor@1.2 -->')
+    const warned = await orchestrateArchive(
+      archivingProposal(),
+      [{ project: 'demo', root: independent }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false, reviewerIndependence: 'warn', executorIdentities: executors },
+    )
+    expect(warned.ok).toBe(true)
+    expect(stepOf(warned.steps)).toContain('不在执行者身份集合内')
+
+    // block: the author reviewing their own change stops the archive
+    const selfReview = await seed('<!-- reviewer: fred -->')
+    const blocked = await orchestrateArchive(
+      archivingProposal(),
+      [{ project: 'demo', root: selfReview }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false, reviewerIndependence: 'block', executorIdentities: executors },
+    )
+    expect(blocked.ok).toBe(false)
+    expect(blocked.steps.find((step) => step.step === 'review-independent')?.status).toBe('failed')
+    expect(stepOf(blocked.steps)).toContain('fred@example.com')
+
+    // block with no git facts: warn, never a false accusation
+    const noFacts = await seed('<!-- reviewer: fred -->')
+    const undetermined = await orchestrateArchive(
+      archivingProposal(),
+      [{ project: 'demo', root: noFacts }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false, reviewerIndependence: 'block', executorIdentities: [] },
+    )
+    expect(undetermined.ok).toBe(true)
+    expect(undetermined.steps.find((step) => step.step === 'review-independent')?.status).toBe('skipped')
+    expect(stepOf(undetermined.steps)).toContain('无法判定')
+
+    // off: no step at all
+    const off = await seed('<!-- reviewer: fred -->')
+    const skipped = await orchestrateArchive(
+      archivingProposal(),
+      [{ project: 'demo', root: off }],
+      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false, reviewerIndependence: 'off', executorIdentities: executors },
+    )
+    expect(skipped.steps.some((step) => step.step === 'review-independent')).toBe(false)
+
+    for (const project of [independent, selfReview, noFacts, off]) await rm(project, { recursive: true, force: true })
+  })
+
+  it('collects executor identities from the marker commits when the caller passes none', async () => {
+    // End-to-end proof of the D2 identity path: no injected identity list — the
+    // archive layer must read the commit authors itself.
+    const project = await mkdtemp(join(tmpdir(), 'wm-ident-git-'))
+    await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+    await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n')
+    await writeFile(join(project, 'openspec', 'changes', 'p1', 'review.md'), '<!-- reviewer: fred -->\n\n## 确认项\n\n- [x] 已核对\n')
+    await git(['init', '-q'], project)
+    await git(['config', 'user.name', 'fred'], project)
+    await git(['config', 'user.email', 'fred@example.com'], project)
+    await git(['add', '-A'], project)
+    await git(['commit', '-q', '-m', 'feat: seed [proposal:p1]'], project)
+
+    const result = await orchestrateArchive(archivingProposal(), [{ project: 'demo', root: project }], {
+      openspecRoot: 'openspec',
+      gitnexusAnalyzeEnabled: false,
+      reviewerIndependence: 'block',
+    })
+    const step = result.steps.find((entry) => entry.step === 'review-independent')
+    expect(step?.status).toBe('failed')
+    expect(step?.summary).toContain('同一身份')
+
+    await rm(project, { recursive: true, force: true })
+  })
+
+  it('probes review citations, blocking only on files that do not exist', async () => {
+    const seed = async (line: string): Promise<string> => {
+      const project = await mkdtemp(join(tmpdir(), 'wm-cite-'))
+      await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+      await writeFile(join(project, 'real.ts'), 'a\nb\nc\n')
+      await writeFile(
+        join(project, 'openspec', 'changes', 'p1', 'review.md'),
+        `## 确认项\n\n- [x] ${line}\n`,
+      )
+      await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n')
+      return project
+    }
+
+    const good = await seed('见 `real.ts:2`')
+    const ok = await orchestrateArchive(archivingProposal(), [{ project: 'demo', root: good }], {
+      openspecRoot: 'openspec',
+      gitnexusAnalyzeEnabled: false,
+      reviewEvidenceGate: 'warn',
+    })
+    expect(ok.ok).toBe(true)
+    expect(ok.steps.find((step) => step.step === 'review-evidence')?.status).toBe('ok')
+
+    // A missing file blocks in `block` mode; an out-of-range line does not.
+    const missing = await seed('见 `does-not-exist.ts:3`')
+    const blocked = await orchestrateArchive(archivingProposal(), [{ project: 'demo', root: missing }], {
+      openspecRoot: 'openspec',
+      gitnexusAnalyzeEnabled: false,
+      reviewEvidenceGate: 'block',
+    })
+    expect(blocked.ok).toBe(false)
+    expect(blocked.steps.find((step) => step.step === 'review-evidence')?.status).toBe('failed')
+
+    const outOfRange = await seed('见 `real.ts:999`')
+    const tolerated = await orchestrateArchive(archivingProposal(), [{ project: 'demo', root: outOfRange }], {
+      openspecRoot: 'openspec',
+      gitnexusAnalyzeEnabled: false,
+      reviewEvidenceGate: 'block',
+    })
+    expect(tolerated.ok).toBe(true)
+    const evidence = tolerated.steps.find((step) => step.step === 'review-evidence')
+    expect(evidence?.status).toBe('skipped')
+    expect(evidence?.summary).toContain('行号越界 1')
+
+    // GitNexus conclusions are reported as uncheckable, not "verified".
+    const gitnexus = await seed('结论：`impact(ArchiveGate)` 无上游影响')
+    const uncheckable = await orchestrateArchive(archivingProposal(), [{ project: 'demo', root: gitnexus }], {
+      openspecRoot: 'openspec',
+      gitnexusAnalyzeEnabled: false,
+      reviewEvidenceGate: 'block',
+    })
+    expect(uncheckable.ok).toBe(true)
+    expect(uncheckable.steps.find((step) => step.step === 'review-evidence')?.summary).toContain('不可机检 1 条')
+
+    for (const project of [good, missing, outOfRange, gitnexus]) await rm(project, { recursive: true, force: true })
+  })
+
   it('blocks archiving while a swarm task is unmerged', async () => {
     const project = await mkdtemp(join(tmpdir(), 'wm-swarm-gate-'))
     await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })

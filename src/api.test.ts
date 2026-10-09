@@ -198,6 +198,39 @@ describe('proposal REST API', () => {
 })
 
 describe('static serving', () => {
+  it('exposes the forced archive after a human skips the review gate', async () => {
+    await call('POST', '/api/proposals', { id: 'p1', title: '强制归档变更' })
+    await proposals.setStatus('p1', 'archiving', { actor: 'human' })
+
+    const before = await call('GET', '/api/proposals/p1')
+    expect((before.body as { forcedArchive?: unknown }).forcedArchive).toBeUndefined()
+
+    // The router for this describe-block returns ok:false on purpose; the forced-run
+    // record must therefore NOT be written — a decision that failed is not a decision
+    // that happened (design D4).
+    const attempted = await call('POST', '/api/proposals/p1/archive', { force: true })
+    expect(attempted.status).toBe(200)
+    expect((attempted.body as { orchestration?: { ok?: boolean } }).orchestration?.ok).toBe(false)
+    const afterFailure = await call('GET', '/api/proposals/p1')
+    expect((afterFailure.body as { proposal: { status: string } }).proposal.status).toBe('archiving')
+    expect((afterFailure.body as { forcedArchive?: unknown }).forcedArchive).toBeUndefined()
+
+    // Record the forced approval the way a successful run does, then read it back.
+    await proposals.addApproval('p1', {
+      gate: 'archived',
+      actor: 'human',
+      decision: 'approve',
+      rationale: 'force 跳过：review-gate / tasks',
+      forcedGates: ['review-gate', 'tasks'],
+    })
+
+    const after = await call('GET', '/api/proposals/p1')
+    const payload = after.body as { forcedArchive?: { actor: string; gates?: string[]; rationale?: string } }
+    expect(payload.forcedArchive?.actor).toBe('human')
+    expect(payload.forcedArchive?.gates).toContain('review-gate')
+    expect(payload.forcedArchive?.rationale).toContain('force 跳过')
+  })
+
   it('exposes the pending human approval and lets the human path cross it', async () => {
     await call('POST', '/api/proposals', { id: 'p1', title: '待合并变更' })
     await proposals.setStatus('p1', 'implementing', { actor: 'agent' })

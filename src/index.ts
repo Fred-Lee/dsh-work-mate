@@ -171,6 +171,9 @@ export function apply(ctx: Context, config: Config = {}): void {
     approvalsRequired: resolved.approvalsRequired,
     allowAgentApproval: resolved.allowAgentApproval,
     planDriftGate: resolved.planDriftGate,
+    allowAgentForceArchive: resolved.allowAgentForceArchive,
+    reviewerIndependence: resolved.reviewerIndependence as 'off' | 'warn' | 'block',
+    reviewEvidenceGate: resolved.reviewEvidenceGate as 'off' | 'warn' | 'block',
     highRiskExtraGates: resolved.highRiskExtraGates,
     riskGateEnabled: resolved.decisionEnabled,
     orchestrate(proposal, targets, opts) {
@@ -650,11 +653,11 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     defineTool({
       name: 'workmate_proposal_archive',
       description:
-        'Drive the eight-state proposal lifecycle: mode=advance moves one state forward (auto-creates the worktree at ready→implementing; wiki coverage is checked before merging); mode=archive runs the archive orchestration once in archiving (force skips the review gate only); any state name performs an adjacent transition (backward is free — rolling back from archived also moves the change directories back under changes/).',
+        'Drive the eight-state proposal lifecycle: mode=advance moves one state forward (auto-creates the worktree at ready→implementing; wiki coverage is checked before merging); mode=archive runs the archive orchestration once in archiving (force skips the review / tasks / drift gates and requires a HUMAN decision — agent calls with force are refused unless Config.allowAgentForceArchive; ask the user to archive from the panel instead); any state name performs an adjacent transition (backward is free — rolling back from archived also moves the change directories back under changes/).',
       parameters: {
         id: { type: 'string', required: true, description: 'Proposal id.' },
         mode: { type: 'string', description: 'advance (default) | archive | a state name (draft/proposing/reviewing/ready/implementing/merging/archiving/archived).' },
-        force: { type: 'boolean', description: 'mode=archive only: skip the review gate (missing review.md / unresolved CRITICAL). Never skips openspec archive or gitnexus.' },
+        force: { type: 'boolean', description: 'mode=archive only: skip the review / tasks / plan-drift gates (never openspec archive or gitnexus). Agent calls are refused — this is a human decision; ask the user to use the panel, or set Config.allowAgentForceArchive.' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
       // worktree create (install ≤ 300s) + openspec archive (60s) + gitnexus (120s).
@@ -668,7 +671,11 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         }
         if (mode === 'archive') {
           const result = await archive.runArchive(args.id, { force: args.force === true, signal, actor: 'agent' })
-          return asJson({ proposal: result.proposal, ...(result.orchestration !== undefined ? { orchestration: result.orchestration } : {}) })
+          return asJson({
+            proposal: result.proposal,
+            ...(result.orchestration !== undefined ? { orchestration: result.orchestration } : {}),
+            ...(result.forced === true ? { forced: true, note: '归档跳过了门禁（由人决定）—— 见 proposal.approvals 的 forcedGates' } : {}),
+          })
         }
         const result = await archive.transition(args.id, mode as ProposalState, { signal, actor: 'agent' })
         return asJson({ proposal: result.proposal, ...(result.worktree !== undefined ? { worktree: result.worktree } : {}), ...(result.orchestration !== undefined ? { orchestration: result.orchestration } : {}) })

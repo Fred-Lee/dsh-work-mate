@@ -84,6 +84,24 @@ export interface Config {
    */
   planDriftGate?: boolean
   /**
+   * Let the agent actor pass `force: true` to an archive run (change
+   * `harden-archive-gates`). Skipping the review / tasks / drift gates is a human
+   * decision; leaving this false keeps it that way. @default false
+   */
+  allowAgentForceArchive?: boolean
+  /**
+   * Reviewer independence at the archive gate (change `harden-archive-gates`):
+   * `off` | `warn` | `block`. `block` fails on a missing or self-reported reviewer;
+   * an undetermined verdict (no git facts) only warns. @default 'warn'
+   */
+  reviewerIndependence?: string
+  /**
+   * Machine-check the backticked citations in review.md (change
+   * `harden-archive-gates`): `off` | `warn` | `block`. `block` fails on a missing
+   * file; an out-of-range line only warns. @default 'warn'
+   */
+  reviewEvidenceGate?: string
+  /**
    * Integration trunk the git gates and the proposal worktree use: the branch a
    * proposal branch must be merged into (`ready`) and a feature branch must be
    * merged into (`archiving`), and the branch the `implementing` worktree is cut
@@ -191,6 +209,18 @@ export const Config: z<Config> = z.object({
     .boolean()
     .default(false)
     .description('Fail archiving when the diff touches files the plan never declared.'),
+  allowAgentForceArchive: z
+    .boolean()
+    .default(false)
+    .description('Let the agent pass force:true to an archive run (skipping gates stays a human decision).'),
+  reviewerIndependence: z
+    .string()
+    .default('warn')
+    .description('Archive-gate reviewer independence: off | warn | block (block fails on missing/self-reported reviewer).'),
+  reviewEvidenceGate: z
+    .string()
+    .default('warn')
+    .description('Machine-check review.md citations: off | warn | block (block fails on a missing file).'),
   lifecycleMainBranch: z
     .string()
     .default('main')
@@ -252,6 +282,9 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   allowAgentApproval: false,
   reviewBlockingSeverities: ['CRIT'],
   planDriftGate: false,
+  allowAgentForceArchive: false,
+  reviewerIndependence: 'warn',
+  reviewEvidenceGate: 'warn',
   lifecycleMainBranch: 'main',
   decisionEnabled: false,
   decisionProvider: 'agent',

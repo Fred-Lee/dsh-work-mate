@@ -68,6 +68,11 @@ export interface ApprovalRecord {
   at: string
   /** Implementation-branch HEAD the approval covers, when git was available. */
   commit?: string
+  /**
+   * Gates this approval waived via `force` (change `harden-archive-gates`).
+   * Absent for an ordinary state approval; the optional field needs no migration.
+   */
+  forcedGates?: string[]
 }
 
 import type { ArchiveManifest } from '../archive/manifest.ts'

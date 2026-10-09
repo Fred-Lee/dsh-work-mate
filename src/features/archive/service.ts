@@ -92,6 +92,16 @@ export interface LifecycleDeps {
   allowAgentApproval?: boolean
   /** Fail archiving on undeclared changes (`Config.planDriftGate`). */
   planDriftGate?: boolean
+  /**
+   * Let the agent actor pass `force: true` to the archive run (change
+   * `harden-archive-gates`). Default false: skipping the review/tasks/drift gates is a
+   * human decision, captured as an approval record rather than an invisible shortcut.
+   */
+  allowAgentForceArchive?: boolean
+  /** Reviewer-independence mode for the archive gate (`Config.reviewerIndependence`). */
+  reviewerIndependence?: 'off' | 'warn' | 'block'
+  /** Citation-probe mode for the archive gate (`Config.reviewEvidenceGate`). */
+  reviewEvidenceGate?: 'off' | 'warn' | 'block'
   /** Extra states a HIGH-risk proposal needs a human approval for (`Config.highRiskExtraGates`). */
   highRiskExtraGates?: string[]
   /**
@@ -117,10 +127,18 @@ export interface TransitionOptions {
   actor?: EventActor
   /** Why the approver crossed the gate; stored on the approval record. */
   rationale?: string
+  /**
+   * Gates this approval waived via `force` (change `harden-archive-gates`). Absent for
+   * an ordinary state approval; `runArchive` fills it before recording the forced run.
+   */
+  forcedGates?: string[]
 }
 
 export interface ArchiveOptions extends TransitionOptions {
-  /** Skip the review gate only (review.md presence + unresolved CRITICAL). */
+  /**
+   * Skip the review / tasks / drift gates (change `harden-archive-gates`). A human
+   * decision: the agent actor is refused unless `allowAgentForceArchive` is set.
+   */
   force?: boolean
 }
 
@@ -129,6 +147,11 @@ export interface TransitionOutcome {
   /** Set when the transition created the worktree (ready→implementing). */
   worktree?: { worktreePath: string; portRange: number[]; install: string }
   orchestration?: OrchestrationResult
+  /**
+   * True when the archive run skipped a gate via `force` (change `harden-archive-gates`).
+   * Mirrors `OrchestrationResult.forced` so a caller holding only the outcome still knows.
+   */
+  forced?: boolean
 }
 
 export class LifecycleServiceImpl {
@@ -279,6 +302,9 @@ export class LifecycleServiceImpl {
       decision: 'approve',
       ...(options.rationale !== undefined ? { rationale: options.rationale } : {}),
       ...(commit !== undefined ? { commit } : {}),
+      ...(options.forcedGates !== undefined && options.forcedGates.length > 0
+        ? { forcedGates: options.forcedGates }
+        : {}),
     })
     await this.deps.proposals.recordEvent({
       at,
@@ -434,11 +460,14 @@ export class LifecycleServiceImpl {
     }
     const targets = (await this.deps.resolveProjectRoots?.(proposal)) ?? []
     await this.assertApproval(proposal, 'archived', options)
+    if (options.force === true) await this.assertForceAllowed(proposal, options)
     const orchestration = await this.deps.orchestrate(proposal, targets, {
       openspecRoot: this.openspecRoot,
       reviewGate: options.force !== true,
       tasksGate: options.force !== true,
       planDriftGate: this.deps.planDriftGate === true && options.force !== true,
+      ...(this.deps.reviewerIndependence !== undefined ? { reviewerIndependence: this.deps.reviewerIndependence } : {}),
+      ...(this.deps.reviewEvidenceGate !== undefined ? { reviewEvidenceGate: this.deps.reviewEvidenceGate } : {}),
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
     if (!orchestration.ok) {
@@ -476,8 +505,14 @@ export class LifecycleServiceImpl {
       actor: options.actor ?? 'system',
       detail: cleanup ?? undefined,
     })
+    // Only a successful archive leaves the forced-run record: a failed run must not
+    // look like a decision that was carried out (change `harden-archive-gates`, D4).
+    if (options.force === true) await this.recordForcedArchive(id, options)
+    // Re-read so the returned record carries the forced-run approval it just wrote —
+    // `updated` is the snapshot taken before that write.
+    const returned = options.force === true ? ((await this.deps.proposals.get(id)) ?? updated) : updated
     return {
-      proposal: updated,
+      proposal: returned,
       orchestration:
         cleanup !== undefined
           ? {
@@ -485,7 +520,48 @@ export class LifecycleServiceImpl {
               steps: [...orchestration.steps, { step: 'worktree-cleanup' as const, status: 'ok' as const, summary: cleanup }],
             }
           : orchestration,
+      ...(orchestration.forced === true || options.force === true ? { forced: true } : {}),
     }
+  }
+
+  /**
+   * Skipping a gate is a human decision, not an agent parameter (change
+   * `harden-archive-gates`, design D1). The panel/API path keeps working; the agent
+   * path is refused unless the operator opted in with `allowAgentForceArchive`.
+   * A refusal is data: it is recorded as a `gate-failed` event before it is thrown.
+   */
+  private async assertForceAllowed(proposal: Proposal, options: ArchiveOptions): Promise<void> {
+    if (options.actor !== 'agent') return
+    if (this.deps.allowAgentForceArchive === true) return
+    const error = new InvalidTransitionError(
+      'agent 不得用 force 跳过归档门禁（审查门 / 任务门 / 计划漂移门）——' +
+        `请在 WorkMate 面板对提案 ${proposal.id} 点「归档（跳过审查门）」并由人确认，` +
+        '或把 Config.allowAgentForceArchive 设为 true（那会放弃这条分离）',
+    )
+    await this.recordGateFailure(proposal, 'archived', error, options.actor, 'force-archive')
+    throw error
+  }
+
+  /**
+   * A forced archive leaves a record even when it succeeded: who decided it, and which
+   * gates were actually bypassed (change `harden-archive-gates`, design D4). The gate
+   * list lands in the existing `rationale` field so no store shape changes.
+   */
+  private async recordForcedArchive(id: string, options: ArchiveOptions): Promise<void> {
+    const proposal = await this.deps.proposals.get(id)
+    if (proposal === undefined) return
+    // Derived from what this call actually disabled: the service — not the nested
+    // orchestrator's step log — is the authority on which gates `force` turned off.
+    // The drift gate only exists when it is configured on, so it is only listed then.
+    const forcedGates = [
+      'review-gate',
+      'tasks',
+      ...(this.deps.planDriftGate === true ? ['plan-drift'] : []),
+    ]
+    const rationale =
+      (options.rationale !== undefined && options.rationale !== '' ? `${options.rationale}；` : '') +
+      `force 跳过：${forcedGates.join(' / ')}`
+    await this.recordApproval(proposal, 'archived', { ...options, rationale, forcedGates })
   }
 
   private async mustGet(id: string): Promise<Proposal> {
