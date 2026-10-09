@@ -197,9 +197,17 @@ export class WorktreeManager {
       installNote = 'no package.json in the worktree'
     }
 
-    // keep the scratch dir out of git in the main checkout
+    // Keep the scratch dir out of git in the main checkout — but only once: each
+    // `create` used to append another copy (`fix-panel-scroll` left a doubled block),
+    // and a growing .gitignore is noise in every later diff.
     try {
-      await appendFile(join(projectRoot, '.gitignore'), `\n${WORKMATES_DIR}/\n`, 'utf8')
+      const ignorePath = join(projectRoot, '.gitignore')
+      const existing = await readFile(ignorePath, 'utf8').catch(() => '')
+      const already = existing
+        .split('\n')
+        .map((line) => line.trim())
+        .includes(`${WORKMATES_DIR}/`)
+      if (!already) await appendFile(ignorePath, `\n${WORKMATES_DIR}/\n`, 'utf8')
     } catch {
       // best effort
     }

@@ -94,6 +94,13 @@ describe('WorktreeManager (real git)', () => {
 
     // recorded on the allocator
     await expect(manager.ports().get('p1')).resolves.toMatchObject({ base: 3000 })
+
+    // `.gitignore` gets exactly one `.workmates/` line, no matter how many creates ran
+    const ignore = await readFile(join(project, '.gitignore'), 'utf8')
+    expect(ignore.split('\n').filter((line) => line.trim() === '.workmates/')).toHaveLength(1)
+    await manager.create({ projectRoot: project, proposalId: 'p2' })
+    const again = await readFile(join(project, '.gitignore'), 'utf8')
+    expect(again.split('\n').filter((line) => line.trim() === '.workmates/')).toHaveLength(1)
   })
 
   it('serializes concurrent creates without .git/config contention', async () => {

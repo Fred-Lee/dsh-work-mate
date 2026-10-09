@@ -5,3 +5,5 @@ dist/
 coverage/
 .gitnexus/
 .claude/settings.local.json
+
+.workmates/
