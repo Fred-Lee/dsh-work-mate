@@ -18,13 +18,16 @@ WorkMate（`workmate4dsh`）是一个 **DSH 插件 Bundle**，围绕「变更提
 pnpm install && pnpm build     # 构建（esbuild host/客户端产物 + dist/types 声明树）
 pnpm test                      # vitest
 pnpm typecheck                 # host + client 两个 program
-pnpm verify                    # 四条门禁：契约 + 工具链钉版 + 宿主兼容 + 客户端工厂求值
+pnpm verify                    # 五条门禁：契约 + 工具链钉版 + 宿主兼容 + 客户端工厂求值 + 测试自证
 pnpm verify:contract           # patch id / package.json / 入口 name 三处一致
 pnpm verify:toolchain          # toolchain.json ↔ package.json 钉版一致
 pnpm verify:host-compat        # dsh peer 范围与宿主基线（借宿主自己的判定函数）
 pnpm verify:client             # 在 VM 里真求值 dist/client/client.js：load 次数 / id / apply /
                                # inject / external 白名单（**默认拒绝**）——补"单测抓不到、
                                # 只有真机才暴露"那道门；它只管装载契约，不证明 UI 渲染对
+pnpm verify:test               # 测试自证：仓库里每个 *.test.ts(x) 都必须真的被执行、0 skip / 0 todo；
+                               # 全集由仓库独立发现（不复用 include，否则改窄 include 会自己发绿灯）。
+                               # 它管"跑没跑"，**不管"测得对不对"**
 pnpm test:toolchain            # 上述门禁脚本自身的用例（node:test）
 
 pnpm exec vitest run src/features/proposal        # 单目录测试

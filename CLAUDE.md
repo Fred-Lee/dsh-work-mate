@@ -13,6 +13,8 @@
    本机重启入口是 `~/.dsh/harness-restart.sh`（看门狗托管，见 AGENTS.md）。
 3. **验证纪律**：以**产物**判定，不以退出码判定；`openspec archive` 前先跑
    `pnpm typecheck && pnpm test && pnpm build && pnpm verify`。
+   `pnpm verify` 含 `verify:test`（测试自证门禁）：**include 改窄、有 `it.skip`、有
+   `test.todo` 都会被它拦下**——这是故意的，别改门禁去适配代码。
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

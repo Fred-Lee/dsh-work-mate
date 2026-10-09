@@ -446,7 +446,8 @@ git clone <本仓库> && cd dsh-Helmsman
 pnpm install
 pnpm build            # dist/index.js + dist/client/{app,client}.js + dist/assets/
 pnpm test             # 可选：71 个单元测试
-pnpm verify                                     # 四条门禁（契约 + 钉版 + 宿主兼容 + 客户端工厂求值）
+pnpm verify                                     # 五条门禁（契约 + 钉版 + 宿主兼容 + 客户端工厂求值 + 测试自证）
+pnpm verify:test                                # 测试自证：每个 *.test.ts(x) 都必须真的被执行、0 skip / 0 todo
 pnpm verify:client                              # 在 VM 里求值 dist/client/client.js，校验装载契约与 external 白名单
 ```
 
@@ -817,6 +818,25 @@ rules/agent/hook 形式分发到目标项目，供在同一个仓库里跑 Claud
 ---
 
 ## 8. 质量保障机制
+
+### 8.1 测试自证门禁（`pnpm verify:test`，2026-10-10）
+
+`pnpm test` 的退出码只说明"跑完没崩"。这道门用 vitest 的 JSON reporter 拿机器可读事实，
+与**仓库独立发现**的测试文件全集交叉核对（不复用 `vitest.config.ts` 的 `include` ——
+复用的话"把 include 改窄"会自己给自己发绿灯）：
+
+| 判据 | 拦住的假绿 |
+| --- | --- |
+| 全集 ⊆ 已执行 | `include` 被改窄、部分 worker 静默死亡 |
+| 已执行 ⊆ 全集 | 跑了 include 之外的东西（配置漂移） |
+| `pending == 0 && todo == 0 && failed == 0 && passed > 0` | `it.skip` / `test.todo` / 全红 / 空跑 |
+| `include` 仍显式声明 | 配置被改成隐式全集 |
+
+**它证明什么**：每个该跑的测试文件都真的跑了、没有静默跳过。
+**它不证明什么**：用例本身有效（`expect(true).toBe(true)` 一样通过）、真机装载行为
+（归 `pnpm verify:client` 与人工重启验收）、`scripts/*.test.mjs`（归 `pnpm test:toolchain`）。
+
+### 8.2 归档门禁
 
 - **验收谓词**：归档编排第一步检查**所有**关联项目的 `tasks.md` 是否全部勾选；
   任一项目有未完成项即失败并列出逐项目 `done/total`（`force` 可显式跳过）。
