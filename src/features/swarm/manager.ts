@@ -11,8 +11,35 @@ import { execFile } from 'node:child_process'
 import type { ProposalService } from '../proposal/service.ts'
 import type { WorktreeManager } from '../worktree/manager.ts'
 import { planSwarm, type SwarmPlan, type SwarmTaskInput } from './plan.ts'
+import {
+  judgeReviewerIndependence,
+  type Identity,
+  type IndependenceVerdict,
+} from '../quality/reviewer-independence.ts'
 
 export type SwarmTaskStatus = 'planned' | 'running' | 'merged' | 'failed'
+
+/**
+ * Independent-check record for one merged task (change `wire-swarm-independent-review`).
+ *
+ * This is the "who checked it" half of the swarm story: merging proves the code
+ * landed, not that anybody looked. The record carries the checker's identity and
+ * the verdict the same reviewer-independence judge used for the archive gate, so
+ * a task merged by X and "checked" by X is visible as such instead of passing.
+ */
+export interface SwarmVerification {
+  /** Self-reported checker name/handle. */
+  reviewer: string
+  /** What the checker concluded. */
+  verdict: 'verified' | 'issues'
+  /** Evidence: what was run or inspected (free text; citations are the caller's job). */
+  evidence?: string
+  /** Whether the checker is independent of the task's commit authors. */
+  independence: IndependenceVerdict
+  /** One line explaining the independence verdict. */
+  note: string
+  at: string
+}
 
 export interface SwarmTaskRecord {
   id: string
@@ -28,12 +55,20 @@ export interface SwarmTaskRecord {
   /** Short hash of the merge commit (or the task's tip when merged). */
   commit?: string
   note?: string
+  /** Independent-check record, when the caller registered one. */
+  verification?: SwarmVerification
 }
 
 export interface SwarmManagerDeps {
   proposals: ProposalService
   worktrees: WorktreeManager
   now?: () => Date
+  /**
+   * Repository the task branches live in — used to read commit authors for the
+   * independence verdict (change `wire-swarm-independent-review`). Absent means
+   * the verdict degrades to `undetermined` instead of guessing.
+   */
+  repoRoot?: () => string | undefined
 }
 
 export interface SwarmMergeResult {
@@ -78,6 +113,7 @@ export class SwarmManager {
         ...(existing?.mergedAt !== undefined ? { mergedAt: existing.mergedAt } : {}),
         ...(existing?.commit !== undefined ? { commit: existing.commit } : {}),
         ...(existing?.note !== undefined ? { note: existing.note } : {}),
+        ...(existing?.verification !== undefined ? { verification: existing.verification } : {}),
       }
     })
     await this.deps.proposals.patchFields(proposalId, { swarmTasks: records })
@@ -180,6 +216,72 @@ export class SwarmManager {
     }
     await this.persist(proposalId, records, merged)
     return { record: merged, merged: true, conflicts: [], summary: `merged ${record.branch} into feature/${proposalId}` }
+  }
+
+  /**
+   * Register the independent check for a merged task (change `wire-swarm-independent-review`).
+   *
+   * The independence verdict is derived here, not asserted by the caller: the task's
+   * commit authors are read from git, so a checker who names one of them is recorded
+   * as `same-as-author` instead of "verified". A task that has not merged cannot be
+   * verified — merging is the prerequisite, not a substitute.
+   */
+  async verify(
+    proposalId: string,
+    taskId: string,
+    input: { reviewer: string; verdict: 'verified' | 'issues'; evidence?: string; signal?: AbortSignal },
+  ): Promise<{ task: SwarmTaskRecord; independence: IndependenceVerdict; note: string }> {
+    const records = await this.list(proposalId)
+    const record = records.find((entry) => entry.id === taskId)
+    if (record === undefined) throw new Error(`unknown swarm task '${taskId}'`)
+    if (record.status !== 'merged') {
+      throw new Error(`task '${taskId}' is ${record.status} — 独立核验只对已合并的任务有意义（先 merge 再 verify）`)
+    }
+    if (input.reviewer.trim() === '') throw new Error('reviewer 不能为空 —— 独立核验必须署名')
+
+    const executors = await this.taskAuthors(input.signal)
+    const verdictOfIndependence = judgeReviewerIndependence({
+      reviewer: input.reviewer,
+      shadow: false,
+      executors,
+    })
+    const verification: SwarmVerification = {
+      reviewer: input.reviewer.trim(),
+      verdict: input.verdict,
+      independence: verdictOfIndependence.verdict,
+      note: verdictOfIndependence.note,
+      at: this.now(),
+      ...(input.evidence !== undefined && input.evidence !== '' ? { evidence: input.evidence } : {}),
+    }
+    const updated: SwarmTaskRecord = { ...record, verification }
+    await this.persist(proposalId, records, updated)
+    return { task: updated, independence: verdictOfIndependence.verdict, note: verdictOfIndependence.note }
+  }
+
+  /**
+   * Commit authors of the task branch (or of the proposal branch as a fallback).
+   * Best-effort: no git facts yields `[]`, which makes the verdict `undetermined`
+   * rather than a false "verified".
+   */
+  private async taskAuthors(signal?: AbortSignal): Promise<Identity[]> {
+    const repo = this.deps.repoRoot?.()
+    if (repo === undefined) return []
+    let output: string
+    try {
+      output = await git(['log', '-n', '50', '--format=%an%x09%ae'], repo, signal)
+    } catch {
+      return []
+    }
+    const byKey = new Map<string, Identity>()
+    for (const line of output.split('\n')) {
+      const trimmed = line.trim()
+      if (trimmed === '') continue
+      const [name = '', email = ''] = trimmed.split('\t')
+      if (name === '' && email === '') continue
+      const key = `${name.toLowerCase()}|${email.toLowerCase()}`
+      if (!byKey.has(key)) byKey.set(key, { name, ...(email !== '' ? { email } : {}) })
+    }
+    return [...byKey.values()]
   }
 
   private async persist(proposalId: string, records: SwarmTaskRecord[], updated: SwarmTaskRecord): Promise<void> {

@@ -46,7 +46,7 @@ beforeEach(async () => {
     copyFiles: [],
     packageManager: 'pnpm',
   })
-  swarm = new SwarmManager({ proposals, worktrees, now: () => NOW })
+  swarm = new SwarmManager({ proposals, worktrees, now: () => NOW, repoRoot: () => project })
   // The proposal-level carrier the merges run inside.
   await worktrees.create({ projectRoot: project, proposalId: 'p1' })
 })
@@ -146,5 +146,65 @@ describe('SwarmManager', () => {
     expect(replanned.tasks[0]?.status).toBe('running')
     expect(replanned.tasks[0]?.branch).toBe('feature/p1--t1')
     expect(replanned.tasks[0]?.title).toBe('改名后的任务')
+  })
+})
+
+describe('task verification (wire-swarm-independent-review)', () => {
+  const planOne = async (): Promise<void> => {
+    await swarm.plan('p1', [{ id: 't1', title: '任务一', writes: ['app.txt'] }])
+    await swarm.start('p1', 't1', { projectRoot: project })
+    await swarm.merge('p1', 't1', { projectRoot: project })
+  }
+
+  it('refuses to verify a task that has not merged', async () => {
+    await swarm.plan('p1', [{ id: 't1', title: '任务一', writes: ['app.txt'] }])
+    await expect(
+      swarm.verify('p1', 't1', { reviewer: 'auditor', verdict: 'verified' }),
+    ).rejects.toThrow(/独立核验只对已合并的任务有意义/)
+  })
+
+  it('refuses an unsigned check', async () => {
+    await planOne()
+    await expect(swarm.verify('p1', 't1', { reviewer: '  ', verdict: 'verified' })).rejects.toThrow(/必须署名/)
+  })
+
+  it('records the check and reads the task authors from git', async () => {
+    await planOne()
+    const result = await swarm.verify('p1', 't1', {
+      reviewer: 'auditor@2',
+      verdict: 'verified',
+      evidence: 'pnpm exec vitest run src/features/swarm',
+    })
+    expect(result.independence).toBe('independent')
+    expect(result.task.verification).toMatchObject({
+      reviewer: 'auditor@2',
+      verdict: 'verified',
+      independence: 'independent',
+      at: NOW.toISOString(),
+    })
+    expect(result.task.verification?.evidence).toContain('vitest')
+  })
+
+  it('catches the author checking their own task', async () => {
+    await planOne()
+    // The commits in this repository are authored by `t <t@t>` (see beforeEach).
+    const result = await swarm.verify('p1', 't1', { reviewer: 't', verdict: 'verified' })
+    expect(result.independence).toBe('same-as-author')
+    expect(result.note).toContain('同一身份')
+  })
+
+  it('degrades to undetermined when no repository is configured', async () => {
+    const detached = new SwarmManager({ proposals, worktrees, now: () => NOW })
+    await planOne()
+    const result = await detached.verify('p1', 't1', { reviewer: 'auditor@2', verdict: 'issues' })
+    expect(result.independence).toBe('undetermined')
+  })
+
+  it('keeps the verification record when the plan is rebuilt', async () => {
+    await planOne()
+    await swarm.verify('p1', 't1', { reviewer: 'auditor@2', verdict: 'verified' })
+    const replanned = await swarm.plan('p1', [{ id: 't1', title: '任务一', writes: ['app.txt'] }])
+    expect(replanned.tasks[0]?.verification?.reviewer).toBe('auditor@2')
+    expect(replanned.tasks[0]?.status).toBe('merged')
   })
 })

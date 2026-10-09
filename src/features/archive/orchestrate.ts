@@ -221,6 +221,11 @@ export interface OrchestrateOptions {
    * an out-of-range line only warns. @default 'off'
    */
   reviewEvidenceGate?: 'off' | 'warn' | 'block'
+  /**
+   * Block archiving while a merged swarm task lacks an independent verification
+   * record (change `wire-swarm-independent-review`). @default false
+   */
+  swarmReviewRequired?: boolean
   /** Identities of this proposal's executors, collected by the caller (git authors). */
   executorIdentities?: readonly Identity[]
   /** How many untagged findings one run may grade (`Config.reviewGradeMax`). @default 5 */
@@ -374,12 +379,39 @@ export async function orchestrateArchive(
       summary: '无 swarm 任务（本提案未使用任务级并行；派发执行由调用方/Agent Teams 决定，见设计 D1）',
     })
   } else if (swarmPending.length === 0) {
+    // Merged is not checked (change `wire-swarm-independent-review`): with
+    // `swarmReviewRequired` on, each merged task needs a verification record whose
+    // checker is independent of that task's commit authors. Without it the merged
+    // claim alone passes — the same "self-report" hole the review gate had.
+    const unverified = options.swarmReviewRequired === true
+      ? swarmMerged.filter((task) => task.verification === undefined || task.verification.independence === 'same-as-author')
+      : []
+    if (unverified.length > 0) {
+      steps.push({
+        step: 'swarm',
+        status: 'failed',
+        summary:
+          `${swarmMerged.length} 个 swarm 任务已合并，但 ${unverified.length} 个没有独立核验记录：` +
+          unverified
+            .map((task) =>
+              task.verification === undefined
+                ? `${task.id}(未核验)`
+                : `${task.id}(核验者 ${task.verification.reviewer} 与提交作者同一身份)`,
+            )
+            .join('，') +
+          '——先 workmate_swarm_task action=verify，或把 Config.swarmReviewRequired 关掉',
+      })
+      return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }
+    }
     steps.push({
       step: 'swarm',
       status: 'ok',
       summary: `${swarmMerged.length} 个 swarm 任务全部已合并` +
         `${swarmMerged.filter((task) => task.branch !== undefined).length > 0
           ? `（分支：${swarmMerged.map((task) => task.branch ?? task.id).join(', ')}）`
+          : ''}` +
+        `${swarmMerged.filter((task) => task.verification !== undefined).length > 0
+          ? `；其中 ${swarmMerged.filter((task) => task.verification !== undefined).length} 个有独立核验记录`
           : ''}`,
     })
   } else {

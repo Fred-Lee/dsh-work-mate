@@ -102,6 +102,11 @@ export interface Config {
    */
   reviewEvidenceGate?: string
   /**
+   * Require every merged swarm task to carry an independent verification record
+   * before archiving (change `wire-swarm-independent-review`). @default false
+   */
+  swarmReviewRequired?: boolean
+  /**
    * Integration trunk the git gates and the proposal worktree use: the branch a
    * proposal branch must be merged into (`ready`) and a feature branch must be
    * merged into (`archiving`), and the branch the `implementing` worktree is cut
@@ -221,6 +226,10 @@ export const Config: z<Config> = z.object({
     .string()
     .default('warn')
     .description('Machine-check review.md citations: off | warn | block (block fails on a missing file).'),
+  swarmReviewRequired: z
+    .boolean()
+    .default(false)
+    .description('Block archiving while a merged swarm task has no independent verification record.'),
   lifecycleMainBranch: z
     .string()
     .default('main')
@@ -285,6 +294,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   allowAgentForceArchive: false,
   reviewerIndependence: 'warn',
   reviewEvidenceGate: 'warn',
+  swarmReviewRequired: false,
   lifecycleMainBranch: 'main',
   decisionEnabled: false,
   decisionProvider: 'agent',

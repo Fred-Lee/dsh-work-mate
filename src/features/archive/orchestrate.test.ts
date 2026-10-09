@@ -407,6 +407,74 @@ describe('orchestrateArchive (fake CLIs)', () => {
     await rm(project, { recursive: true, force: true })
   })
 
+  it('requires an independent check per merged swarm task when the gate is on', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'wm-swarm-review-'))
+    await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+    await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n', 'utf8')
+    const verification = {
+      reviewer: 'auditor@2',
+      verdict: 'verified' as const,
+      independence: 'independent' as const,
+      note: '不在执行者身份集合内',
+      at: '2026-10-05T12:00:00.000Z',
+    }
+    const merged = [
+      { id: 't1', status: 'merged' as const, verification },
+      { id: 't2', status: 'merged' as const },
+    ]
+
+    // gate off (default): merging alone still reaches the swarm step as ok
+    const permissive = await orchestrateArchive(archivingProposal(merged), [{ project: 'demo', root: project }], {
+      openspecRoot: 'openspec',
+      gitnexusAnalyzeEnabled: false,
+      reviewGate: false,
+    })
+    expect(permissive.steps.find((step) => step.step === 'swarm')?.status).toBe('ok')
+
+    // gate on: the unverified task blocks, naming it
+    const strict = await orchestrateArchive(archivingProposal(merged), [{ project: 'demo', root: project }], {
+      openspecRoot: 'openspec',
+      gitnexusAnalyzeEnabled: false,
+      reviewGate: false,
+      swarmReviewRequired: true,
+    })
+    expect(strict.ok).toBe(false)
+    const swarmStep = strict.steps.find((step) => step.step === 'swarm')
+    expect(swarmStep?.status).toBe('failed')
+    expect(swarmStep?.summary).toContain('t2(未核验)')
+    expect(swarmStep?.summary).not.toContain('t1(')
+
+    // a self-check does not count as verification
+    const selfChecked = [
+      { id: 't1', status: 'merged' as const, verification: { ...verification, independence: 'same-as-author' as const } },
+    ]
+    const blockedBySelf = await orchestrateArchive(archivingProposal(selfChecked), [{ project: 'demo', root: project }], {
+      openspecRoot: 'openspec',
+      gitnexusAnalyzeEnabled: false,
+      reviewGate: false,
+      swarmReviewRequired: true,
+    })
+    expect(blockedBySelf.ok).toBe(false)
+    expect(blockedBySelf.steps.find((step) => step.step === 'swarm')?.summary).toContain('同一身份')
+
+    // everything verified: the step says so
+    const allVerified = [
+      { id: 't1', status: 'merged' as const, verification },
+      { id: 't2', status: 'merged' as const, verification: { ...verification, reviewer: 'auditor@3' } },
+    ]
+    const allChecked = await orchestrateArchive(archivingProposal(allVerified), [{ project: 'demo', root: project }], {
+      openspecRoot: 'openspec',
+      gitnexusAnalyzeEnabled: false,
+      reviewGate: false,
+      swarmReviewRequired: true,
+    })
+    const okStep = allChecked.steps.find((step) => step.step === 'swarm')
+    expect(okStep?.status).toBe('ok')
+    expect(okStep?.summary).toContain('2 个有独立核验记录')
+
+    await rm(project, { recursive: true, force: true })
+  })
+
   it('stops on unchecked tasks and reports per-project progress', async () => {
     const projectA = await mkdtemp(join(tmpdir(), 'wm-tasks-a-'))
     const projectB = await mkdtemp(join(tmpdir(), 'wm-tasks-b-'))

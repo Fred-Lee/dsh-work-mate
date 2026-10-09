@@ -102,6 +102,8 @@ export interface LifecycleDeps {
   reviewerIndependence?: 'off' | 'warn' | 'block'
   /** Citation-probe mode for the archive gate (`Config.reviewEvidenceGate`). */
   reviewEvidenceGate?: 'off' | 'warn' | 'block'
+  /** Require an independent verification record per merged swarm task (`Config.swarmReviewRequired`). */
+  swarmReviewRequired?: boolean
   /** Extra states a HIGH-risk proposal needs a human approval for (`Config.highRiskExtraGates`). */
   highRiskExtraGates?: string[]
   /**
@@ -468,6 +470,7 @@ export class LifecycleServiceImpl {
       planDriftGate: this.deps.planDriftGate === true && options.force !== true,
       ...(this.deps.reviewerIndependence !== undefined ? { reviewerIndependence: this.deps.reviewerIndependence } : {}),
       ...(this.deps.reviewEvidenceGate !== undefined ? { reviewEvidenceGate: this.deps.reviewEvidenceGate } : {}),
+      ...(this.deps.swarmReviewRequired === true ? { swarmReviewRequired: true } : {}),
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
     if (!orchestration.ok) {

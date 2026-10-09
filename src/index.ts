@@ -123,7 +123,13 @@ export function apply(ctx: Context, config: Config = {}): void {
   // variable (key lives in the Keychain / shell, never in a repo or plugin file).
   setGitnexusApiKeyEnv(resolved.gitnexusApiKeyFromEnv)
   setGitnexusKeychainService(resolved.gitnexusApiKeyKeychainService)
-  const swarm = new SwarmManager({ proposals, worktrees: worktree })
+  const swarm = new SwarmManager({
+    proposals,
+    worktrees: worktree,
+    // Indepent-check verdicts read the task branch authors from the repository git
+    // (change `wire-swarm-independent-review`); no project root means `undetermined`.
+    repoRoot: () => (resolved.projectRoot !== '' ? resolved.projectRoot : undefined),
+  })
   // The judgement layer reaches the LLM service through a lazy reference: a profile
   // without `llm` keeps the plugin ACTIVE and the agent provider simply reports
   // itself unavailable (the deterministic `rules` provider is then the floor).
@@ -174,6 +180,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     allowAgentForceArchive: resolved.allowAgentForceArchive,
     reviewerIndependence: resolved.reviewerIndependence as 'off' | 'warn' | 'block',
     reviewEvidenceGate: resolved.reviewEvidenceGate as 'off' | 'warn' | 'block',
+    swarmReviewRequired: resolved.swarmReviewRequired,
     highRiskExtraGates: resolved.highRiskExtraGates,
     riskGateEnabled: resolved.decisionEnabled,
     orchestrate(proposal, targets, opts) {
@@ -1025,11 +1032,14 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     defineTool({
       name: 'workmate_swarm_task',
       description:
-        'Start or merge one planned swarm task. action=start creates the task worktree + branch (feature/<proposal>--<task>) and marks it running; action=merge merges that branch back into the proposal implementation branch inside the proposal worktree. A merge conflict aborts the merge, marks the task failed, and returns the conflicted files for adjudication: merge the implementation branch INTO the task worktree, resolve and commit there, then retry this merge.',
+        'Start, merge or verify one planned swarm task. action=start creates the task worktree + branch (feature/<proposal>--<task>) and marks it running; action=merge merges that branch back into the proposal implementation branch inside the proposal worktree (a conflict aborts and returns the files for adjudication); action=verify registers the independent check of a merged task — reviewer + verdict + evidence — and derives whether that reviewer is independent of the task commit authors. Merging says the code landed; verifying says somebody looked.',
       parameters: {
         id: { type: 'string', required: true, description: 'Proposal id.' },
-        action: { type: 'string', required: true, description: 'start | merge.' },
+        action: { type: 'string', required: true, description: 'start | merge | verify.' },
         taskId: { type: 'string', required: true, description: 'Task id from workmate_swarm_plan (e.g. t1).' },
+        reviewer: { type: 'string', description: 'action=verify: who checked the task (name/handle). Required for verify.' },
+        verdict: { type: 'string', description: 'action=verify: verified | issues. Required for verify.' },
+        evidence: { type: 'string', description: 'action=verify: what was run or inspected (tests, files read, outputs).' },
         projectRoot: { type: 'string', description: 'Absolute project root; defaults to Config.projectRoot or the first registered project.' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
@@ -1045,7 +1055,30 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
           const result = await deps.swarm.merge(args.id, args.taskId, { projectRoot: root, ...(exec.signal !== undefined ? { signal: exec.signal } : {}) })
           return asJson(result)
         }
-        throw new Error(`unknown action '${args.action}' — valid: start, merge`)
+        if (args.action === 'verify') {
+          if (args.reviewer === undefined || args.reviewer.trim() === '') {
+            throw new Error('action=verify 需要 reviewer —— 独立核验必须署名（不署名就只是"看起来核过"）')
+          }
+          const verdict = args.verdict === 'issues' ? 'issues' : args.verdict === 'verified' ? 'verified' : undefined
+          if (verdict === undefined) {
+            throw new Error("action=verify 需要 verdict：'verified' 或 'issues'")
+          }
+          const checked = await deps.swarm.verify(args.id, args.taskId, {
+            reviewer: args.reviewer,
+            verdict,
+            ...(args.evidence !== undefined ? { evidence: args.evidence } : {}),
+            ...(exec.signal !== undefined ? { signal: exec.signal } : {}),
+          })
+          return asJson({
+            task: checked.task,
+            independence: checked.independence,
+            note: checked.note,
+            ...(checked.independence === 'same-as-author'
+              ? { warning: '核验者与任务提交作者同一身份 —— 不是独立核验，归档门（swarmReviewRequired）会视为未核验' }
+              : {}),
+          })
+        }
+        throw new Error(`unknown action '${args.action}' — valid: start, merge, verify`)
       },
     }),
   )
