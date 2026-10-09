@@ -196,9 +196,26 @@ export const ARCHIVE_CHECKLIST_SKILL: RuntimeSkill = {
 ## 硬前置（编排会自动检查，别靠记忆）
 
 - **tasks.md 全部勾选**：任一关联项目还有 \`- [ ]\`，归档编排第一步就失败并列出逐项目
-  \`done/total\`。要么真做完并勾上，要么让用户显式决定 \`force\`（跳过这道验收）。
+  \`done/total\`。要么真做完并勾上，要么让用户到面板显式决定强制归档（见下）。
 - **review.md 通过审查门**：见 skill \`workmate-proposal-audit\`；未解决阻断级发现会拦归档。
 - **人工批准**：\`merging\` / \`archiving\` 需要人在面板批准（写码者不得批准）。
+
+## force 是人的决定，不是 agent 的参数
+
+\`workmate_proposal_archive(force=true)\` 会跳过审查门 / 任务门 / 计划漂移门。
+**agent 调用会被拒**（错误信息给面板路径与 \`Config.allowAgentForceArchive\` 开关）。
+人不跳过时应在面板点「归档（跳过审查门）」；那次归档会留下一条 approval，
+\`forcedGates\` 记下被跳过的门，\`workmate_proposal_status\` 返回 \`forcedArchive\`。
+被拒时不要改配置绕开——先问用户。
+
+## 审查者必须独立，证据必须可核
+
+- review.md 头部的 \`<!-- reviewer: 名字 -->\` 现在参与归档门（\`Config.reviewerIndependence\`）：
+  与 \`[proposal:<id>]\` 提交的 author 比对；\`block\` 档下署执行者自己的名字会拦归档，
+  取不到 git 事实时只 warn（无法判定不等于有罪）。影子审查仍只记录不阻断。
+- 报告里反引号包裹的路径引用会被机检（\`Config.reviewEvidenceGate\`）：
+  文件不存在在 \`block\` 档拦归档，行号越界只 warn。GitNexus 查询结论会被标注为
+  **不可机检**——不要指望它替你验证结论。
 
 ## 提交标记
 
@@ -270,6 +287,8 @@ export const FLOW_SECTION_TEXT = [
   '每一步的硬前置按返回提示补齐；方向性选择必须 workmate_proposal_decide（推翻要带 supersedes），',
   '同一方向卡两轮必须 workmate_proposal_block；代码事实先经 workmate_knowledge_query 核实，不要凭记忆断言。',
   'merging / archiving 需要人工批准：被拒时请用户在面板点推进，不要尝试绕过。',
+  '归档时 force（跳过审查 / 任务 / 计划漂移门）是人工决策：agent 调用会被拒，',
+  '被拒就请用户到面板归档，不要改配置绕过；人执行时会留下 approval（forcedGates）。',
   '完整规程见技能 workmate-proposal-flow，审查规程见 workmate-proposal-audit。',
   '项目 wiki 的生成 / 更新一律走 workmate_wiki_generate（或 POST /api/wiki），不要直接调 gitnexus wiki：',
   'SSE 归一代理与网关 key 注入只在这条工具路径里，直接调 CLI 会连不上或拿不到 key；',

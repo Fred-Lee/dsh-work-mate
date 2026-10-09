@@ -166,6 +166,21 @@ node $DSH web                                                # http://127.0.0.1:
 **暂无兼容 0.2.x 的版本**（peer 停在 0.1.x）；`@deepseek-ai/dsh-mcp-client`
 与 `@deepseek-ai/dsh-subagent-claude-code` 需升到 0.2.1-alpha.1。
 
+## 归档门禁（2026-10-10 加固）
+
+三道归档门（审查门 / 任务门 / 计划漂移门）的强制语义：
+
+| 门 | 键 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| 跳过门禁的权限 | `allowAgentForceArchive` | `false` | `force` 是**人的决定**：agent 调用会被拒，除非显式打开这个开关 |
+| 审查者独立性 | `reviewerIndependence` | `'warn'` | `off`/`warn`/`block`；`block` 下 reviewer 缺失或与标记提交 author 同身份即拦归档；无 git 事实只 warn |
+| 审查证据机检 | `reviewEvidenceGate` | `'warn'` | `off`/`warn`/`block`；`block` 下反引号引用指向不存在的文件即拦归档；行号越界只 warn；GitNexus 查询结论标注为不可机检 |
+| 计划漂移 | `planDriftGate` | `false` | 想在本机开启：在 `~/.dsh/profiles/<profile>/cordis.patch.yml` 的 workmate 条目加 `planDriftGate: true` |
+
+强制归档（`force`）必留痕：approval 记录的 `forcedGates` 列出被跳过的门，
+`workmate_proposal_status` 返回 `forcedArchive`。**被门禁拒了不要改配置绕过**——
+请用户在面板点「推进 / 强制归档」，那是设计里的唯一出路。
+
 ## 工作流
 
 **OpenSpec 规格驱动开发**（`openspec` CLI 可用）：非平凡变更先在

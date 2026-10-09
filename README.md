@@ -517,7 +517,10 @@ pnpm dsh web                                            # 启动，默认 http:/
 | `approvalsRequired` | `['merging','archiving']` | 需要**人工批准**才能进入的状态；`[]` 关闭这道门 |
 | `allowAgentApproval` | `false` | `true` 时允许 agent actor 跨过受控状态（放弃"写码者不得批准"的分离） |
 | `reviewBlockingSeverities` | `['CRIT']` | 归档审查门阻断哪些严重度（CRIT/HIGH/MED/LOW）；影子态报告一律只记录不阻断 |
-| `planDriftGate` | `false` | `true` 时归档被"改了但没声明"的文件阻断（`force` 可跳过）；默认只记录不拦 |
+| `planDriftGate` | `false` | `true` 时归档被"改了但没声明"的文件阻断（人工 `force` 可跳过）；默认只记录不拦 |
+| `allowAgentForceArchive` | `false` | `true` 时允许 **agent** 用 `force` 跳过归档门禁；默认只允许人（见 4.x 的强制归档） |
+| `reviewerIndependence` | `'warn'` | 审查者独立性：`off`/`warn`/`block`。`block` 下 review.md 的 reviewer 缺失或与 `[proposal:<id>]` 提交的 author 同一身份即拦归档；取不到 git 事实只 warn |
+| `reviewEvidenceGate` | `'warn'` | review.md 反引号引用机检：`off`/`warn`/`block`。`block` 下引用文件不存在即拦归档，行号越界只 warn |
 | `decisionEnabled` | `false` | 判断层总开关（门禁里发起模型调用必须显式开启） |
 | `decisionProvider` | `'agent'` | 判断 provider：`agent`（宿主 LLM）/ `rules`（确定性兜底）/ `jev`（占位，待 key） |
 | `decisionLlmProvider` / `decisionModel` | `''` | `agent` 用的路由与模型；留空取第一个已注册路由的默认模型 |
@@ -585,6 +588,12 @@ Git 关联、worktree 信息、决策日志、卡点、审查报告与 Wiki 引�
 > 会被拒（`force` 也绕不过），面板会问一句批准理由并写入审批记录与事件流；
 > 卡片上会显示「⏳ 等待人工批准」。要恢复全自动，把 `approvalsRequired` 设为 `[]`
 > （或 `allowAgentApproval: true`，但那是明确放弃"写码者不得批准"这条分离）。
+>
+> **强制归档同样是人的决定**：`force` 会跳过审查 / 任务 / 计划漂移三道门。agent 调
+> `workmate_proposal_archive(force=true)` 会被拒（除非 `allowAgentForceArchive: true`）；
+> 人在面板点「强制归档（跳过审查门）」可以，且那次归档会留下一条 approval，
+> 用 `forcedGates` 记下跳过了哪些门——`workmate_proposal_status` 的 `forcedArchive`
+> 会把它显示出来。
 > 上面的 `curl` 示例走的是 REST（actor=human），因此不受影响；`advance` / `transition`
 > 都接受可选的 `{"rationale":"..."}`。
 
@@ -689,8 +698,13 @@ node scripts/bands-watch.mjs --fail-on propose --apply
   来得及补声明或改实现。
 - **账本**：归档成功后记录归档目录里各工件的 `sha256` + 字节数 + 覆盖提交，写进 manifest；
   面板「📦 交付物」小节显示漂移与账本条数。这让"审的是哪一版工件"可验证。
-- **可选门**：`planDriftGate: true` 时存在未声明改动即归档失败并列出文件（`force` 可跳过）。
-  默认关闭：`writes` 声明是新约定，历史提案没有它。
+- **可选门**：`planDriftGate: true` 时存在未声明改动即归档失败并列出文件（人工 `force` 可跳过）。
+  默认关闭：`writes` 声明是新约定，历史提案没有它。想让本机开启，就在 profile 的
+  workmate 条目里加 `planDriftGate: true`（见 AGENTS.md「归档门禁」一节）。
+- **审查者独立性与证据机检**（`reviewerIndependence` / `reviewEvidenceGate`，默认 `warn`）：
+  归档门会把 review.md 的 `<!-- reviewer: … -->` 与标记提交的 author 比对，
+  并机检报告里的反引号路径引用；`block` 档下"自评"或"引用文件不存在"会拦归档，
+  无法判定（无 git 事实）与行号越界只记 warn，不制造假阳性。
 
 ---
 
