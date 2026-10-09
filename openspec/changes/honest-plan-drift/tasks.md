@@ -2,7 +2,7 @@
 
 - [x] 1. `computeDrift` 增加 `ignoredPrefixes` 选项与 `excluded` 字段；前缀相等双向判定；`excluded` 不计入 `missing`、不影响 `driftRatio` <!-- writes: src/features/proposal/artifacts.ts -->
 
-- [x] 2. 编排层：`collectProjectDrift` 把计划目录前缀传入；`plan-drift` 步骤在有未触及声明时产出 `warn`（不阻断）；`StepResult.status` 新增 `'warn'` <!-- writes: src/features/archive/orchestrate.ts -->
+- [x] 2. 编排层：`collectProjectDrift` 把计划目录前缀传入；`plan-drift` 步骤在有未触及声明时产出 `warn`（不阻断）；`StepResult.status` 新增 `'warn'`；`workmate_plan_drift` 的工具描述同步写清三类结果 <!-- writes: src/features/archive/orchestrate.ts, src/index.ts -->
 
 - [x] 3. 用例：warn 步骤不阻断且点名未触及声明、计划目录声明不算 missing、前缀相等的声明也算 excluded、`excluded` 不计入 `missing` <!-- writes: src/features/archive/drift.test.ts, src/features/proposal/artifacts.test.ts -->
 
