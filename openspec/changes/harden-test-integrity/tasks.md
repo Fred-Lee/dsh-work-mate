@@ -1,6 +1,6 @@
 # Tasks — 测试自证门禁
 
-> 范围声明用行内 `<!-- writes: … -->`（swarm 装批 + `workmate_plan_drift` 都读它）。
+> 范围声明用行内 HTML 注释 `writes:`（swarm 装批 + `workmate_plan_drift` 都读它）；写法照任务行末尾的样子抄。
 > 本变更不新增任何依赖。
 
 - [x] 1. 规格增量 `specs/test-integrity/spec.md`：四条判据（全集⊆执行、执行⊆全集、无 skip/todo/failed 且 passed>0、include 显式声明；全集须由仓库独立发现而非复用 include）<!-- writes: openspec/changes/harden-test-integrity/specs/** -->

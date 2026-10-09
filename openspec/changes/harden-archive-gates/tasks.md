@@ -1,6 +1,6 @@
 # Tasks — 归档门禁加固
 
-> 范围声明用行内 `<!-- writes: … -->`（swarm 装批 + `workmate_plan_drift` 都读它）。
+> 范围声明用行内 HTML 注释 `writes:`（swarm 装批 + `workmate_plan_drift` 都读它）；写法照任务行末尾的样子抄。
 > 同一文件出现在多行时**不得并行**（writes 相交）。
 > 本变更不新增运行时依赖，不改八态语义。
 

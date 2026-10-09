@@ -1,6 +1,6 @@
 # Tasks — swarm 任务独立核验
 
-> 范围声明用行内 `<!-- writes: … -->`（swarm 装批 + `workmate_plan_drift` 都读它）。
+> 范围声明用行内 HTML 注释 `writes:`（swarm 装批 + `workmate_plan_drift` 都读它）；写法照任务行末尾的样子抄。
 > 本变更不新增依赖。
 
 - [x] 1. 规格增量 `specs/swarm-verification/spec.md`：核验记录的形状与三条硬规则（未合并不得核验、核验必须署名、独立性由 git 事实派生）；门禁语义（默认关；开启后每个已合并任务须有非 `same-as-author` 的核验记录；`undetermined` 视同未核验）<!-- writes: openspec/changes/wire-swarm-independent-review/specs/** -->
