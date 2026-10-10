@@ -1066,6 +1066,10 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
           const checked = await deps.swarm.verify(args.id, args.taskId, {
             reviewer: args.reviewer,
             verdict,
+            // Same resolved root as start/merge: the author lookup is a git fact of this
+            // repository, and without it every verdict degrades to `undetermined`
+            // (Config.projectRoot is unset in the normal profile).
+            projectRoot: root,
             ...(args.evidence !== undefined ? { evidence: args.evidence } : {}),
             ...(exec.signal !== undefined ? { signal: exec.signal } : {}),
           })
@@ -1075,6 +1079,9 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
             note: checked.note,
             ...(checked.independence === 'same-as-author'
               ? { warning: '核验者与任务提交作者同一身份 —— 不是独立核验，归档门（swarmReviewRequired）会视为未核验' }
+              : {}),
+            ...(checked.independence === 'undetermined'
+              ? { warning: '取不到仓库作者事实（git 不可用或该提交作者为空）—— 独立性无法判定，归档门（swarmReviewRequired）会视为未核验' }
               : {}),
           })
         }

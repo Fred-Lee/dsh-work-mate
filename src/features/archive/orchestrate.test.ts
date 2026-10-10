@@ -457,6 +457,23 @@ describe('orchestrateArchive (fake CLIs)', () => {
     expect(blockedBySelf.ok).toBe(false)
     expect(blockedBySelf.steps.find((step) => step.step === 'swarm')?.summary).toContain('同一身份')
 
+    // `undetermined` counts as unverified too (specs/swarm-verification: SHALL 视同未核验).
+    // Without this branch the gate would silently pass exactly when the git facts are
+    // unreachable — the misconfiguration `undetermined` stands for.
+    const undecidable = [
+      { id: 't1', status: 'merged' as const, verification: { ...verification, independence: 'undetermined' as const } },
+    ]
+    const blockedByUndetermined = await orchestrateArchive(archivingProposal(undecidable), [{ project: 'demo', root: project }], {
+      openspecRoot: 'openspec',
+      gitnexusAnalyzeEnabled: false,
+      reviewGate: false,
+      swarmReviewRequired: true,
+    })
+    expect(blockedByUndetermined.ok).toBe(false)
+    const undeterminedStep = blockedByUndetermined.steps.find((step) => step.step === 'swarm')
+    expect(undeterminedStep?.status).toBe('failed')
+    expect(undeterminedStep?.summary).toContain('无法判定')
+
     // everything verified: the step says so
     const allVerified = [
       { id: 't1', status: 'merged' as const, verification },

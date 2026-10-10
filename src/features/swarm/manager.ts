@@ -225,11 +225,22 @@ export class SwarmManager {
    * commit authors are read from git, so a checker who names one of them is recorded
    * as `same-as-author` instead of "verified". A task that has not merged cannot be
    * verified — merging is the prerequisite, not a substitute.
+   *
+   * `projectRoot` is the same explicit root `start` / `merge` already take. Without it
+   * the authors come from `deps.repoRoot`, which is `undefined` whenever
+   * `Config.projectRoot` is unset — the normal profile — so every verdict would degrade
+   * to `undetermined` and the check would silently never catch a self-review.
    */
   async verify(
     proposalId: string,
     taskId: string,
-    input: { reviewer: string; verdict: 'verified' | 'issues'; evidence?: string; signal?: AbortSignal },
+    input: {
+      reviewer: string
+      verdict: 'verified' | 'issues'
+      evidence?: string
+      projectRoot?: string
+      signal?: AbortSignal
+    },
   ): Promise<{ task: SwarmTaskRecord; independence: IndependenceVerdict; note: string }> {
     const records = await this.list(proposalId)
     const record = records.find((entry) => entry.id === taskId)
@@ -239,7 +250,7 @@ export class SwarmManager {
     }
     if (input.reviewer.trim() === '') throw new Error('reviewer 不能为空 —— 独立核验必须署名')
 
-    const executors = await this.taskAuthors(input.signal)
+    const executors = await this.taskAuthors(input.projectRoot, input.signal)
     const verdictOfIndependence = judgeReviewerIndependence({
       reviewer: input.reviewer,
       shadow: false,
@@ -262,9 +273,13 @@ export class SwarmManager {
    * Commit authors of the task branch (or of the proposal branch as a fallback).
    * Best-effort: no git facts yields `[]`, which makes the verdict `undetermined`
    * rather than a false "verified".
+   *
+   * `explicitRoot` wins over `deps.repoRoot` so a caller that already resolved the
+   * project root (the tool layer does, for `start` and `merge`) does not depend on
+   * `Config.projectRoot` being set. A blank explicit root is not a root.
    */
-  private async taskAuthors(signal?: AbortSignal): Promise<Identity[]> {
-    const repo = this.deps.repoRoot?.()
+  private async taskAuthors(explicitRoot?: string, signal?: AbortSignal): Promise<Identity[]> {
+    const repo = explicitRoot !== undefined && explicitRoot !== '' ? explicitRoot : this.deps.repoRoot?.()
     if (repo === undefined) return []
     let output: string
     try {

@@ -200,6 +200,41 @@ describe('task verification (wire-swarm-independent-review)', () => {
     expect(result.independence).toBe('undetermined')
   })
 
+  it('reads the authors from an explicit projectRoot even without deps.repoRoot', async () => {
+    // Regression (proposal `wire-swarm-independent-review`): the host wires
+    // `repoRoot` from Config.projectRoot, which is unset in the normal profile, so a
+    // manager built without it used to answer `undetermined` forever — and the swarm
+    // gate then either never fired or blocked every task. The explicit root is the
+    // same one `start` / `merge` already take.
+    const detached = new SwarmManager({ proposals, worktrees, now: () => NOW })
+    await planOne()
+
+    const self = await detached.verify('p1', 't1', {
+      reviewer: 't',
+      verdict: 'verified',
+      projectRoot: project,
+    })
+    expect(self.independence).toBe('same-as-author')
+
+    const other = await detached.verify('p1', 't1', {
+      reviewer: 'auditor@2',
+      verdict: 'verified',
+      projectRoot: project,
+    })
+    expect(other.independence).toBe('independent')
+  })
+
+  it('treats a blank explicit projectRoot as absent rather than as the cwd', async () => {
+    const detached = new SwarmManager({ proposals, worktrees, now: () => NOW })
+    await planOne()
+    const result = await detached.verify('p1', 't1', {
+      reviewer: 't',
+      verdict: 'verified',
+      projectRoot: '',
+    })
+    expect(result.independence).toBe('undetermined')
+  })
+
   it('keeps the verification record when the plan is rebuilt', async () => {
     await planOne()
     await swarm.verify('p1', 't1', { reviewer: 'auditor@2', verdict: 'verified' })

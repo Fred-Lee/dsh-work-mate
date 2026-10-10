@@ -403,8 +403,16 @@ export async function orchestrateArchive(
     // `swarmReviewRequired` on, each merged task needs a verification record whose
     // checker is independent of that task's commit authors. Without it the merged
     // claim alone passes — the same "self-report" hole the review gate had.
+    // `undetermined` blocks too (design D3): in this scenario it means the git facts are
+    // unreachable — a misconfiguration — so treating it as "no verdict" would let the
+    // gate fail silently instead of loudly. This mirrors specs/swarm-verification.
     const unverified = options.swarmReviewRequired === true
-      ? swarmMerged.filter((task) => task.verification === undefined || task.verification.independence === 'same-as-author')
+      ? swarmMerged.filter(
+          (task) =>
+            task.verification === undefined ||
+            task.verification.independence === 'same-as-author' ||
+            task.verification.independence === 'undetermined',
+        )
       : []
     if (unverified.length > 0) {
       steps.push({
@@ -413,11 +421,13 @@ export async function orchestrateArchive(
         summary:
           `${swarmMerged.length} 个 swarm 任务已合并，但 ${unverified.length} 个没有独立核验记录：` +
           unverified
-            .map((task) =>
-              task.verification === undefined
-                ? `${task.id}(未核验)`
-                : `${task.id}(核验者 ${task.verification.reviewer} 与提交作者同一身份)`,
-            )
+            .map((task) => {
+              if (task.verification === undefined) return `${task.id}(未核验)`
+              if (task.verification.independence === 'undetermined') {
+                return `${task.id}(核验者 ${task.verification.reviewer} 的独立性无法判定：取不到仓库作者事实)`
+              }
+              return `${task.id}(核验者 ${task.verification.reviewer} 与提交作者同一身份)`
+            })
             .join('，') +
           '——先 workmate_swarm_task action=verify，或把 Config.swarmReviewRequired 关掉',
       })
