@@ -19,6 +19,8 @@
 
 - [x] 8. 收口：`pnpm typecheck && pnpm test && pnpm build && pnpm verify`（`verify` 现含测试自证门）；把"验了什么 / 明确没验什么"写进 `review.md`（未验：真实多 agent 协作下场的人工核验流程，只做了单测与编排级 fake 数据）<!-- writes: openspec/changes/wire-swarm-independent-review/review.md -->
 
+- [x] 9. 真机复核暴露的接线缺陷：在真实 swarm 任务（`harden-test-integrity` 的 `t1`）上跑 `start → merge → verify`，三次调用全部返回 `undetermined` —— 工具层已解析 `root` 却**没传给 `verify`**，而 `deps.repoRoot` 来自默认空串的 `Config.projectRoot`，生产恒 `undefined`。修：`SwarmManager.verify` 增 `projectRoot?` 并让 `taskAuthors` 优先用它；工具层 `action=verify` 传 `projectRoot: root`；`undetermined` 与 `same-as-author` 一样返回 `warning`。同时补上 `swarmReviewRequired` 门对 `undetermined` 的阻断（规格与 design D3 早已这么写，实现漏了）<!-- writes: src/features/swarm/manager.ts, src/index.ts, src/features/archive/orchestrate.ts, src/index.test.ts -->
+
 ## 验收命令（每步都跑，不以退出码判定）
 
 ```bash

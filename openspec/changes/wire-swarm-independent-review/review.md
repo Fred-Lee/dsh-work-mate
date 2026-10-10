@@ -41,14 +41,14 @@
 ## 明确没验什么
 
 - **没验**：真实多 agent 协作场景下的人工核验流程（本变更只做了单测 + 编排级 fake 数据；
-  没有在真实 swarm 任务上跑一遍 verify）。
+  没有在真实 swarm 任务上跑一遍 verify）。**此条已在"第二次真机复核"中关闭**——
+  已在真实 merged 任务上跑通，并因此抓出两个缺陷（见下）。
 - **没验**：`verify` 后重新 `merge` 同一任务（记录会留旧）——目前没有守卫，
   可能的后续改进是"重新合并时清空 verification"。这是一个**已知缺口**，不是假设。
 - **没验**：面板渲染（见"建议补充项"）。
-- **部分已验**：真机 action 路由（见下"重启后复核"）——`action=verify` 在重启后
-  不再是 `unknown action`，而是进入真实分支并按前置守卫拒绝 `planned` 任务。
-  真正"在一个已 merge 的真实 swarm 任务上跑一遍 verify"仍未做（本仓库当前
-  没有处于 `merged` 的 swarm 任务记录）。
+- **部分已验 → 已验**（见下"第二次真机复核"）：真机 action 路由——`action=verify` 在重启后
+  不再是 `unknown action`，而是进入真实分支并按前置守卫拒绝 `planned` 任务；
+  随后在 `harden-test-integrity` 的真实 `merged` 任务上把 `verify` 端到端跑通。
 
 ## 审查者与独立性（诚实声明）
 
@@ -72,3 +72,55 @@
   四态）与"未合并即拒绝 / 空 reviewer 即拒绝"放进 `manager.test.ts`（20 条）与
   `orchestrate.test.ts` 的 swarm 门四态用例。
 - 五道门禁实跑全绿：`typecheck` ✓、`test` 43/43 文件 388/388 ✓、`verify` 五门 ✓、`build` ✓。
+
+## 第二次真机复核：端到端跑通，并暴露两个真实缺陷（2026-10-10 09:33 之后）
+
+上一节把"真实 `merged` 任务上的端到端 verify"列为未验。本轮补上了：
+`harden-test-integrity` 的 `t1` 走完 `plan → start → merge → verify`，
+并把负对照逐条打中（未合并即 verify 被拒；`merge` 成功；署名 = 提交作者时判 `same-as-author`）。
+**端到端一跑通就抓出两处实现错误**，配置修复（判断层 provider）后的这次真机曝光是它们唯一的来源：
+
+- **缺陷 1（功能空转）**：`workmate_swarm_task action=verify` 在生产配置下**永远**返回
+  `undetermined`。链路：工具层已算出 `root`（explicit → `Config.projectRoot` → 项目注册表）
+  并把它传给 `start` / `merge`，**唯独 `verify` 没传**；`SwarmManager.verify` 只读
+  `deps.repoRoot`，而那是 `resolved.projectRoot !== '' ? … : undefined`，`Config.projectRoot`
+  默认 `''` 且本机 profile 未设 → 恒 `undefined` → 作者集合恒空 → 恒 `undetermined`。
+  这直接命中 design.md 的**风险 1**（"开启门禁后所有任务都拦"）。
+  对照：归档审查门不受影响，它走 `collectExecutorIdentities(target.root, …)`，root 由编排层现算。
+- **缺陷 2（门禁与规格不符）**：`swarmReviewRequired` 的 `unverified` 过滤只认
+  `undefined` 与 `same-as-author`，**漏了 `undetermined`**——而 `specs/swarm-verification/spec.md`
+  与 design D3 都明写"`undetermined` SHALL 视同未核验（阻断）"。
+  后一个缺陷会**掩盖**前一个：门禁开着时，配置错导致的 `undetermined` 会静默放行，
+  恰好与 D3 的理由（"无 git 事实通常意味着配置没接上，放行等于门禁静默失效"）相反。
+
+### 修复内容
+
+- `src/features/swarm/manager.ts`：`verify` 的入参增 `projectRoot?: string`；
+  `taskAuthors(explicitRoot?, signal?)` 优先用显式 root，回退 `deps.repoRoot`；
+  空串显式 root 视为未提供（不当作 cwd）。
+- `src/index.ts`：`action=verify` 传 `projectRoot: root`（与 `start` / `merge` 对称）；
+  `undetermined` 也返回 `warning`（此前只对 `same-as-author` 提示）。
+- `src/features/archive/orchestrate.ts`：`unverified` filter 纳入 `undetermined`，
+  失败摘要对它单独措辞"独立性无法判定：取不到仓库作者事实"。
+
+### 本轮新增用例（可证伪）
+
+- `src/features/swarm/manager.test.ts` +2：无 `deps.repoRoot` 但传显式 `projectRoot` 时
+  `t → same-as-author`、`auditor@2 → independent`；显式 root 为空串时仍判 `undetermined`。
+- `src/features/archive/orchestrate.test.ts` +1 段：门禁开启时 `undetermined` 的核验记录
+  也拦归档，摘要含"无法判定"。
+- `src/index.test.ts` +2：**工具层**接线回归——同一仓库同一提交，经
+  `workmate_swarm_task` 走 `verify`，无名作者判 `same-as-author` 并带 warning、
+  他人判 `independent`；非 git 目录判 `undetermined` 并带 warning。
+  做了反向对照：把 `projectRoot: root` 那行从 `src/index.ts` 去掉后，该用例
+  报 `expected 'undetermined' to be 'same-as-author'` —— 证明这条用例真的是为这个缺陷立的，
+  不是跟着实现写的。
+
+### 仍然没验什么（更新）
+
+- **没验**：`verify` 后重新 `merge` 同一任务（记录会留旧），守卫仍缺。
+- **没验**：面板渲染 `swarmTasks[].verification`。
+- **没验**：`swarmReviewRequired: true` 下的**完整归档跑通**（本仓库没有已归档的
+  swarm 提案；门禁语义只在 `orchestrate.test.ts` 的编排级用例里验过）。
+  修复后的真机复验需要重新 `pnpm build` + 重启 harness —— 本轮交付的是代码与用例，
+  真机复验在重启后进行。
