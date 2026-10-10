@@ -45,7 +45,10 @@
 - **没验**：`verify` 后重新 `merge` 同一任务（记录会留旧）——目前没有守卫，
   可能的后续改进是"重新合并时清空 verification"。这是一个**已知缺口**，不是假设。
 - **没验**：面板渲染（见"建议补充项"）。
-- **没验**：真机装载行为（本会话按要求不重启 harness）。
+- **部分已验**：真机 action 路由（见下"重启后复核"）——`action=verify` 在重启后
+  不再是 `unknown action`，而是进入真实分支并按前置守卫拒绝 `planned` 任务。
+  真正"在一个已 merge 的真实 swarm 任务上跑一遍 verify"仍未做（本仓库当前
+  没有处于 `merged` 的 swarm 任务记录）。
 
 ## 审查者与独立性（诚实声明）
 
@@ -54,3 +57,18 @@
 人工复核记录；本轮由用户裁决。
 
 <!-- reviewer: wire-swarm-independent-review-author -->
+
+## 重启后复核（真机，2026-10-10 08:04 之后）
+
+- **旧 bundle 的失败留痕（修复前后的对照证据）**：
+  重启前 `workmate_swarm_task action=verify ...` 返回
+  `Error: unknown action 'verify' — valid: start, merge` —— 证明当时跑的是旧 `dist/`。
+- **重启后同一调用进入真实分支**：`task 't1' is planned — 独立核验只对已合并的任务有意义
+  （先 merge 再 verify）`。这一次不再是路由不存在，而是本变更自己写的**合并前置守卫**
+  在起作用（先在 `harden-test-integrity` 上试 `t1`，再在 7 批任务计划上复试，
+  两次都是该守卫拦下）。
+- **仍未做**：真实 `merged` 任务上的端到端 verify（本仓库无已合并 swarm 任务）；
+  改为把独立性判定表（`independent` / `same-as-author` / `missing` / `undetermined`
+  四态）与"未合并即拒绝 / 空 reviewer 即拒绝"放进 `manager.test.ts`（20 条）与
+  `orchestrate.test.ts` 的 swarm 门四态用例。
+- 五道门禁实跑全绿：`typecheck` ✓、`test` 43/43 文件 388/388 ✓、`verify` 五门 ✓、`build` ✓。

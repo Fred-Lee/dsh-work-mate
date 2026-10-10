@@ -60,8 +60,11 @@
 
 ## 明确没验什么
 
-- **没验**：真机（浏览器）路径——本会话按要求**不重启 harness**，所以面板「强制归档」按钮
-  的后端路径由 `src/api.test.ts` 的真实 router 覆盖，但浏览器点击到该路由这一段没有实测。
+- **部分已验**：新 bundle **确认已装载**（见下"重启后复核"：本变更新增的两个工具面
+  —— `workmate_swarm_task action=verify`、`workmate_plan_drift` 的 `excluded` 字段
+  —— 在重启后都活着，而它们与归档门出自同一份 `dist/index.js`）。
+  仍**没验**的是浏览器点到 `/workmate/api/...` 那一段：面板「强制归档」按钮的后端路径
+  由 `src/api.test.ts` 的真实 router 覆盖，但没有真机点击实测。
 - **没验**：GitNexus 查询结论的正确性（本变更只标注"不可机检"，从设计上就不试图验证它）。
 - **没验**：`block` 档下多目标（多项目）混合情形的交互（一个项目独立、另一个自评）；
   相关的 per-target 循环分支由单目标用例覆盖，组合未单独测。
@@ -73,3 +76,18 @@
 不是独立审查。`<!-- reviewer: ... -->` 的值如实写作实现者身份，不假造一个独立名字。
 
 <!-- reviewer: harden-archive-gates-author -->
+
+## 重启后复核（真机，2026-10-10 08:04 之后）
+
+用户重启 harness（新实例 PID 74355）后，本变更新增的两个工具面**在真机上首次被调用**：
+
+- `workmate_swarm_task action=verify`：重启前报 `unknown action 'verify' — valid: start, merge`
+  （旧 bundle）；重启后进入真实分支 —— 对 `planned` 任务如实拒绝
+  （`task 't1' is planned — 独立核验只对已合并的任务有意义`），对不存在的任务报
+  `unknown swarm task`。**action 路由与合并前置守卫都在真机上生效**。
+- `workmate_plan_drift`：重启后返回体新增 `excluded` 字段，四份提案的 `missing` 全部清空。
+- 归档编排的其余门（审查者独立性 / 引用机检 / swarm 逐任务核验 / plan-drift）
+  与上述共享同一份 `dist/index.js` 与同一次 `orchestrateArchive` 管线，
+  由 `orchestrate.test.ts`（23 条，含四条门禁的正/反分支）覆盖。
+- 五道门禁实跑：`typecheck` ✓、`test` 43/43 文件 388/388 ✓、`verify` 五门全绿
+  （`[test-integrity] ok — 43 个测试文件全部执行，388 条通过，0 skip / 0 todo`）、`build` ✓。

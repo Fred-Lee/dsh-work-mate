@@ -24,21 +24,39 @@
 
 ## 疑问项
 
-- **无法在本会话内看到修复"活"起来**：`workmate_plan_drift` 由**已装载的插件**执行，
-  而插件跑的是 `dist/` 产物；本会话按纪律不重启 harness，因此工具返回值仍是旧逻辑
-  （实测：修复并 `git commit` 后再次调用，输出里依然没有 `excluded` 字段，
-  `missing` 里仍有那两条）。**这不是推测，是本次调用可复核的事实。**
-  结论：本次以单测产物作为证据；真机生效需用户在面板重启 harness。
-  重启后预期：`workmate_plan_drift` 的 `drift` 里出现 `excluded`，
-  `missing` 不再含 `openspec/changes/**` 项。
+- ~~**无法在本会话内看到修复"活"起来**~~ **→ 已于重启后真机复核通过（见下"重启后复核"）**。
+  修复前实测：插件跑 `dist/` 产物，且活实例是旧构建，`workmate_plan_drift`
+  返回值里没有 `excluded`、`missing` 里仍挂着 `openspec/changes/<id>/specs/**`。
+  这条曾是本变更唯一没有真机证据的部分。
 - **解析器仍把文档里的示例注释当声明**：这是"用注释表达结构"的固有代价。
   本提案只消除了自己文档里的示例，没有改解析器语义（改它需要一套"示例区"标记，
   另开提案更合适）。
 
 ## 建议补充项
 
-- 重启 harness 后复跑三份提案的 `workmate_plan_drift`，把 `excluded` 是否出现记进
-  `docs/DSH-INTEGRATION-NOTES.md` 的证据等级表（本次会话做不到）。
+- ~~重启 harness 后复跑三份提案的 `workmate_plan_drift`…~~ **→ 已完成，见下"重启后复核"。**
+
+## 重启后复核（真机，2026-10-10 08:04 之后）
+
+用户重启 harness（新实例 PID 74355，`dist/index.js` 07:45:51 > HEAD 07:43:37）后复跑
+`workmate_plan_drift`，四份提案结果一致：
+
+| 提案 | `missing` | `excluded` |
+| --- | --- | --- |
+| `harden-archive-gates` | `[]` | `openspec/changes/harden-archive-gates/{specs/**,review.md}` |
+| `harden-test-integrity` | `[]` | `…/{specs/**,review.md}` |
+| `wire-swarm-independent-review` | `[]` | `…/{specs/**,review.md}` |
+| `honest-plan-drift` | `[]` | `…/review.md` |
+
+- **修复前**：`harden-test-integrity` 的 `missing` 为 `["…/specs/**", "…/review.md"]`，
+  返回体里根本没有 `excluded` 字段。
+- **修复后**：`missing` 清空、`excluded` 出现且恰好是那两条计划目录内的声明。
+  与单测断言（`reports declarations inside an ignored prefix as excluded, not missing`）
+  逐条吻合 —— 纯函数层与真机装载行为一致，没有"单测绿、真机不生效"的落差。
+- **反向对照仍在**：`honest-plan-drift` 的 `driftRatio` 曾因漏声明 `src/index.ts`
+  报 `0.1667` 且 `undeclared: ["src/index.ts"]`；补上声明（提交 `1e1e7f6`）后
+  `undeclared: []`、`driftRatio: 0`。**真漂移没有被 `excluded` 掩盖**，
+  计划目录豁免只吃计划目录自己的路径。
 
 ## CRITICAL 问题
 
@@ -46,7 +64,7 @@
 
 ## 明确没验什么
 
-- **没验**：真机（重启后）的 `workmate_plan_drift` 输出——见"疑问项"，本会话禁止重启。
+- ~~**没验**：真机（重启后）的 `workmate_plan_drift` 输出~~ **→ 已验，见下"重启后复核"。**
 - **没验**：`planDriftGate: true` 下的端到端归档（本机 profile 未开该门，
   只用编排级单测覆盖了 warn/failed 两条分支）。
 - **没验**：多项目（多 target）混合时 warn 的合并输出（单 target 已覆盖）。

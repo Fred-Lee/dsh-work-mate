@@ -39,7 +39,8 @@
 
 - **没验**：用例本身有效（`expect(true).toBe(true)` 一样通过）。本门禁管"跑没跑"，
   不管"测得对不对"，这一点写进了脚本注释、README 8.1 与 AGENTS.md。
-- **没验**：真机装载（归 `pnpm verify:client` 与人工重启验收；本会话按要求不重启 harness）。
+- ~~**没验**：真机装载（本会话按要求不重启 harness）。~~ **→ 与本门禁无关**：`verify:test`
+  是仓库内 node 脚本，不经过插件装载；重启后已实跑 `pnpm verify` 五门全绿（见下"重启后复核"）。
 - **没验**：`--changed` / watch 模式下的行为。
 
 ## 审查者与独立性（诚实声明）
@@ -48,6 +49,16 @@
 判据衡量，这是 `same-as-author`（自评），不是独立审查。独立审查记录见下一节。
 
 <!-- reviewer: harden-test-integrity-author -->
+
+## 重启后复核（2026-10-10 08:04 之后）
+
+- 重启**不改变**本门禁的有效性：`verify:test` 是仓库内 `node scripts/check-test-integrity.mjs`，
+  由 `pnpm verify` 直接执行，不经过插件装载。
+- 本轮实跑 `pnpm verify`（含本门禁）：`[test-integrity] ok — 43 个测试文件全部执行，
+  388 条通过，0 skip / 0 todo（仓库发现全集 43，与 include 无关）`，五门全绿。
+- 与 `harden-archive-gates` 同一份 `dist/index.js` 的两个新工具面
+  （`workmate_swarm_task action=verify`、`workmate_plan_drift.excluded`）在重启后
+  确认活跃，可交叉印证新 bundle 已装载。
 
 ## 独立审查
 
