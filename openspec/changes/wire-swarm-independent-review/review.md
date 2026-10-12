@@ -120,7 +120,25 @@
 
 - **没验**：`verify` 后重新 `merge` 同一任务（记录会留旧），守卫仍缺。
 - **没验**：面板渲染 `swarmTasks[].verification`。
-- **没验**：`swarmReviewRequired: true` 下的**完整归档跑通**（本仓库没有已归档的
-  swarm 提案；门禁语义只在 `orchestrate.test.ts` 的编排级用例里验过）。
-  修复后的真机复验需要重新 `pnpm build` + 重启 harness —— 本轮交付的是代码与用例，
-  真机复验在重启后进行。
+- **没验**：`swarmReviewRequired: true` 下的**完整归档跑通**（本仓库没有走完 swarm 的
+  归档提案；门禁语义只在 `orchestrate.test.ts` 的编排级用例里验过）。
+
+## 第三次真机复核：重启后复验三态（2026-10-12 23:19）
+
+`pnpm build` 产物（`dist/index.js` 10:11:32）晚于三份源码改动（最晚 `src/index.ts` 10:08:36），
+重启后的宿主加载的就是修复版。在 `harden-test-integrity` 的真实 `merged` 任务 `t1` 上，
+用同一把 `workmate_swarm_task` 依次打出三种判定，**修复前这三种只会得到同一个 `undetermined`**：
+
+| 输入 | independence | 返回 |
+| --- | --- | --- |
+| `reviewer: "李志杰"`（= 提交作者 `李志杰 <lizhijie@xueyi.com>`），不传 `projectRoot` | `same-as-author` | note 指名同一身份 + warning「归档门会视为未核验」 |
+| `reviewer: "independent-auditor@example.com"`，不传 `projectRoot` | `independent` | note「不在执行者身份集合内（1 个执行者）」 |
+| 同上，但 `projectRoot: <非 git 目录>` | `undetermined` | note「无执行者身份事实」+ **新增的 warning**「取不到仓库作者事实…会视为未核验」 |
+
+判定序列全程 **0 次 `undetermined` 误判**：第 1、2 行是生产路径（`projectRoot` 由工具层
+按 explicit → `Config.projectRoot` → 项目注册表 解析后下传），第 3 行证明取不到 git 事实时
+仍然诚实降级、不冒充通过。最后一次调用把 `t1` 的记录恢复成真实仓库下的 `independent` 结论，
+第三行的 `undetermined` 结论没有留在数据里。
+
+结论：**缺陷 1（生产恒 `undetermined`）已闭环**；缺陷 2（`undetermined` 计入未核验）
+由 `orchestrate.test.ts` 的编排级用例守住，真机上的完整归档跑通仍未做（见上）。
