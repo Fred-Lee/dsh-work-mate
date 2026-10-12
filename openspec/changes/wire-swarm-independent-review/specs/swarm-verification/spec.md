@@ -6,7 +6,7 @@ swarm 的"已合并"只证明代码落地，不证明有人看过。本 capabili
 三条硬规则（未合并不得核验 / 必须署名 / 独立性由 git 事实派生），以及可选归档门的语义：
 开启 `Config.swarmReviewRequired` 后，每个已合并任务都必须带一条非自评的核验记录。
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: 核验记录挂在任务上且可追溯
 

@@ -6,7 +6,7 @@
 判据：每个应跑的测试文件都必须真的被执行，且不允许静默跳过；"全集"必须由仓库独立发现，
 不得复用 `vitest.config.ts` 的 `include`（复用会让"改窄 include"自己给自己发绿灯）。
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: 测试文件全集独立于 include
 

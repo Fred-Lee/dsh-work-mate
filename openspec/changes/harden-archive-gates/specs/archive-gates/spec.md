@@ -6,7 +6,7 @@
 审查报告的身份与证据也没有机器校验。本 capability 规定这三处的强制语义：`force` 是
 **人类的显式决策**而不是 agent 的参数；审查者的独立性可判定、可配档；审查证据的引用可机检。
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: force 是人类的显式决策
 

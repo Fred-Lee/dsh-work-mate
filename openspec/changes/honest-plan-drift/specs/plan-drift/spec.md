@@ -6,7 +6,7 @@
 **声明了但没改**（无法从 git 事实区分原因，只提示）。同时，提案自己的计划目录
 （`openspec/changes/<id>/`）是计划本身，不是交付物——声明它不能反过来被算成"未触及"。
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: 计划目录内的声明不得算作未触及
 
