@@ -9,8 +9,10 @@ WorkMate（`workmate4dsh`）是一个 **DSH 插件 Bundle**，围绕「变更提
 知识串联逻辑）。
 
 - 完整技术设计：`docs/DESIGN.md`（0.1.0-draft，宪法文档）
-- 前身 Helmsman（15 包 monorepo，看板 / 编排 / 拓扑）已完整存档于 `main` 分支；
-  本分支 `feat/workmate` 是全新起点，**不迁移**旧代码。
+- 前身 Helmsman（15 包 monorepo，看板 / 编排 / 拓扑）的存档线原在 `main`。
+  **2026-10-12 起 WorkMate 单包线接管 `main`**（fast-forward 合并）；旧存档线留在 tag
+  `archive/helmsman-main`（`16bb983`）。日常开发仍在 `feat/workmate`，两条分支同源，
+  `main` 只做里程碑收敛点。
 
 ## 常用命令
 

@@ -21,8 +21,9 @@ draft → proposing → reviewing → ready → implementing → merging → arc
   同名面板另有 `/workmate/` 独立页供调试直连；UI 是**可选面**——任何 profile
   （含 headless / acp / sdk）里 agent 工具面都照常可用
 
-> 前身 Helmsman（Agent 舰队指挥中心，15 插件包 monorepo）完整存档于 `main` 分支；
-> 当前 `feat/workmate` 分支是按 `docs/DESIGN.md` 另起的全新实现。
+> 前身 Helmsman（Agent 舰队指挥中心，15 插件包 monorepo）的存档线原在 `main`，
+> 2026-10-12 起 WorkMate 单包线接管 `main`；旧存档线保留在 tag
+> **`archive/helmsman-main`**（`16bb983`）与远端备份中，本仓不再向它开发。
 
 ---
 
