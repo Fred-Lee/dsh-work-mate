@@ -576,11 +576,27 @@ export async function orchestrateArchive(
         60_000,
         options.signal,
       )
-      steps.push({
-        step: 'openspec-archive',
-        status: 'ok',
-        summary: `${label}${output.trim().split('\n').slice(-2).join(' / ')}`,
-      })
+      // Exit code 0 is NOT proof of success: `openspec archive` exits 0 while
+      // printing "Aborted. No files were changed." when the delta specs do not
+      // parse, so the pipeline would stamp `archived` on a change directory that
+      // never moved. Judge the product fact instead — see the branch below
+      // (change `harden-openspec-archive-step`).
+      const archived = await readChangeState(target.root, options.openspecRoot, proposal.openspecChangeId)
+      if (archived.state === 'archived') {
+        steps.push({
+          step: 'openspec-archive',
+          status: 'ok',
+          summary: `${label}${output.trim().split('\n').slice(-2).join(' / ')}`,
+        })
+      } else {
+        allArchived = false
+        steps.push({
+          step: 'openspec-archive',
+          status: 'failed',
+          summary: `${label}${output.trim().split('\n').slice(-2).join(' / ')} / changes/${proposal.openspecChangeId}/ 仍在原地 —— 退出码 0 不代表归档完成`,
+        })
+        continue
+      }
     } catch (error) {
       // Retry semantics: a previous partial run may have already archived this
       // project — the CLI then fails with "not found". Archived state means

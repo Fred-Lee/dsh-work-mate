@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm, chmod, writeFile, readFile, mkdir, stat } from 'node:fs/promises'
+import { mkdtemp, rm, chmod, writeFile, readFile, mkdir, readdir, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -79,9 +79,28 @@ describe('orchestrateArchive (fake CLIs)', () => {
     return project
   }
 
+  /**
+   * Fake `openspec archive <id> --yes` that behaves like the real CLI on success:
+   * it MOVES `changes/<id>/` into `changes/archive/<date>-<id>/`. The pipeline
+   * verifies that product fact rather than the exit code (change
+   * `harden-openspec-archive-step`), so a fake that only prints would be a lie —
+   * and every "archive succeeded" assertion below would be testing the lie.
+   * cwd is the target root, so relative paths are the project's.
+   */
   async function installFakeOpenspec(): Promise<void> {
     const path = join(binDir, 'openspec')
-    await writeFile(path, '#!/bin/sh\necho "archived: $2"\n', 'utf8')
+    await writeFile(
+      path,
+      [
+        '#!/bin/sh',
+        'set -e',
+        'mkdir -p "openspec/changes/archive/2026-01-01-$2"',
+        'mv "openspec/changes/$2" "openspec/changes/archive/2026-01-01-$2"',
+        'echo "Change \'$2\' archived as \'2026-01-01-$2\'."',
+        '',
+      ].join('\n'),
+      'utf8',
+    )
     await chmod(path, 0o755)
   }
 
@@ -118,10 +137,10 @@ describe('orchestrateArchive (fake CLIs)', () => {
         ['gitnexus-analyze', 'ok'],
         ['status', 'ok'],
       ])
-      // change directory was moved to archive/ by the real openspec CLI —
-      // the fake prints only, so verify the fake captured the id instead
-      const fakeOutput = result.steps.find((s) => s.step === 'openspec-archive')?.summary ?? ''
-      expect(fakeOutput).toContain('p1')
+      // The change directory really moved: judge the product fact, not the fake's echo.
+      const archivedDir = join(project, 'openspec', 'changes', 'archive', '2026-01-01-p1')
+      await expect(stat(archivedDir)).resolves.toBeTruthy()
+      await expect(stat(join(project, 'openspec', 'changes', 'p1'))).rejects.toThrow()
     } finally {
       if (savedPath !== undefined) process.env['PATH'] = savedPath
     }
@@ -587,8 +606,13 @@ describe('orchestrateArchive (fake CLIs)', () => {
       { openspecBin: join(binDir, 'openspec') },
     )
     expect(forced.steps.find((s) => s.step === 'review-gate')).toMatchObject({ status: 'skipped' })
+    // The gate that was forced is the REVIEW gate — reaching the archive step at
+    // all is what `force` bought. The archive step itself is judged on its own
+    // product fact, which the fake above produces for real.
     expect(forced.steps.find((s) => s.step === 'openspec-archive')).toMatchObject({ status: 'ok' })
     expect(forced.ok).toBe(true)
+    // The fixture's review.md is missing entirely; force is what let it through.
+    expect(forced.forced).toBe(true)
   })
 
   it('passes the configured openspecRoot through service preconditions, writer and orchestration', async () => {
@@ -805,6 +829,138 @@ describe('auto vault export after archiving (auto-export-vault)', () => {
     const step = result.steps.find((entry) => entry.step === 'vault-export')
     expect(step?.status).toBe('failed')
     expect(step?.summary).toContain('不影响归档')
+    await rm(project, { recursive: true, force: true })
+  })
+})
+
+/**
+ * False-green regression (change `harden-openspec-archive-step`): `openspec archive`
+ * exits 0 while printing "Aborted. No files were changed." when the delta specs do
+ * not parse. The pipeline used to call that `ok` and stamp the proposal `archived`
+ * while `changes/<id>/` never moved.
+ *
+ * These cases run the REAL `openspec` CLI — a fake cannot express the bug, because
+ * the bug is precisely "the CLI says fine and the directory stays put".
+ */
+describe('openspec-archive step verifies the product, not the exit code', () => {
+  const prop = {
+    id: 'p1',
+    title: 't',
+    status: 'archiving' as const,
+    projects: ['demo'],
+    commits: [],
+    openspecChangeId: 'p1',
+  }
+
+  /** Seed a change whose spec section header is the only variable under test. */
+  async function seedWithSpec(sectionHeader: string, withSpecs = true): Promise<string> {
+    const project = await mkdtemp(join(tmpdir(), 'wm-archive-fact-'))
+    const changeDir = join(project, 'openspec', 'changes', 'p1')
+    await mkdir(join(changeDir, 'specs', 'cap'), { recursive: true })
+    await writeFile(join(changeDir, 'proposal.md'), '# P\n\n## Why\n\n因为。\n\n## What Changes\n\n- 甲\n', 'utf8')
+    await writeFile(join(changeDir, 'tasks.md'), '- [x] 1. a\n', 'utf8')
+    await writeFile(join(changeDir, 'review.md'), '## CRITICAL 问题\n\n无。\n', 'utf8')
+    if (withSpecs) {
+      await writeFile(
+        join(changeDir, 'specs', 'cap', 'spec.md'),
+        [
+          '# cap Specification',
+          '',
+          '## Purpose',
+          '',
+          '说明。',
+          '',
+          sectionHeader,
+          '',
+          '### Requirement: 甲',
+          '',
+          '系统 SHALL 甲。',
+          '',
+          '#### Scenario: 甲场景',
+          '',
+          '- **WHEN** 甲',
+          '- **THEN** 甲',
+          '',
+        ].join('\n'),
+        'utf8',
+      )
+    }
+    return project
+  }
+
+  async function run(project: string) {
+    return orchestrateArchive(prop as never, [{ project: 'demo', root: project }], {
+      openspecRoot: 'openspec',
+      gitnexusAnalyzeEnabled: false,
+    } as never)
+  }
+
+  it('fails when the CLI aborts but still exits 0 (delta header missing)', async () => {
+    // `## Requirements` is not a delta header: openspec parses no operations,
+    // prints "Aborted. No files were changed." — and exits 0.
+    const project = await seedWithSpec('## Requirements')
+
+    const result = await run(project)
+
+    const step = result.steps.find((s) => s.step === 'openspec-archive')
+    expect(step?.status).toBe('failed')
+    expect(result.ok).toBe(false)
+    // The CLI's own words survive into the report, and so does the product fact.
+    expect(step?.summary).toContain('Aborted. No files were changed.')
+    expect(step?.summary).toContain('仍在原地')
+    // Nothing advanced behind the failure.
+    expect(result.steps.find((s) => s.step === 'status')).toBeUndefined()
+    // The directory really is still where it was — that is what made it a failure.
+    await expect(stat(join(project, 'openspec', 'changes', 'p1'))).resolves.toBeTruthy()
+    expect(await readFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), 'utf8')).toContain('- [x] 1. a')
+
+    await rm(project, { recursive: true, force: true })
+  })
+
+  it('succeeds when the same fixture only swaps the header to a delta section', async () => {
+    // Identical fixture; the single difference is the section header. The case
+    // above must be red and this one green, or the verdict is not about the code.
+    const project = await seedWithSpec('## ADDED Requirements')
+
+    const result = await run(project)
+
+    expect(result.ok).toBe(true)
+    expect(result.steps.find((s) => s.step === 'openspec-archive')?.status).toBe('ok')
+    // The archive directory is date-stamped by the CLI, so discover it instead of
+    // hardcoding today's date (which would rot the moment the clock rolls over).
+    const archiveRoot = join(project, 'openspec', 'changes', 'archive')
+    const archived = (await readdir(archiveRoot)).filter((name) => name.endsWith('-p1'))
+    expect(archived).toHaveLength(1)
+    expect(await readFile(join(archiveRoot, archived[0]!, 'tasks.md'), 'utf8')).toContain('- [x] 1. a')
+    await expect(stat(join(project, 'openspec', 'changes', 'p1'))).rejects.toThrow()
+
+    await rm(project, { recursive: true, force: true })
+  })
+
+  it('does not misfire on a change that legitimately has no specs directory', async () => {
+    // No `specs/` at all: openspec archives it happily (only a proposal.md warning).
+    // The verdict keys on where the directory went, not on whether specs exist.
+    const project = await seedWithSpec('## ADDED Requirements', false)
+
+    const result = await run(project)
+
+    expect(result.steps.find((s) => s.step === 'openspec-archive')?.status).toBe('ok')
+    expect(result.ok).toBe(true)
+    await expect(stat(join(project, 'openspec', 'changes', 'p1'))).rejects.toThrow()
+
+    await rm(project, { recursive: true, force: true })
+  })
+
+  it('treats a rerun over an already-archived change as a skip, not a failure', async () => {
+    const project = await seedWithSpec('## ADDED Requirements')
+
+    const first = await run(project)
+    expect(first.steps.find((s) => s.step === 'openspec-archive')?.status).toBe('ok')
+
+    const second = await run(project)
+    expect(second.steps.find((s) => s.step === 'openspec-archive')?.status).toBe('skipped')
+    expect(second.ok).toBe(true)
+
     await rm(project, { recursive: true, force: true })
   })
 })

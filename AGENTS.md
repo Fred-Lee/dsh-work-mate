@@ -182,10 +182,16 @@ node $DSH web                                                # http://127.0.0.1:
 | 审查证据机检 | `reviewEvidenceGate` | `'warn'` | `off`/`warn`/`block`；`block` 下反引号引用指向不存在的文件即拦归档；行号越界只 warn；GitNexus 查询结论标注为不可机检 |
 | 计划漂移 | `planDriftGate` | `false` | 只拦**改了没声明**（`undeclared` → failed）；**声明了没改**只产出一条 `warn` 步骤（计划写多了或改在别处，无法从 git 事实区分，不阻断）。提案自己的 `openspec/changes/<id>/` 是计划不是交付物，计入 `excluded` 而不算漂移。想在本机开启：在 `~/.dsh/profiles/<profile>/cordis.patch.yml` 的 workmate 条目加 `planDriftGate: true` |
 | swarm 逐任务核验 | `swarmReviewRequired` | `false` | `true` 时每个已合并 swarm 任务都必须有独立核验记录（`workmate_swarm_task action=verify`），自评（`same-as-author`）或取不到 git 事实（`undetermined`）都算未核验 |
+| 归档步骤的成败判据 | 无（代码级，不可配） | — | `openspec-archive` 步骤不看退出码，只看**产物事实**：该变更是否真的从 `changes/<id>/` 移入 `changes/archive/<date>-<id>/`。**`openspec archive` 在 delta 解析失败时退出码仍是 0**（只打 `Aborted. No files were changed.`），所以"退出码 0 就报 ok"会让面板显示归档成功而目录原地不动（2026-10-12 四份提案全部命中，人工修 spec 段头才真正归档）。核验不过即 `failed` + `ok=false` + 提案停在 `archiving`，摘要带 CLI 原话与"仍在原地"。无 `specs/` 的变更与幂等重跑都不误伤 |
 
 强制归档（`force`）必留痕：approval 记录的 `forcedGates` 列出被跳过的门，
 `workmate_proposal_status` 返回 `forcedArchive`。**被门禁拒了不要改配置绕过**——
 请用户在面板点「推进 / 强制归档」，那是设计里的唯一出路。
+
+规约书写提醒（2026-10-12 实测）：`openspec/changes/<id>/specs/<cap>/spec.md` 的段头
+**必须是 delta 段头**（`## ADDED Requirements` / `## MODIFIED Requirements` / …）。
+写成 `## Requirements` 时 `openspec validate` 会失败、`openspec archive` 会 Aborted，
+而它的**退出码仍然是 0**——别把退出码当成功信号。
 
 ## 工作流
 
