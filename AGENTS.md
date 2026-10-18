@@ -113,11 +113,50 @@ node $DSH web                                                # http://127.0.0.1:
 | `workmate/events.jsonl` | 过程事件流（append-only：状态迁移 / 门禁失败 / 控制带越界） |
 | `workmate/bands.json` | 控制带配置（缺失用内建默认，损坏 fail-closed 报错） |
 | `workmate/decision-cache.json` | 判断缓存（同题复用；损坏 fail-open，仅性能层） |
+| `workmate/team-runs.json` | 团队 Run / Task / Dispatch / 持久化收件箱（原子写、损坏 fail-closed） |
 
 `proposals.json` 写入必须 **tmp + rename 原子写**；文件损坏 fail-closed——启动期报告、
 永不覆盖（board warmUp 教训）。`events.jsonl` 是**只追加**的 JSONL：只增不改，读取端
 容忍撕裂尾行与非法行（忽略并计数，绝不抛错）；事件流损坏不得影响聚合读写。
 度量一律由事件流**现算**（`src/features/proposal/metrics.ts` 纯函数），不落第二份真相。
+
+## 团队编排（2026-10-19，`autonomous-agent-team`）
+
+团队 Run 是**提案之上的执行层**，不替代八态生命周期：
+
+- 工具面：`workmate_team_plan`（TASKS.json → Run + 波次，`start=true` 可立即跑首波）、
+  `workmate_team_run`、`workmate_team_status`、`workmate_team_inbox`、
+  `workmate_team_answer`；
+- 数据：`workmate/team-runs.json` 保存 Run/Task/Dispatch 与**持久化 inbox**；
+  过程事实（`team-dispatch`/`team-settled`/`team-run`）写 `workmate/events.jsonl`；
+- G1：`workmate_team_plan` 先按模板检查 `REQ.md`/`PLAN.md`/`TASKS.json` 完整性与
+  `TASKS.json` DAG；G2 仍由 `planHash` 人工批准，`teamAutoPlan=true` 时批准后只建
+  planned Run（REST 无 agent，不能自动派发）；
+- 执行边界：每个 worker 用 `ctx.subagents.startActivation` 起原生 child，cwd 绑定
+  target worktree；角色按 `teamReadonlyPreset`/`teamWorkspacePreset` 映射 agentPreset，
+  按 `teamRoleModels` 覆盖模型；`teamRequireRolePresets=true` 时缺 preset 拒绝派发；
+- 正证据：worker 报 done 必须有 outcome/reportPath；测试/审查角色必须有 reportPath；
+  `FILES:` 报告会按 Task `writes` 机检，越界或未声明写域按失败处理；worker 以
+  `QUESTION:`/`ESCALATION:` 结束会暂停 Run 并写入 inbox，回答后用 `resetTask` 继续；
+- 预算：并发 3、每 Task 重试 2、Run 2h / 300k tokens（仅宿主给 usage 才累计）/ 20
+  Dispatch；超限 abort 并上报；
+- G5 拒绝：`rejectMerge(category=plan|implementation)` 退回 `implementing`；plan 类还会
+  作废最近一次 G2 approve，改完方案需重新 `approvePlan`；
+- 归档证据：`teamEvidenceGate`（默认 warn）在 `merging→archiving` 前检查 team-managed
+  变更的 `TEST.md`/`REVIEW.md` 段头；`SUMMARY.md` 会映射进归档 manifest 的 `team` 段。
+
+## 多项目 target（2026-10-19，`multiproject-branch-workbench`）
+
+`Proposal.targets: ProposalTarget[]` 是多仓/多基线提案的权威形状；旧字段
+`projects`/`featureBranch`/`worktreePath`/`portRange` 只做兼容投影：
+
+- `effectiveTargets()`：无 `targets` 时按第一个 project + 标量字段生成 legacy target；
+- `ready→implementing` 为每个 target 建 worktree：路径 `<root>/.workmates/<proposalId>`、
+  分支 `feature/<proposalId>`、端口键 `${proposalId}--${project}`，失败整体回滚；
+- `archiving` 逐 target 校验 `featureBranch → baseBranch` 已合并，归档后逐 target 回收；
+- 面板的详情抽屉按 target 展示 base/feature/worktree/端口；`/api/isolation` 暴露分支占用，
+  `/api/isolation/writes` 暴露声明写域冲突，`/api/isolation/drift` 暴露基线漂移；
+- 兼容规则：新代码读 `effectiveTargets`，不再假设单标量；写回时多 target 不写标量投影。
 
 ## 里程碑路线（`docs/DESIGN.md` §7）
 
@@ -181,6 +220,8 @@ node $DSH web                                                # http://127.0.0.1:
 | 审查者独立性 | `reviewerIndependence` | `'warn'` | `off`/`warn`/`block`；`block` 下 reviewer 缺失或与标记提交 author 同身份即拦归档；无 git 事实只 warn |
 | 审查证据机检 | `reviewEvidenceGate` | `'warn'` | `off`/`warn`/`block`；`block` 下反引号引用指向不存在的文件即拦归档；行号越界只 warn；GitNexus 查询结论标注为不可机检 |
 | 计划漂移 | `planDriftGate` | `false` | 只拦**改了没声明**（`undeclared` → failed）；**声明了没改**只产出一条 `warn` 步骤（计划写多了或改在别处，无法从 git 事实区分，不阻断）。提案自己的 `openspec/changes/<id>/` 是计划不是交付物，计入 `excluded` 而不算漂移。想在本机开启：在 `~/.dsh/profiles/<profile>/cordis.patch.yml` 的 workmate 条目加 `planDriftGate: true` |
+| 团队证据 | `teamEvidenceGate` | `'warn'` | `off`/`warn`/`block`；有 `TASKS.json` 的变更在归档前必须有 `TEST.md`/`REVIEW.md` 及规定段头 |
+| 团队自动建 Run | `teamAutoPlan` | `false` | G2 批准后按完整 `TASKS.json` 建 planned Run（不自动派发） |
 | swarm 逐任务核验 | `swarmReviewRequired` | `false` | `true` 时每个已合并 swarm 任务都必须有独立核验记录（`workmate_swarm_task action=verify`），自评（`same-as-author`）或取不到 git 事实（`undetermined`）都算未核验 |
 | 归档步骤的成败判据 | 无（代码级，不可配） | — | `openspec-archive` 步骤不看退出码，只看**产物事实**：该变更是否真的从 `changes/<id>/` 移入 `changes/archive/<date>-<id>/`。**`openspec archive` 在 delta 解析失败时退出码仍是 0**（只打 `Aborted. No files were changed.`），所以"退出码 0 就报 ok"会让面板显示归档成功而目录原地不动（2026-10-12 四份提案全部命中，人工修 spec 段头才真正归档）。核验不过即 `failed` + `ok=false` + 提案停在 `archiving`，摘要带 CLI 原话与"仍在原地"。无 `specs/` 的变更与幂等重跑都不误伤 |
 

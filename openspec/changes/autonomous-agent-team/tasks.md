@@ -56,5 +56,5 @@
 
 ## 7. 文档与归档
 
-- [ ] 7.1 更新 `AGENTS.md`：团队编排的工具面、数据落盘、与八态/门禁的关系。<!-- writes: AGENTS.md, CLAUDE.md -->
+- [x] 7.1 更新 `AGENTS.md`：团队编排的工具面、数据落盘、与八态/门禁的关系。<!-- writes: AGENTS.md, CLAUDE.md -->
 - [ ] 7.2 补齐 `openspec/specs/` 主规格并归档；归档前跑 `review.md`。<!-- writes: openspec/** -->

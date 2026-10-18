@@ -63,5 +63,5 @@
 
 ## 9. 文档与归档
 
-- [ ] 8.1 更新 `AGENTS.md` 的插件契约/数据落盘/里程碑（M31+），说明 `targets` 与旧标量的兼容规则。<!-- writes: AGENTS.md, CLAUDE.md -->
+- [x] 8.1 更新 `AGENTS.md` 的插件契约/数据落盘/里程碑（M31+），说明 `targets` 与旧标量的兼容规则。<!-- writes: AGENTS.md, CLAUDE.md -->
 - [ ] 8.2 补齐 `openspec/specs/` 主规格并执行归档编排；归档前跑 `review.md` 审查门。<!-- writes: openspec/** -->
