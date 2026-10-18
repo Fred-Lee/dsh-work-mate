@@ -12,6 +12,7 @@
 import type { TeamRunner } from './runner.ts'
 import type { SettleInput } from './runner.ts'
 import type { TeamRun, TeamTaskRecord } from './types.ts'
+import type { TeamEventSink } from './events.ts'
 
 export interface DispatchRequest {
   run: TeamRun
@@ -43,6 +44,7 @@ export class TeamCoordinator {
     private readonly runner: TeamRunner,
     private readonly dispatcher: TeamDispatcher,
     private readonly now: () => Date = () => new Date(),
+    private readonly events?: TeamEventSink,
   ) {}
 
   /** Drive a run to a terminal status; returns the final run (never throws for task failures). */
@@ -51,20 +53,23 @@ export class TeamCoordinator {
     let waves = 0
     for (;;) {
       const run = await this.runner.get(runId)
-      if (TERMINAL.has(run.status)) return { run, waves }
+      if (TERMINAL.has(run.status)) {
+        await this.events?.run({ run, detail: `terminal:${run.status}` })
+        return { run, waves }
+      }
       if (this.now().getTime() - new Date(run.createdAt).getTime() > run.budget.maxDurationMs) {
         const aborted = await this.runner.abort(runId)
-        return { run: aborted, waves, stopped: `超过 Run 时长预算 ${run.budget.maxDurationMs}ms` }
+        const stopped = `超过 Run 时长预算 ${run.budget.maxDurationMs}ms`
+        await this.events?.run({ run: aborted, detail: stopped })
+        return { run: aborted, waves, stopped }
       }
 
       const wave = await this.runner.nextWave(runId)
       if (wave.length === 0) {
         const final = await this.runner.get(runId)
-        return {
-          run: final,
-          waves,
-          stopped: TERMINAL.has(final.status) ? undefined : '没有可派发的任务（依赖/写域/重试上限）',
-        }
+        const stopped = TERMINAL.has(final.status) ? undefined : '没有可派发的任务（依赖/写域/重试上限）'
+        await this.events?.run({ run: final, ...(stopped !== undefined ? { detail: stopped } : {}) })
+        return { run: final, waves, stopped }
       }
 
       const handles: Array<{ taskId: string; dispatchId: string; handle: DispatchHandle }> = []
@@ -74,6 +79,7 @@ export class TeamCoordinator {
           const dispatched = await this.runner.dispatch(runId, task.id, dispatchId)
           const current = dispatched.tasks.find((entry) => entry.id === task.id)
           if (current === undefined) continue
+          await this.events?.dispatch({ run: dispatched, task: current, dispatchId })
           const handle = await this.dispatcher.start({ run: dispatched, task: current, dispatchId })
           handles.push({ taskId: task.id, dispatchId, handle })
         } catch (error) {
@@ -101,7 +107,18 @@ export class TeamCoordinator {
       )
       for (const [index, entry] of handles.entries()) {
         const outcome = outcomes[index]
-        if (outcome !== undefined) await this.runner.settle(runId, entry.dispatchId, outcome)
+        if (outcome === undefined) continue
+        const settled = await this.runner.settle(runId, entry.dispatchId, outcome)
+        const task = settled.tasks.find((item) => item.id === entry.taskId)
+        if (task !== undefined) {
+          await this.events?.settled({
+            run: settled,
+            task,
+            dispatchId: entry.dispatchId,
+            status: outcome.status,
+            ...(outcome.outcome !== undefined ? { detail: outcome.outcome } : {}),
+          })
+        }
       }
       waves += 1
     }

@@ -487,6 +487,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     projectRoot: resolved.projectRoot,
     subagents: () => subagentsService,
     lifecycleMainBranch: resolved.lifecycleMainBranch,
+    events,
   })
   // Native guidance surfaces: two runtime skills + one flow section. Lazy, so
   // a composition without those services keeps the plugin ACTIVE.

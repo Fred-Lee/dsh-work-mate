@@ -32,7 +32,15 @@ export interface ProposalEvent {
    * `band-breach` = a control band was left; `approval` = a human/system crossed
    * a gated state (change `add-approval-records`).
    */
-  kind: 'transition' | 'gate-failed' | 'band-breach' | 'approval' | 'decision'
+  kind:
+    | 'transition'
+    | 'gate-failed'
+    | 'band-breach'
+    | 'approval'
+    | 'decision'
+    | 'team-dispatch'
+    | 'team-settled'
+    | 'team-run'
   from?: ProposalState
   to?: ProposalState
   actor: EventActor
@@ -64,6 +72,11 @@ export interface ProposalEvent {
   degraded?: boolean
   /** `decision`: the answer came from the cache instead of a fresh call. */
   cached?: boolean
+  /** `team-*`: run/task/dispatch identity and terminal status. */
+  runId?: string
+  taskId?: string
+  dispatchId?: string
+  status?: string
 }
 
 export interface EventReadResult {
@@ -87,6 +100,9 @@ const isEvent = (value: unknown): value is ProposalEvent => {
     typeof record['proposalId'] === 'string' &&
     (record['kind'] === 'transition' ||
       record['kind'] === 'gate-failed' ||
+      record['kind'] === 'team-dispatch' ||
+      record['kind'] === 'team-settled' ||
+      record['kind'] === 'team-run' ||
       record['kind'] === 'band-breach' ||
       record['kind'] === 'approval' ||
       record['kind'] === 'decision')

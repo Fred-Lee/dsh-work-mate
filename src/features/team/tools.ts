@@ -11,6 +11,9 @@ import { HostSubagentDispatcher, type SubagentServiceLike } from './host-dispatc
 import { effectiveTargets } from '../proposal/targets.ts'
 import { isTeamTemplate, type TeamTemplate } from './types.ts'
 import type { TeamRunner } from './runner.ts'
+import { TeamEventLog } from './events.ts'
+import { writeTeamSummary } from './summary.ts'
+import type { EventLog } from '../proposal/events.ts'
 
 export interface TeamToolDeps {
   proposals: ProposalService
@@ -23,6 +26,8 @@ export interface TeamToolDeps {
   subagents: () => SubagentServiceLike | undefined
   /** Trunk used when projecting legacy single-target branches. */
   lifecycleMainBranch: string
+  /** Append-only proposal event log (team events share it). */
+  events: EventLog
 }
 
 const json = (value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }]
@@ -84,6 +89,7 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
       parameters: {
         runId: { type: 'string', required: true, description: 'Run id returned by workmate_team_plan.' },
         provider: { type: 'string', description: 'Subagent provider name (default: spawn).' },
+        projectRoot: { type: 'string', description: 'Root hosting the OpenSpec change; defaults to the primary project.' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => json(value) },
       timeoutMs: 30 * 60_000,
@@ -94,7 +100,13 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
         const agent = (exec as { agent?: unknown }).agent
         if (agent === undefined) throw new Error('团队派发需要当前 agent 作为父会话')
         const proposal = await deps.proposals.get(run.proposalId)
-        const targets = proposal === undefined ? [] : effectiveTargets(proposal, deps.lifecycleMainBranch)
+        if (proposal === undefined) throw new Error(`proposal not found: ${run.proposalId}`)
+        const primary = proposal.primaryProject ?? proposal.projects[0]
+        const registered = primary === undefined ? undefined : await deps.registry.get(primary)
+        const root = (args.projectRoot ?? registered?.root ?? deps.projectRoot).trim()
+        if (root === '') throw new Error('无可用项目根 — 先注册项目或在参数里给 projectRoot')
+        const resolvedRoot = validateProjectRoot(root)
+        const targets = effectiveTargets(proposal, deps.lifecycleMainBranch)
         const cwdForTask = (task: { project: string; id: string }): string => {
           const target = targets.find((entry) => entry.project === task.project)
           if (target?.worktreePath === undefined) {
@@ -108,8 +120,16 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
           ...(args.provider !== undefined ? { provider: args.provider } : {}),
           signal: (exec as { signal?: AbortSignal }).signal ?? new AbortController().signal,
         })
-        const result = await new TeamCoordinator(deps.runner, dispatcher).run(args.runId)
-        return asJson(result)
+        const result = await new TeamCoordinator(deps.runner, dispatcher, undefined, new TeamEventLog(deps.events)).run(
+          args.runId,
+        )
+        const summaryPath = await writeTeamSummary({
+          projectRoot: resolvedRoot,
+          openspecRoot: deps.openspecRoot,
+          changeId: proposal.openspecChangeId,
+          run: result.run,
+        })
+        return asJson({ ...result, summaryPath })
       },
     }),
   )

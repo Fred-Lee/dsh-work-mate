@@ -131,4 +131,28 @@ describe('TeamCoordinator', () => {
     expect(result.run.tasks[0]?.status).toBe('failed')
   })
 
+  it('emits dispatch/settled/run events to the sink', async () => {
+    await runner.createRun({
+      id: 'r1',
+      proposalId: 'p1',
+      template: 'bug-fix',
+      tasks: [task('t1')],
+    })
+    const calls: string[] = []
+    const sink = {
+      dispatch: async () => {
+        calls.push('dispatch')
+      },
+      settled: async () => {
+        calls.push('settled')
+      },
+      run: async () => {
+        calls.push('run')
+      },
+    }
+
+    await new TeamCoordinator(runner, new FakeDispatcher(), () => new Date(), sink).run('r1')
+    expect(calls).toEqual(['dispatch', 'settled', 'run'])
+  })
+
 })

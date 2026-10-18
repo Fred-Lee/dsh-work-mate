@@ -36,7 +36,7 @@
 - [ ] 4.1 G0/G1/G2 门禁：REQ/PLAN/TASKS 完整性与可实现性检查；G2 硬门 + 人确认门（高风险/多仓强制）。<!-- writes: src/features/team/**, src/features/quality/** -->
 - [x] 4.2 G3/G4 门禁：TEST/REVIEW 产物与证据机检；接入现有 `review-gate` 与 `reviewEvidenceGate`。<!-- writes: src/features/team/**, src/features/archive/** -->
 - [ ] 4.3 `SUMMARY.md` 与 run 结算：逐 Task outcome + 证据 + 未解阻塞；映射到归档 manifest。<!-- writes: src/features/team/**, src/features/archive/manifest.ts -->
-- [ ] 4.4 事件与审计：dispatch/done/gate/decision 写 `events.jsonl`；面板可回放。<!-- writes: src/features/team/**, src/features/proposal/events.ts -->
+- [x] 4.4 事件与审计：dispatch/done/gate/decision 写 `events.jsonl`；面板可回放。<!-- writes: src/features/team/**, src/features/proposal/events.ts -->
 - [ ] 4.5 测试写域机检：`git diff --name-only` 对照测试允许清单；越界标记 violated；测试依赖变更单独 Task + 人批准。<!-- writes: src/features/team/**, src/features/quality/** -->
 
 ## 5. 团队控制台（T5）
