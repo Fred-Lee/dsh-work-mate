@@ -61,3 +61,9 @@
 - H4：`teamRequireRolePresets` 默认改为 `true`，缺角色 preset 默认拒绝派发。
 - H5：团队证据门默认 `block`；要求 `SUMMARY.md`；最近 Run 为 partial/blocked/aborted 时阻断归档；测试覆盖。
 - 仍未修：H1 合并实现、H3 真实 git diff/reportPath 存在性、H7 token usage、H8 工件生成、H13 启动前 G2/状态校验。**still not archivable.**
+
+## 第三轮修复（2026-10-19）
+
+- H3：`workmate_team_run` 现在把 target worktree 的 `git diff --name-only <baseCommit>` + untracked 文件作为 `filesModified` 送入 settle；`REPORT:` 路径在 verifyReportPath=true 时必须存在，否则按 failed 处理。
+- H13（部分）：团队启动只允许提案处于 `implementing/merging`；target 提案的 G2 planHash 在进入 implementing 时已重校验。
+- 仍未修：H1 合并实现、H7 token/挂死超时、H8 六工件归一化生成。**still not archivable.**

@@ -61,3 +61,9 @@
 - H2：创建提案提交 targets/primaryProject，服务端拒绝多 project 无 targets。
 - C2/H4/H5 的团队侧修复见 `autonomous-agent-team/review.md`。
 - 仍未修：H1 合并实现、H3 真实 git diff、H8 六工件生成等。**still not archivable.**
+
+## 第三轮修复（2026-10-19）
+
+- H3：`workmate_team_run` 现在把 target worktree 的 `git diff --name-only <baseCommit>` + untracked 文件作为 `filesModified` 送入 settle；`REPORT:` 路径在 verifyReportPath=true 时必须存在，否则按 failed 处理。
+- H13（部分）：团队启动只允许提案处于 `implementing/merging`；target 提案的 G2 planHash 在进入 implementing 时已重校验。
+- 仍未修：H1 合并实现、H7 token/挂死超时、H8 六工件归一化生成。**still not archivable.**
