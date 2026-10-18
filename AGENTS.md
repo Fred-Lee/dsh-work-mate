@@ -37,8 +37,10 @@ pnpm exec vitest run src/features/proposal        # 单目录测试
 pnpm exec vitest run -t "部分用例名"               # 按用例名过滤
 ```
 
-装进本机 DSH profile（`link:` 直连源码目录，改完代码必须重新 `pnpm build` 再重启
-harness 才生效）：
+装进本机 DSH profile（`link:` 直连源码目录，改完代码必须重新 `pnpm build` 才生效）。
+若 profile 里是 live 条目（`include:workmate`），可用 plugin manager 对
+`include:workmate` 先禁用再启用触发热重载，无需重启宿主；客户端需刷新页面。
+全量重启仍用于宿主内核/依赖变更：
 
 ```bash
 DSH=/Users/fredlee/Documents/workspace/deepseek-harness/apps/cli/lib/bin.js
