@@ -138,6 +138,11 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
       async execute(args, exec) {
         const proposal = await deps.proposals.get(args.proposalId)
         if (proposal === undefined) throw new Error(`proposal not found: ${args.proposalId}`)
+        if (!['ready', 'implementing', 'merging'].includes(proposal.status)) {
+          throw new Error(
+            `提案当前为 ${proposal.status} — 团队 Run 只能在 ready/implementing/merging 创建（archiving 后不允许新建 Run）`,
+          )
+        }
         const template = (args.template ?? 'requirement-full') as string
         if (!isTeamTemplate(template)) {
           throw new Error(`unknown template '${template}' — valid: requirement-full, bug-fix, research, delivery`)
