@@ -208,3 +208,18 @@ export interface ProjectGitStatus {
 export function getProjectStatus(name: string): Promise<{ project: string; status?: ProjectGitStatus }> {
   return request(`/workmate/api/projects/${encodeURIComponent(name)}/status`)
 }
+
+export interface ProposalEventRow {
+  at: string
+  kind: string
+  from?: string
+  to?: string
+  actor: string
+  gate?: string
+  reason?: string
+  detail?: string
+}
+
+export function listProposalEvents(id: string): Promise<{ events: ProposalEventRow[] }> {
+  return request(`/workmate/api/proposals/${encodeURIComponent(id)}/events`)
+}

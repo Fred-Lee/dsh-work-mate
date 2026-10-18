@@ -210,6 +210,11 @@ describe('ProposalPanel (kanban)', () => {
           lifecycle: { status: 'reviewing', hint: '确认方案后进入执行', prev: 'proposing', next: 'ready' },
         }
       }
+      if (url.endsWith('/batch-grading-v2/events')) {
+        return {
+          events: [{ at: '2026-10-19T00:00:00.000Z', kind: 'transition', from: 'reviewing', to: 'ready', actor: 'agent' }],
+        }
+      }
       return {}
     })
 
@@ -224,6 +229,8 @@ describe('ProposalPanel (kanban)', () => {
     expect(screen.getByText('目标矩阵')).toBeTruthy()
     expect(screen.getByText('任务')).toBeTruthy()
     expect(screen.getByText('审查')).toBeTruthy()
+    expect(screen.getByText('事件')).toBeTruthy()
+    expect(screen.getByText(/transition reviewing→ready/)).toBeTruthy()
     expect(screen.getByText('确认方案')).toBeTruthy()
     expect(screen.getByRole('dialog', { name: /提案详情/ })).toBeTruthy()
     fireEvent.keyDown(window, { key: 'Escape' })

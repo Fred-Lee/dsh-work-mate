@@ -211,6 +211,14 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     return createProposal(deps, body)
   })
 
+  router.get('/api/proposals/:id/events', async (r) => {
+    const id = r.params['id'] ?? ''
+    const proposal = await deps.proposals.get(id)
+    if (proposal === undefined) throw new Error(`proposal not found: ${id}`)
+    const read = deps.events === undefined ? { events: [] } : await deps.events.read()
+    return { events: read.events.filter((event) => event.proposalId === id) }
+  })
+
   router.get('/api/proposals/:id', async (r) => {
     const root = resolveRoot(deps, r.query.get('projectRoot') ?? undefined)
     return buildProposalStatus(deps.proposals, r.params['id'] ?? '', {

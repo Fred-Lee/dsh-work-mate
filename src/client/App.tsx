@@ -17,6 +17,7 @@ import {
   getProposal,
   getProjectStatus,
   getTeamRun,
+  listProposalEvents,
   listProjectBranches,
   listProjects,
   listProposals,
@@ -29,6 +30,7 @@ import {
   type IsolationPayload,
   type ProjectBranches,
   type RegisteredProject,
+  type ProposalEventRow,
   type TeamRunEvent,
   type WorkspaceCandidate,
 } from './api'
@@ -1098,6 +1100,20 @@ function ProposalDrawer(props: {
 }): JSX.Element {
   const { proposal, detail } = props
   useEscape(props.onClose)
+  const [events, setEvents] = useState<ProposalEventRow[]>([])
+  useEffect(() => {
+    let alive = true
+    void listProposalEvents(proposal.id)
+      .then((response) => {
+        if (alive) setEvents(response.events ?? [])
+      })
+      .catch(() => {
+        if (alive) setEvents([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [proposal.id])
   const tasks = detail?.openspec?.tasks
   return (
     <div className="wm-drawer-mask" onClick={props.onClose}>
@@ -1206,6 +1222,21 @@ function ProposalDrawer(props: {
                   </div>
                 ),
               )
+            )}
+            <h4 className="wm-drawer-section">事件</h4>
+            {events.length === 0 ? (
+              <div className="wm-progress-label">暂无事件</div>
+            ) : (
+              <div className="wm-team-events">
+                {events.slice(-20).map((event, index) => (
+                  <div className="wm-action-note" key={`${event.at}-${index}`}>
+                    {event.kind}
+                    {event.from !== undefined ? ` ${event.from}→${event.to ?? ''}` : event.to !== undefined ? ` →${event.to}` : ''}
+                    {event.reason !== undefined ? ` · ${event.reason}` : ''}
+                    {event.detail !== undefined ? ` · ${event.detail}` : ''}
+                  </div>
+                ))}
+              </div>
             )}
             {props.note !== undefined && <div className="wm-action-note">{props.note}</div>}
           </>
