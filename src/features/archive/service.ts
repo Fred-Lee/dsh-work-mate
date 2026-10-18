@@ -374,11 +374,17 @@ export class LifecycleServiceImpl {
       }
       case 'ready': {
         const fingerprint = await computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId)
-        const approvals = (proposal.approvals ?? []).filter(
-          (approval) => approval.gate === 'ready' && approval.decision === 'approve' && approval.planHash !== undefined,
-        )
+        // The latest G2 decision is authoritative: a later reject (G5 plan issue)
+        // invalidates an earlier approve even when the plan hash is unchanged.
+        const approvals = (proposal.approvals ?? []).filter((approval) => approval.gate === 'ready')
         const latest = approvals[approvals.length - 1]
-        if (fingerprint.hash !== undefined && latest?.planHash === fingerprint.hash) return
+        if (
+          fingerprint.hash !== undefined &&
+          latest?.decision === 'approve' &&
+          latest.planHash === fingerprint.hash
+        ) {
+          return
+        }
         // Legacy branch merge keeps old proposals advancing.
         if (proposal.proposalBranch !== undefined && (await isMergedInto(root, proposal.proposalBranch, this.mainBranch))) return
         throw new InvalidTransitionError(
@@ -577,6 +583,42 @@ export class LifecycleServiceImpl {
       planHash: fingerprint.hash,
     })
     return { approval, fingerprint }
+  }
+
+  /**
+   * G5 rejection (change `autonomous-agent-team`, T2-2.6): send the proposal back
+   * to implementing with an explicit approval record. `plan` additionally appends
+   * a G2 reject, so the old plan approval no longer counts and the next `ready`
+   * needs a fresh `approvePlan` of the revised planHash.
+   */
+  async rejectMerge(
+    id: string,
+    options: { category: 'plan' | 'implementation'; rationale: string; actor?: 'human' },
+  ): Promise<{ approval: ApprovalRecord; proposal: Proposal }> {
+    const proposal = await this.mustGet(id)
+    if (proposal.status !== 'merging') {
+      throw new InvalidTransitionError(`只有 merging 可以被 G5 退回（当前 ${proposal.status}）`)
+    }
+    if (options.rationale.trim() === '') throw new InvalidTransitionError('G5 拒绝必须写理由')
+    const approval = await this.deps.proposals.addApproval(id, {
+      gate: 'merging',
+      actor: options.actor ?? 'human',
+      decision: 'reject',
+      rationale: `[${options.category}] ${options.rationale}`,
+    })
+    if (options.category === 'plan') {
+      await this.deps.proposals.addApproval(id, {
+        gate: 'ready',
+        actor: 'human',
+        decision: 'reject',
+        rationale: `G5 认定方案问题：${options.rationale}`,
+      })
+    }
+    const outcome = await this.transition(id, 'implementing', {
+      actor: options.actor ?? 'human',
+      rationale: `G5 拒绝（${options.category}）：${options.rationale}`,
+    })
+    return { approval, proposal: outcome.proposal }
   }
 
   /**

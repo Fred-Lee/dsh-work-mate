@@ -186,3 +186,14 @@ export function answerTeamQuestion(
     body: JSON.stringify({ messageId, reply }),
   })
 }
+
+export function rejectMerge(
+  id: string,
+  category: 'plan' | 'implementation',
+  rationale: string,
+): Promise<{ approval: unknown; proposal: Proposal }> {
+  return request(`/workmate/api/proposals/${encodeURIComponent(id)}/reject-merge`, {
+    method: 'POST',
+    body: JSON.stringify({ category, rationale }),
+  })
+}

@@ -22,6 +22,7 @@ import {
   listTeamRuns,
   listWorkspaceCandidates,
   reconcileProposal,
+  rejectMerge,
   registerProject,
   transitionProposal,
   type IsolationPayload,
@@ -181,7 +182,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   )
 
   const act = useCallback(
-    async (id: string, action: 'advance' | 'back' | 'archive' | 'abandon' | 'plan', to?: ProposalState, force = false) => {
+    async (id: string, action: 'advance' | 'back' | 'archive' | 'abandon' | 'plan' | 'reject', to?: ProposalState, force = false) => {
       setBusy(true)
       setPending(`${id}:${action}`)
       try {
@@ -190,6 +191,14 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
         else if (action === 'plan') {
           await approvePlan(id)
           result = await reconcileProposal(id)
+        }
+        else if (action === 'reject') {
+          const category = window.prompt('退回类型：plan=方案问题，implementation=实现问题', 'implementation')
+          if (category === null) throw new Error('已取消退回')
+          if (category !== 'plan' && category !== 'implementation') throw new Error('退回类型只能是 plan 或 implementation')
+          const rationale = window.prompt('G5 拒绝理由（必填，写入审批记录）')
+          if (rationale === null || rationale.trim() === '') throw new Error('G5 拒绝必须写理由')
+          result = await rejectMerge(id, category, rationale)
         }
         else if (action === 'abandon') {
           const reason = window.prompt('终止原因（必填，写入事件流便于审计）')
@@ -217,7 +226,9 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                 ? '🛑 已终止（记录原因，未跑归档编排）'
                 : action === 'plan'
                   ? '✅ 方案已确认（planHash 已记录，方案再改会失效）'
-                  : '✅ 状态已更新',
+                  : action === 'reject'
+                    ? '↩️ 已退回 implementing（G5 拒绝已记录）'
+                    : '✅ 状态已更新',
         }))
         await Promise.all([refresh(), loadDetail(id)])
       } catch (cause) {
@@ -690,7 +701,18 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                       {pending === `${proposal.id}:abandon` ? '终止中…' : '终止'}
                                     </button>
                                   )}
-                                  {detail.lifecycle?.prev !== undefined && (
+                                  {proposal.status === 'merging' && (
+                                    <button
+                                      className="wm-btn mini"
+                                      type="button"
+                                      disabled={busy}
+                                      title="G5 拒绝：方案问题 → 重走 G1/G2；实现问题 → 生成修复任务"
+                                      onClick={() => void act(proposal.id, 'reject')}
+                                    >
+                                      {pending === `${proposal.id}:reject` ? '退回中…' : 'G5 退回'}
+                                    </button>
+                                  )}
+              {detail.lifecycle?.prev !== undefined && (
                                     <button
                                       className="wm-btn mini"
                                       type="button"
@@ -974,7 +996,7 @@ function ProposalDrawer(props: {
   note?: string
   onClose: () => void
   onLoad: () => void
-  onAction: (action: 'advance' | 'back' | 'archive' | 'abandon' | 'plan', to?: ProposalState, force?: boolean) => void
+  onAction: (action: 'advance' | 'back' | 'archive' | 'abandon' | 'plan' | 'reject', to?: ProposalState, force?: boolean) => void
 }): JSX.Element {
   const { proposal, detail } = props
   const tasks = detail?.openspec?.tasks
@@ -1038,6 +1060,11 @@ function ProposalDrawer(props: {
                   onClick={() => props.onAction('plan')}
                 >
                   {props.pending === `${proposal.id}:plan` ? '确认中…' : '确认方案'}
+                </button>
+              )}
+              {proposal.status === 'merging' && (
+                <button className="wm-btn mini" type="button" disabled={props.busy} onClick={() => props.onAction('reject')}>
+                  G5 退回
                 </button>
               )}
               {detail.lifecycle?.prev !== undefined && (

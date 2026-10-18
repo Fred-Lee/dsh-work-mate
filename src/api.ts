@@ -382,6 +382,20 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     return { ...result, team }
   })
 
+  router.post('/api/proposals/:id/reject-merge', async (r) => {
+    const body = await readJsonBody<{ category?: string; rationale?: string }>(r.req)
+    const category = body.category
+    if (category !== 'plan' && category !== 'implementation') {
+      throw new Error("category must be 'plan' or 'implementation'")
+    }
+    if (body.rationale === undefined || body.rationale.trim() === '') throw new Error('rationale is required')
+    return deps.archive.rejectMerge(r.params['id'] ?? '', {
+      category,
+      rationale: body.rationale,
+      actor: 'human',
+    })
+  })
+
   router.post('/api/proposals/:id/reconcile', async (r) => {
     return deps.archive.reconcile(r.params['id'] ?? '')
   })
