@@ -78,3 +78,8 @@
 - H1：`merging→archiving` 现在逐 target 执行真实 `git merge --no-ff feature → base`；项目不在基线分支/工作区脏/冲突时拒绝并 `merge --abort`，提案保持 merging；真实 git 测试覆盖成功与冲突。
 - 工作台 task 8.4 恢复勾选：G5 一次批准覆盖合并与归档。
 - 仍未修：H7 token/挂死超时、六工件自动生成默认行为、TEAM-REVIEW reviewer 身份校验。**still not archivable.**
+
+## 第六轮修复（2026-10-19）
+
+- H7（部分）：`TeamBudget.maxWaveMs`（默认 30 分钟），协调器对整波结果 `Promise.race` 超时；超时 abort Run 并返回 `单波超时`，补测试。token 仍只在宿主给 usage 时累计，缺失显示「未计量」（契约限制，不伪造）。
+- 仍未修：六工件自动生成默认行为、TEAM-REVIEW reviewer 身份校验。**still not archivable.**

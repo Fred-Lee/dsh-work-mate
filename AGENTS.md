@@ -142,8 +142,8 @@ node $DSH web                                                # http://127.0.0.1:
 - 正证据：worker 报 done 必须有 outcome/reportPath；测试/审查角色必须有 reportPath；
   `FILES:` 报告会按 Task `writes` 机检，越界或未声明写域按失败处理；worker 以
   `QUESTION:`/`ESCALATION:` 结束会暂停 Run 并写入 inbox，回答后用 `resetTask` 继续；
-- 预算：并发 3、每 Task 重试 2、Run 2h / 300k tokens（仅宿主给 usage 才累计）/ 20
-  Dispatch；超限 abort 并上报；
+- 预算：并发 3、每 Task 重试 2、单波 30 分钟硬超时、Run 2h / 300k tokens
+  （仅宿主给 usage 才累计，缺失显示「未计量」）/ 20 Dispatch；超限 abort 并上报；
 - G5：批准后 `merging→archiving` 自动逐 target `git merge feature→base`；冲突即 abort、保持 merging；
   `rejectMerge(category=plan|implementation)` 退回 `implementing`；plan 类还会作废最近一次
   G2 approve，改完方案需重新 `approvePlan`；
