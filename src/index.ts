@@ -29,6 +29,9 @@ import { EventLog } from './features/proposal/events.ts'
 import { runBandsCheck } from './features/metrics/check.ts'
 import { parseSwarmTasks } from './features/swarm/plan.ts'
 import { parseTargetsSpec } from './features/proposal/targets.ts'
+import { TeamRunStore } from './features/team/store.ts'
+import { TeamRunner } from './features/team/runner.ts'
+import { registerTeamTools } from './features/team/tools.ts'
 import type { WorkspaceRegistryLike } from './features/project/workspace-candidates.ts'
 import { AgentProvider, type HostLlmFace } from './features/decision/agent.ts'
 import { RulesProvider } from './features/decision/rules.ts'
@@ -114,6 +117,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const events = new EventLog({ subdir: resolved.workmateHome })
   const proposals = new ProposalServiceImpl(store, undefined, events)
   const registry = new ProjectRegistry({ subdir: resolved.workmateHome })
+  const teamRunner = new TeamRunner(new TeamRunStore({ subdir: resolved.workmateHome }))
   const worktree = new WorktreeManager({
     subdir: resolved.workmateHome,
     basePort: resolved.basePort,
@@ -469,6 +473,13 @@ export function apply(ctx: Context, config: Config = {}): void {
   }
 
   registerTools(ctx, { proposals, archive, registry, worktree, swarm, decision, vaultExport: runVaultExport, resolved, events })
+  registerTeamTools(ctx, {
+    proposals,
+    registry,
+    runner: teamRunner,
+    openspecRoot: resolved.openspecRoot,
+    projectRoot: resolved.projectRoot,
+  })
   // Native guidance surfaces: two runtime skills + one flow section. Lazy, so
   // a composition without those services keeps the plugin ACTIVE.
   registerGuidance(ctx, {

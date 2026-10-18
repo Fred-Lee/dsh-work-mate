@@ -13,7 +13,7 @@
 
 - [ ] 2.0 G2 启动链：批准 `planHash` 后自动创建 Run、派发第一波；不重复调用需求/方案评估；方案变更使 run 暂停并退回待确认。<!-- writes: src/features/team/**, src/features/proposal/** -->
 
-- [ ] 2.1 `workmate_team_plan`：从提案 targets 与模板生成 Run + DAG，校验写域冲突与依赖。<!-- writes: src/features/team/**, src/index.ts -->
+- [x] 2.1 `workmate_team_plan`：从提案 targets 与模板生成 Run + DAG，校验写域冲突与依赖。<!-- writes: src/features/team/**, src/index.ts -->
 - [ ] 2.2 `workmate_team_dispatch`：为 Task 创建原生 Session/Subagent，cwd 绑定 target worktree，记录 dispatch 与 sessionId；幂等防重复。<!-- writes: src/features/team/**, src/features/worktree/** -->
 - [x] 2.3 波次调度：拓扑分层、`maxParallel`、同 target 写域冲突串行；先起完整波次再等待。<!-- writes: src/features/team/** -->
 - [ ] 2.4 收件箱与协调循环：`check/reply/ack`、`worker_done` 校验、`escalation/question` 升级、positive proof 才 stop/retry/release。<!-- writes: src/features/team/** -->

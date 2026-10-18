@@ -157,7 +157,7 @@ describe('host entry dependency shape', () => {
     const { ctx, registered, routes } = fakeCtx({})
     apply(ctx)
 
-    expect(registered).toHaveLength(20)
+    expect(registered).toHaveLength(22)
     expect(registered.map((tool) => (tool as { name: string }).name)).toContain('workmate_metrics')
     expect(registered.map((tool) => (tool as { name: string }).name)).toContain('workmate_bands')
     expect(registered.map((tool) => (tool as { name: string }).name)).toContain('workmate_swarm_plan')
@@ -180,7 +180,7 @@ describe('host entry dependency shape', () => {
     const { ctx, registered, routes } = fakeCtx({ webServer: { register: () => {} } })
     apply(ctx)
 
-    expect(registered).toHaveLength(20)
+    expect(registered).toHaveLength(22)
     expect(routes.map((route) => ({ kind: route.kind, path: route.path }))).toEqual([
       { kind: 'prefix', path: '/workmate' },
     ])
@@ -216,6 +216,7 @@ describe('host entry dependency shape', () => {
     // writers stay exclusive (single-file read-modify-write store)
     expect(byName.get('workmate_proposal_create')?.isConcurrencySafe).toBeUndefined()
     expect(byName.get('workmate_proposal_archive')?.isConcurrencySafe).toBeUndefined()
+    expect(byName.get('workmate_team_status')?.isConcurrencySafe?.({ runId: 'r1' })).toBe(true)
   })
 
   it('exposes force on the archive tool parameters', () => {
@@ -249,7 +250,7 @@ describe('host entry dependency shape', () => {
   it('stays ACTIVE with no guidance services (tools still register)', () => {
     const { ctx, registered } = fakeCtx({})
     expect(() => apply(ctx)).not.toThrow()
-    expect(registered).toHaveLength(20)
+    expect(registered).toHaveLength(22)
   })
 })
 
