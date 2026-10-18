@@ -393,11 +393,38 @@ export class LifecycleServiceImpl {
         return
       }
       case 'archiving': {
-        if (proposal.featureBranch === undefined) return
-        const trunk = this.mainBranch
-        if (!(await isMergedInto(root, proposal.featureBranch, trunk))) {
+        // Legacy single-target proposals keep the original one-branch check.
+        if (proposal.targets === undefined || proposal.targets.length === 0) {
+          if (proposal.featureBranch === undefined) return
+          const trunk = this.mainBranch
+          if (!(await isMergedInto(root, proposal.featureBranch, trunk))) {
+            throw new InvalidTransitionError(
+              `实现分支 ${proposal.featureBranch} 尚未合并进 ${trunk} — 先完成实现合并再归档`,
+            )
+          }
+          return
+        }
+        const roots = (await this.deps.resolveProjectRoots?.(proposal)) ?? []
+        const rootByProject = new Map(roots.map((entry) => [entry.project, entry.root]))
+        const unmerged: string[] = []
+        const missing: string[] = []
+        for (const target of proposal.targets) {
+          const projectRoot = rootByProject.get(target.project)
+          if (projectRoot === undefined) continue
+          if (target.featureBranch === undefined) {
+            missing.push(target.project)
+            continue
+          }
+          if (!(await isMergedInto(projectRoot, target.featureBranch, target.baseBranch))) {
+            unmerged.push(`${target.project}: ${target.featureBranch} → ${target.baseBranch}`)
+          }
+        }
+        if (missing.length > 0) {
+          throw new InvalidTransitionError(`以下 target 缺少实现分支：${missing.join(', ')} — 先完成实现再归档`)
+        }
+        if (unmerged.length > 0) {
           throw new InvalidTransitionError(
-            `实现分支 ${proposal.featureBranch} 尚未合并进 ${trunk} — 先完成实现合并再归档`,
+            `实现分支尚未合并进各自基线：${unmerged.join('；')} — 先完成实现合并再归档`,
           )
         }
         return
@@ -545,7 +572,26 @@ export class LifecycleServiceImpl {
     }
 
     let cleanup: string | undefined
-    if (proposal.worktreePath !== undefined) {
+    const cleanupTargets = effectiveTargets(proposal, this.mainBranch)
+    if (cleanupTargets.length > 0) {
+      const roots = (await this.deps.resolveProjectRoots?.(proposal)) ?? []
+      const rootByProject = new Map(roots.map((entry) => [entry.project, entry.root]))
+      const summaries: string[] = []
+      for (const target of cleanupTargets) {
+        if (target.worktreePath === undefined) continue
+        const root = rootByProject.get(target.project)
+        if (root === undefined) continue
+        const removed = await this.deps.worktree.remove({
+          projectRoot: root,
+          project: target.project,
+          proposalId: proposal.id,
+          baseBranch: target.baseBranch,
+          ...(options.signal !== undefined ? { signal: options.signal } : {}),
+        })
+        summaries.push(`${target.project}: ${removed.summary}`)
+      }
+      cleanup = summaries.length > 0 ? summaries.join(' | ') : undefined
+    } else if (proposal.worktreePath !== undefined) {
       const root = await this.primaryRoot(proposal)
       if (root !== undefined) {
         const removed = await this.deps.worktree.remove({

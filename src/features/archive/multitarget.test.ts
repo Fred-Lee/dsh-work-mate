@@ -140,4 +140,40 @@ describe('multi-target implementing', () => {
       { project: 'b', baseBranch: 'main' },
     ])
   })
+  it('cleans up every target worktree on archive', async () => {
+    await proposals.upsert({
+      id: 'p3',
+      title: 'multi archive',
+      targets: [
+        { project: 'a', baseBranch: 'main', featureBranch: 'feature/p3', worktreePath: '/wt/a' },
+        { project: 'b', baseBranch: 'master', featureBranch: 'feature/p3', worktreePath: '/wt/b' },
+      ],
+    })
+    await proposals.setStatus('p3', 'archiving')
+
+    const removed: Array<{ projectRoot: string; project?: string; baseBranch?: string }> = []
+    const lifecycle = lifecycleWith({
+      createTarget: async () => {
+        throw new Error('not used')
+      },
+      remove: async (input) => {
+        removed.push({
+          projectRoot: input.projectRoot,
+          ...(input.project !== undefined ? { project: input.project } : {}),
+          ...(input.baseBranch !== undefined ? { baseBranch: input.baseBranch } : {}),
+        })
+        return { removed: true, summary: 'removed' }
+      },
+    })
+
+    const outcome = await lifecycle.runArchive('p3')
+
+    expect(outcome.proposal.status).toBe('archived')
+    expect(removed).toEqual([
+      { projectRoot: '/repo/a', project: 'a', baseBranch: 'main' },
+      { projectRoot: '/repo/b', project: 'b', baseBranch: 'master' },
+    ])
+    expect(outcome.proposal.archiveManifest).toBeUndefined()
+  })
+
 })
