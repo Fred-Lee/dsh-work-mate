@@ -115,7 +115,10 @@ export class TeamCoordinator {
               await this.runner.settle(runId, dispatchId, {
                 status: 'failed',
                 outcome: 'reviewer 不能复用实现者会话 — 独立审查要求不同身份',
+                sessionId: handle.sessionId,
               })
+              await handle.cancel?.().catch(() => undefined)
+              void handle.result.catch(() => undefined)
               continue
             }
           }
@@ -150,12 +153,18 @@ export class TeamCoordinator {
       })
       const outcomes = await Promise.race([
         Promise.all(
-          handles.map((entry) =>
-            entry.handle.result.catch((error: unknown) => ({
+          handles.map(async (entry) => {
+            const settled: SettleInput = await entry.handle.result.catch((error: unknown) => ({
               status: 'failed' as const,
               outcome: error instanceof Error ? error.message : String(error),
-            })),
-          ),
+            }))
+            return {
+              ...settled,
+              ...(settled.sessionId === undefined && entry.handle.sessionId !== undefined
+                ? { sessionId: entry.handle.sessionId }
+                : {}),
+            }
+          }),
         ),
         timeout,
       ])

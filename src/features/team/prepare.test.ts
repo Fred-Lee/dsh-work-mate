@@ -81,6 +81,7 @@ describe('prepareTeamArtifacts', () => {
         ],
       }),
     ).rejects.toThrow(/多 target/)
+    await expect(readFile(join(dir(), 'REQ.md'), 'utf8')).rejects.toThrow()
   })
 
 })

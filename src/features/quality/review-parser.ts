@@ -160,7 +160,7 @@ export function reviewTally(report: ReviewReport, blockingSeverities: readonly s
         (finding) =>
           finding.severity === 'CRIT' &&
           finding.resolved === issue.resolved &&
-          (issue.text === finding.text || issue.text.includes(finding.text)),
+          (issue.text === finding.text || (finding.text !== '' && issue.text.includes(finding.text))),
       )
       return !covered
     })

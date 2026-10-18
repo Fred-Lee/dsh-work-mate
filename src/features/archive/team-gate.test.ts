@@ -184,4 +184,46 @@ describe('team evidence gate', () => {
     await expect(lifecycle('block', [run]).transition('p1', 'archiving')).rejects.toThrow(/终态为 running/)
   })
 
+  it('re-checks team evidence when runArchive starts from archiving', async () => {
+    await writeTasks()
+    await writeFile(join(changeDir(), 'TEST.md'), '## 场景\n## 执行命令\n## 结果与证据\n## 覆盖缺口\n', 'utf8')
+    await writeFile(
+      join(changeDir(), 'TEAM-REVIEW.md'),
+      '<!-- reviewer: d2 -->\n## 确认项\n## 疑问项\n## 建议补充项\n## CRITICAL 问题\n',
+      'utf8',
+    )
+    await writeFile(join(changeDir(), 'SUMMARY.md'), '## Run\n## 逐任务结果\n## 未解阻塞\n## 终态\n', 'utf8')
+    const run = {
+      id: 'r1',
+      proposalId: 'p1',
+      template: 'bug-fix',
+      status: 'running',
+      tasks: [],
+      dispatches: [
+        { id: 'd2', taskId: 'review', role: 'reviewer', sessionId: 'session-review', status: 'done' },
+      ],
+      budget: DEFAULT_TEAM_BUDGET,
+      createdAt: '2026-10-19T00:00:00.000Z',
+      updatedAt: '2026-10-19T00:00:00.000Z',
+    } as TeamRun
+    await proposals.setStatus('p1', 'archiving')
+    await expect(lifecycle('block', [run]).runArchive('p1')).rejects.toThrow(/终态为 running/)
+  })
+
+  it('re-checks missing TASKS.json when runArchive starts from archiving', async () => {
+    const run = {
+      id: 'r1',
+      proposalId: 'p1',
+      template: 'bug-fix',
+      status: 'succeeded',
+      tasks: [],
+      dispatches: [],
+      budget: DEFAULT_TEAM_BUDGET,
+      createdAt: '2026-10-19T00:00:00.000Z',
+      updatedAt: '2026-10-19T00:00:00.000Z',
+    } as TeamRun
+    await proposals.setStatus('p1', 'archiving')
+    await expect(lifecycle('block', [run]).runArchive('p1')).rejects.toThrow(/TASKS\.json 缺失/)
+  })
+
 })

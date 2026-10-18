@@ -91,6 +91,11 @@ export async function prepareTeamArtifacts(input: PrepareInput): Promise<Prepare
   const proposal = await read(join(dir, 'proposal.md'))
   const design = await read(join(dir, 'design.md'))
   const tasksMd = await read(join(dir, 'tasks.md'))
+  // Validate/derive TASKS before writing anything, so a multi-target guard
+  // failure does not leave half-written REQ/PLAN artifacts behind.
+  const tasksPath = join(dir, 'TASKS.json')
+  const tasksExist = (await read(tasksPath)) !== undefined
+  const derived = tasksExist ? undefined : deriveTasks(tasksMd, input.primaryProject, input.targets ?? [], warnings)
 
   const writeIfMissing = async (name: string, content: string): Promise<void> => {
     if ((await read(join(dir, name))) !== undefined) {
@@ -145,11 +150,9 @@ export async function prepareTeamArtifacts(input: PrepareInput): Promise<Prepare
     ].join('\n'),
   )
 
-  const tasksPath = join(dir, 'TASKS.json')
-  if ((await read(tasksPath)) !== undefined) {
+  if (derived === undefined) {
     skipped.push('TASKS.json')
   } else {
-    const derived = deriveTasks(tasksMd, input.primaryProject, input.targets ?? [], warnings)
     const parsed = parseTeamTasks(JSON.stringify(derived))
     await writeFile(tasksPath, `${JSON.stringify({ ...(derived as object), tasks: parsed }, null, 2)}\n`, 'utf8')
     written.push('TASKS.json')

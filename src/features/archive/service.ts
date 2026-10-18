@@ -698,7 +698,13 @@ export class LifecycleServiceImpl {
         `proposal ${id} is ${proposal.status} — advance to archiving first（先合并实现分支进 main）`,
       )
     }
+    // Re-check team evidence at the archive entry point: a proposal may already
+    // be in `archiving`, so the merging-transition check is not enough (a planned
+    // Run or a deleted TASKS.json could otherwise slip through).
     const targets = (await this.deps.resolveProjectRoots?.(proposal)) ?? []
+    if (options.force !== true && targets[0]?.root !== undefined) {
+      await this.assertTeamEvidence(targets[0].root, proposal)
+    }
     await this.assertApproval(proposal, 'archived', options)
     if (options.force === true) await this.assertForceAllowed(proposal, options)
     const orchestration = await this.deps.orchestrate(proposal, targets, {
@@ -849,7 +855,17 @@ export class LifecycleServiceImpl {
       if (latestRun === undefined || result.reviewer === undefined) return undefined
       const dispatches = latestRun.dispatches ?? []
       const implementerIds = new Set(dispatches.filter((dispatch) => dispatch.role !== 'reviewer').map((dispatch) => dispatch.id))
+      const implementerSessions = new Set(
+        dispatches.filter((dispatch) => dispatch.role !== 'reviewer' && dispatch.sessionId !== undefined).map((dispatch) => dispatch.sessionId),
+      )
+      const reviewerSessions = dispatches
+        .filter((dispatch) => dispatch.role === 'reviewer' && dispatch.sessionId !== undefined)
+        .map((dispatch) => dispatch.sessionId)
       if (implementerIds.has(result.reviewer)) return `TEAM-REVIEW reviewer ${result.reviewer} 与实现者 Dispatch 相同`
+      if (implementerSessions.has(result.reviewer)) return `TEAM-REVIEW reviewer ${result.reviewer} 与实现者会话相同`
+      if (reviewerSessions.some((session) => implementerSessions.has(session))) {
+        return 'reviewer 与实现者复用了同一 session — 独立审查要求不同身份'
+      }
       const reviewerIds = new Set(dispatches.filter((dispatch) => dispatch.role === 'reviewer').map((dispatch) => dispatch.id))
       if (reviewerIds.size > 0 && !reviewerIds.has(result.reviewer)) {
         return `TEAM-REVIEW reviewer ${result.reviewer} 不在本 Run 的 reviewer dispatch 中`
