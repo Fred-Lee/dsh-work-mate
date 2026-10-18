@@ -7,7 +7,7 @@
 - [x] 1.3 `TASKS.json` schema 与校验：每个 Task 必须有 `role/project/writes/depends_on/acceptance`；DAG 无环。<!-- writes: src/features/team/**, src/features/swarm/plan.ts -->
 - [ ] 1.4 六份工件模板：`REQ.md` / `PLAN.md` / `TASKS.json` / `TEST.md` / `TEAM-REVIEW.md` / `SUMMARY.md`，随提案目录生成。<!-- writes: src/features/team/**, src/features/proposal/openspec.ts -->
 - [ ] 1.5 入口判断：检查 OpenSpec 工件完整性与 validate，决定从 G2 还是 G0 开始；支持调用方覆盖并记录理由。<!-- writes: src/features/team/**, src/features/proposal/** -->
-- [ ] 1.6 入口归一化：从 `proposal.md/design.md` 派生 `REQ.md/PLAN.md`（`derived: true`），从 `tasks.md` 生成 `TASKS.json`（role/project/writes/depends_on/acceptance），不改变方案范围。<!-- writes: src/features/team/**, src/features/proposal/openspec.ts -->
+- [x] 1.6 入口归一化：从 `proposal.md/design.md` 派生 `REQ.md/PLAN.md`（`derived: true`），从 `tasks.md` 生成 `TASKS.json`（role/project/writes/depends_on/acceptance），不改变方案范围。<!-- writes: src/features/team/**, src/features/proposal/openspec.ts -->
 
 ## 2. 编排核心（T2）
 

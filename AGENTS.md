@@ -127,7 +127,8 @@ node $DSH web                                                # http://127.0.0.1:
 
 团队 Run 是**提案之上的执行层**，不替代八态生命周期：
 
-- 工具面：`workmate_team_plan`（TASKS.json → Run + 波次，`start=true` 可立即跑首波）、
+- 工具面：`workmate_team_prepare`（从 proposal/design/tasks 派生 REQ/PLAN/TASKS，不覆盖已有）、
+  `workmate_team_plan`（TASKS.json → Run + 波次，`start=true` 可立即跑首波）、
   `workmate_team_run`、`workmate_team_status`、`workmate_team_inbox`、
   `workmate_team_answer`；
 - 数据：`workmate/team-runs.json` 保存 Run/Task/Dispatch 与**持久化 inbox**；

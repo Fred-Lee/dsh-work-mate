@@ -67,3 +67,8 @@
 - H3：`workmate_team_run` 现在把 target worktree 的 `git diff --name-only <baseCommit>` + untracked 文件作为 `filesModified` 送入 settle；`REPORT:` 路径在 verifyReportPath=true 时必须存在，否则按 failed 处理。
 - H13（部分）：团队启动只允许提案处于 `implementing/merging`；target 提案的 G2 planHash 在进入 implementing 时已重校验。
 - 仍未修：H1 合并实现、H7 token/挂死超时、H8 六工件归一化生成。**still not archivable.**
+
+## 第四轮修复（2026-10-19）
+
+- H8（部分）：新增 `workmate_team_prepare`，从 proposal/design/tasks.md 派生 REQ/PLAN/TASKS.json（`derived: true`、不覆盖已有、缺 role/project 给出警告并按默认值派生）；证据工件仍不会自动生成。
+- 仍未修：H1 合并实现、H7 token/挂死超时、六份工件“随提案自动生成”仍不是默认行为。**still not archivable.**

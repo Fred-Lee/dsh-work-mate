@@ -7,6 +7,7 @@ import type { ProposalService } from '../proposal/service.ts'
 import { validateProjectRoot } from '../proposal/openspec.ts'
 import { planTeamWaves, parseTeamTasks, teamTasksPath } from './tasks.ts'
 import { checkTeamCompleteness } from './completeness.ts'
+import { prepareTeamArtifacts } from './prepare.ts'
 import { TeamCoordinator } from './coordinator.ts'
 import { HostSubagentDispatcher, type SubagentServiceLike } from './host-dispatcher.ts'
 import { effectiveTargets } from '../proposal/targets.ts'
@@ -158,7 +159,7 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
         try {
           raw = await readFile(tasksPath, 'utf8')
         } catch {
-          throw new Error(`TASKS.json 不存在：${tasksPath} — 先由方案评估生成团队任务`)
+          throw new Error(`TASKS.json 不存在：${tasksPath} — 先运行 workmate_team_prepare 从 tasks.md 派生，或手工生成`)
         }
         const tasks = parseTeamTasks(raw)
         const run = await deps.runner.createRun({
@@ -174,6 +175,36 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
           maxWaves: args.maxWaves ?? 1,
         })
         return asJson({ run, waves, started })
+      },
+    }),
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_team_prepare',
+      description:
+        'Derive missing team authoring artifacts (REQ.md/PLAN.md/TASKS.json) from an existing OpenSpec proposal without overwriting. Evidence files are never generated.',
+      parameters: {
+        proposalId: { type: 'string', required: true, description: 'Proposal whose OpenSpec change should be normalized.' },
+        projectRoot: { type: 'string', description: 'Root hosting the OpenSpec change; defaults to the primary project.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => json(value) },
+      async execute(args) {
+        const proposal = await deps.proposals.get(args.proposalId)
+        if (proposal === undefined) throw new Error(`proposal not found: ${args.proposalId}`)
+        const primary = proposal.primaryProject ?? proposal.projects[0]
+        const registered = primary === undefined ? undefined : await deps.registry.get(primary)
+        const root = (args.projectRoot ?? registered?.root ?? deps.projectRoot).trim()
+        if (root === '') throw new Error('无可用项目根 — 先注册项目或在参数里给 projectRoot')
+        const resolvedRoot = validateProjectRoot(root)
+        return asJson(
+          await prepareTeamArtifacts({
+            projectRoot: resolvedRoot,
+            openspecRoot: deps.openspecRoot,
+            changeId: proposal.openspecChangeId,
+            primaryProject: primary ?? proposal.projects[0] ?? '',
+          }),
+        )
       },
     }),
   )
