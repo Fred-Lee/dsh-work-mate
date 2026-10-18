@@ -364,4 +364,9 @@ export const PANEL_STYLE = `
 }
 .wm-tree-row:hover { box-shadow: var(--wm-shadow-lift); }
 
+.wm-btn:focus-visible, .wm-pill:focus-visible, .wm-list-row:focus-visible,
+.wm-team-row:focus-visible, .wm-tree-row:focus-visible {
+  outline: 2px solid var(--wm-accent, #3b82f6); outline-offset: 2px;
+}
+
 `

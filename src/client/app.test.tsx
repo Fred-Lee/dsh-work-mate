@@ -225,6 +225,9 @@ describe('ProposalPanel (kanban)', () => {
     expect(screen.getByText('任务')).toBeTruthy()
     expect(screen.getByText('审查')).toBeTruthy()
     expect(screen.getByText('确认方案')).toBeTruthy()
+    expect(screen.getByRole('dialog', { name: /提案详情/ })).toBeTruthy()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByText('关闭')).toBeNull())
   })
 
   it('drives the lifecycle from the expanded card (rollback posts the adjacent target)', async () => {

@@ -39,6 +39,17 @@ import { PANEL_STYLE } from './styles'
 
 const POLL_MS = 5_000
 
+/** Close an overlay with Escape; a stable, tiny focus-management primitive. */
+function useEscape(onClose: () => void): void {
+  useEffect(() => {
+    const handler = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+}
+
 const STATE_META: Record<Proposal['status'], { label: string; tone: string }> = {
   draft: { label: '需求输入', tone: '#9ca3af' },
   proposing: { label: '提案分支', tone: '#a78bfa' },
@@ -303,19 +314,19 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
         </div>
         <div className="wm-toolbar">
           <div className="wm-pills">
-            <button className={`wm-pill${view === 'board' ? ' active' : ''}`} type="button" onClick={() => setView('board')}>
+            <button className={`wm-pill${view === 'board' ? ' active' : ''}`} type="button" aria-pressed={view === 'board'} onClick={() => setView('board')}>
               看板
             </button>
-            <button className={`wm-pill${view === 'list' ? ' active' : ''}`} type="button" onClick={() => setView('list')}>
+            <button className={`wm-pill${view === 'list' ? ' active' : ''}`} type="button" aria-pressed={view === 'list'} onClick={() => setView('list')}>
               列表
             </button>
-            <button className={`wm-pill${view === 'team' ? ' active' : ''}`} type="button" onClick={() => setView('team')}>
+            <button className={`wm-pill${view === 'team' ? ' active' : ''}`} type="button" aria-pressed={view === 'team'} onClick={() => setView('team')}>
               团队
             </button>
-            <button className={`wm-pill${view === 'console' ? ' active' : ''}`} type="button" onClick={() => setView('console')}>
+            <button className={`wm-pill${view === 'console' ? ' active' : ''}`} type="button" aria-pressed={view === 'console'} onClick={() => setView('console')}>
               控制台
             </button>
-            <button className={`wm-pill${view === 'graph' ? ' active' : ''}`} type="button" onClick={() => setView('graph')}>
+            <button className={`wm-pill${view === 'graph' ? ' active' : ''}`} type="button" aria-pressed={view === 'graph'} onClick={() => setView('graph')}>
               知识图谱
             </button>
           </div>
@@ -1060,16 +1071,23 @@ function ProposalDrawer(props: {
   onAction: (action: 'advance' | 'back' | 'archive' | 'abandon' | 'plan' | 'reject', to?: ProposalState, force?: boolean) => void
 }): JSX.Element {
   const { proposal, detail } = props
+  useEscape(props.onClose)
   const tasks = detail?.openspec?.tasks
   return (
     <div className="wm-drawer-mask" onClick={props.onClose}>
-      <aside className="wm-drawer" onClick={(event) => event.stopPropagation()}>
+      <aside
+        className="wm-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`提案详情：${proposal.title}`}
+        onClick={(event) => event.stopPropagation()}
+      >
         <header className="wm-drawer-head">
           <div>
             <h3>{proposal.title}</h3>
             <div className="wm-card-id">{proposal.id}</div>
           </div>
-          <button className="wm-btn mini" type="button" onClick={props.onClose}>
+          <button className="wm-btn mini" type="button" autoFocus onClick={props.onClose}>
             关闭
           </button>
         </header>
@@ -1219,6 +1237,7 @@ function ProjectTreeModal(props: {
   onClose: () => void
   onSelect: (name: string) => void
 }): JSX.Element {
+  useEscape(props.onClose)
   const groups = new Map<string, RegisteredProject[]>()
   for (const project of props.projects) {
     const workspace = project.workspace ?? '未分组'
@@ -1277,6 +1296,7 @@ function ImportProjectsModal(props: {
   onImported: () => Promise<void> | void
   onError: (message: string) => void
 }): JSX.Element {
+  useEscape(props.onClose)
   const [candidates, setCandidates] = useState<WorkspaceCandidate[]>([])
   const [note, setNote] = useState('')
   const [loading, setLoading] = useState(true)
@@ -1370,6 +1390,7 @@ function CreateModal(props: {
   onCreated: () => Promise<void>
   onError: (message: string) => void
 }): JSX.Element {
+  useEscape(props.onClose)
   const [title, setTitle] = useState('')
   const [id, setId] = useState('')
   const [projects, setProjects] = useState<RegisteredProject[]>([])
