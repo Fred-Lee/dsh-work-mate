@@ -369,4 +369,14 @@ export const PANEL_STYLE = `
   outline: 2px solid var(--wm-accent, #3b82f6); outline-offset: 2px;
 }
 
+.wm-skeleton-list { display: flex; flex-direction: column; gap: 6px; }
+.wm-skeleton-row {
+  height: 48px; border-radius: 10px;
+  background: linear-gradient(90deg, var(--wm-code, rgba(127,127,127,.10)) 25%, var(--wm-surface) 50%, var(--wm-code, rgba(127,127,127,.10)) 75%);
+  background-size: 200% 100%;
+  animation: wm-skeleton 1.4s ease-in-out infinite;
+}
+@keyframes wm-skeleton { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .wm-skeleton-row { animation: none; } }
+
 `

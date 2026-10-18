@@ -5,7 +5,7 @@
  * expand in place grouped per associated project (multi-service support),
  * creation lives in a modal with a project picker.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getBands, getMetrics } from './api'
 import type { AggregateMetrics, BandEvaluation, BandsPayload } from './types'
 import {
@@ -109,6 +109,8 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const [treeOpen, setTreeOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const [statusFilter, setStatusFilter] = useState<'active' | 'all' | 'reviewing' | 'archived'>('active')
+  const [loading, setLoading] = useState(true)
+  const searchRef = useRef<HTMLInputElement>(null)
   const [drawerId, setDrawerId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
@@ -126,6 +128,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
     } catch {
       // Occupancy is advisory; a host without the endpoint keeps the old panel.
     }
+    setLoading(false)
   }, [])
 
   const refreshProjects = useCallback(async () => {
@@ -255,6 +258,20 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
     },
     [refresh, loadDetail],
   )
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent): void => {
+      const target = event.target
+      const editing =
+        target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
+      const palette = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k'
+      if (editing || (!palette && event.key !== '/')) return
+      event.preventDefault()
+      searchRef.current?.focus()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   const visibleProposals = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -386,6 +403,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           </span>
         )}
         <input
+          ref={searchRef}
           className="wm-search"
           value={search}
           placeholder="搜索提案 / 项目…"
@@ -413,7 +431,14 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           <ConsoleView onError={setError} />
         ) : view === 'list' ? (
           <div className="wm-list">
-            {listRows.length === 0 && <div className="wm-empty">没有匹配的提案</div>}
+            {loading && proposals.length === 0 && (
+              <div className="wm-skeleton-list" aria-label="加载中">
+                {[0, 1, 2].map((index) => (
+                  <div className="wm-skeleton-row" key={index} />
+                ))}
+              </div>
+            )}
+            {!loading && listRows.length === 0 && <div className="wm-empty">没有匹配的提案</div>}
             {listRows.map((proposal) => (
               <button className="wm-list-row" key={proposal.id} type="button" onClick={() => openDrawer(proposal.id)}>
                 <div>
