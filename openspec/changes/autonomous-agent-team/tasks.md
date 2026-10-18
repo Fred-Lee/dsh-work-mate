@@ -43,14 +43,14 @@
 
 - [x] 5.1 团队视图：角色看板、Task 状态、当前 worker。<!-- writes: src/client/App.tsx, src/client/api.ts -->
 - [x] 5.2 DAG 视图：依赖边、波次、关键路径。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
-- [ ] 5.3 收件箱：question/escalation 列表与一键回答；阻塞 Task 高亮。<!-- writes: src/client/App.tsx, src/client/api.ts -->
+- [x] 5.3 收件箱：question/escalation 列表与一键回答；阻塞 Task 高亮。<!-- writes: src/client/App.tsx, src/client/api.ts -->
 - [ ] 5.4 运行时间线与证据面板：六份工件 Markdown 渲染、commit/文件链接。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
 
 ## 6. 测试与验证
 
-- [ ] 6.1 单测：角色契约、DAG 无环与波次、写域冲突、重试/预算/终态、inbox FIFO 与 ack、门禁缺失证据。<!-- writes: src/features/team/**/*.test.ts -->
-- [ ] 6.2 宿主探针：原生 Session 派发 + cwd 绑定是否可行；不可行时 Subagent 降级路径可用。<!-- writes: src/features/team/** -->
-- [ ] 6.3 客户端测试：团队视图/DAG/收件箱；沿用 UI 重构后的组件；`pnpm verify:client` 绿。<!-- writes: src/client/*.test.tsx -->
+- [x] 6.1 单测：角色契约、DAG 无环与波次、写域冲突、重试/预算/终态、inbox FIFO 与 ack、门禁缺失证据。<!-- writes: src/features/team/**/*.test.ts -->
+- [x] 6.2 宿主探针：原生 Session 派发 + cwd 绑定是否可行；不可行时 Subagent 降级路径可用。<!-- writes: src/features/team/** -->
+- [x] 6.3 客户端测试：团队视图/DAG/收件箱；沿用 UI 重构后的组件；`pnpm verify:client` 绿。<!-- writes: src/client/*.test.tsx -->
 - [ ] 6.4 门禁：`pnpm typecheck && pnpm test && pnpm build && pnpm verify` 全绿。<!-- writes: package.json -->
 - [ ] 6.5 真机验收：一个两仓提案走 requirement-full 模板，G2 人确认后自动跑前后端→集成测试→审查；截图团队看板与收件箱；失败注入一次验证升级。<!-- writes: docs/AGENT-TEAM-DESIGN.md -->
 
