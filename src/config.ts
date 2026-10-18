@@ -108,6 +108,12 @@ export interface Config {
    */
   teamEvidenceGate?: string
   /**
+   * After G2 plan approval, create a planned team Run when TASKS.json is
+   * complete. Dispatch still needs an explicit `workmate_team_run`.
+   * @default false
+   */
+  teamAutoPlan?: boolean
+  /**
    * Require every merged swarm task to carry an independent verification record
    * before archiving (change `wire-swarm-independent-review`). @default false
    */
@@ -236,6 +242,10 @@ export const Config: z<Config> = z.object({
     .string()
     .default('warn')
     .description('Require TEST.md/REVIEW.md for team-managed changes: off | warn | block.'),
+  teamAutoPlan: z
+    .boolean()
+    .default(false)
+    .description('Create a planned team Run after G2 plan approval when TASKS.json is complete.'),
   swarmReviewRequired: z
     .boolean()
     .default(false)
@@ -305,6 +315,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   reviewerIndependence: 'warn',
   reviewEvidenceGate: 'warn',
   teamEvidenceGate: 'warn',
+  teamAutoPlan: false,
   swarmReviewRequired: false,
   lifecycleMainBranch: 'main',
   decisionEnabled: false,

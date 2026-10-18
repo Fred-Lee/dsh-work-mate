@@ -23,6 +23,7 @@ describe('resolveConfig', () => {
       reviewerIndependence: 'warn',
       reviewEvidenceGate: 'warn',
     teamEvidenceGate: 'warn',
+    teamAutoPlan: false,
       swarmReviewRequired: false,
       lifecycleMainBranch: 'main',
       decisionEnabled: false,

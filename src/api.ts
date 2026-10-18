@@ -66,6 +66,8 @@ export interface ApiDeps {
   events?: EventLog
   /** Team run store; omitted = the team console shows an empty list. */
   teamRuns?: TeamRunStore
+  /** After G2 approval, optionally create a planned team Run (Config.teamAutoPlan). */
+  teamAutoPlan?: (proposalId: string) => Promise<unknown>
   /** Control-band file; defaults to `<DSH home>/<workmateHome>/bands.json`. */
   bandsFile?: string
   /** States gated on a human approval (`Config.approvalsRequired`). */
@@ -359,10 +361,15 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
 
   router.post('/api/proposals/:id/plan-approve', async (r) => {
     const body = await readJsonBody<{ rationale?: string }>(r.req)
-    const result = await deps.archive.approvePlan(r.params['id'] ?? '', {
+    const id = r.params['id'] ?? ''
+    const result = await deps.archive.approvePlan(id, {
       ...(body.rationale !== undefined ? { rationale: body.rationale } : {}),
     })
-    return result
+    if (deps.teamAutoPlan === undefined) return result
+    const team = await deps.teamAutoPlan(id).catch((error: unknown) => ({
+      skipped: error instanceof Error ? error.message : String(error),
+    }))
+    return { ...result, team }
   })
 
   router.post('/api/proposals/:id/reconcile', async (r) => {

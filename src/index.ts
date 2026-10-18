@@ -31,6 +31,7 @@ import { parseSwarmTasks } from './features/swarm/plan.ts'
 import { parseTargetsSpec } from './features/proposal/targets.ts'
 import { TeamRunStore } from './features/team/store.ts'
 import { TeamRunner } from './features/team/runner.ts'
+import { autoPlanTeamRun } from './features/team/auto-plan.ts'
 import { registerTeamTools } from './features/team/tools.ts'
 import type { SubagentServiceLike } from './features/team/host-dispatcher.ts'
 import type { WorkspaceRegistryLike } from './features/project/workspace-candidates.ts'
@@ -476,6 +477,24 @@ export function apply(ctx: Context, config: Config = {}): void {
   }
 
   registerTools(ctx, { proposals, archive, registry, worktree, swarm, decision, vaultExport: runVaultExport, resolved, events })
+  const autoPlanTeam = async (proposalId: string): Promise<unknown> => {
+    if (resolved.teamAutoPlan !== true) return { skipped: 'teamAutoPlan disabled' }
+    const proposal = await proposals.get(proposalId)
+    if (proposal === undefined) return { skipped: 'proposal not found' }
+    const primary = proposal.primaryProject ?? proposal.projects[0]
+    const registered = primary === undefined ? undefined : await registry.get(primary)
+    const root = (registered?.root ?? resolved.projectRoot).trim()
+    if (root === '') return { skipped: 'no project root' }
+    return autoPlanTeamRun({
+      proposalId,
+      changeId: proposal.openspecChangeId,
+      projectRoot: root,
+      openspecRoot: resolved.openspecRoot,
+      store: teamRuns,
+      runner: teamRunner,
+    })
+  }
+
   let subagentsService: SubagentServiceLike | undefined
   ctx.inject(['subagents'], (scope) => {
     subagentsService = scope.get('subagents') as SubagentServiceLike
@@ -555,6 +574,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       decision,
       events,
       teamRuns,
+      teamAutoPlan: autoPlanTeam,
       vaultExport: (input) =>
         runVaultExport({
           projectRoot: input.projectRoot,
