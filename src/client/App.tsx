@@ -1357,11 +1357,11 @@ function CreateModal(props: {
  * stay reproducible.
  */
 function initialView(): 'board' | 'list' | 'graph' | 'console' | 'team' {
-  if (typeof window === 'undefined') return 'board'
+  if (typeof window === 'undefined') return 'list'
   const requested = new URLSearchParams(window.location.search).get('view')
   return requested === 'console' || requested === 'graph' || requested === 'list' || requested === 'team'
     ? requested
-    : 'board'
+    : 'list'
 }
 
 /** Human-readable dwell/cycle duration; unknown (0) stays unknown, never faked. */

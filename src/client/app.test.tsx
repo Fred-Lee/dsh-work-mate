@@ -78,6 +78,13 @@ function columnFor(status: string): HTMLElement {
   return column as HTMLElement
 }
 
+const renderPanel = (): ReturnType<typeof render> => {
+  const view = render(<ProposalPanel />)
+  // The panel is list-first now; board-specific tests switch explicitly.
+  fireEvent.click(screen.getByText('看板'))
+  return view
+}
+
 describe('ProposalPanel (kanban)', () => {
   it('renders three lifecycle columns with counts and places cards accordingly', async () => {
     fetchMock.mockResolvedValue(
@@ -90,7 +97,7 @@ describe('ProposalPanel (kanban)', () => {
       }),
     )
 
-    render(<ProposalPanel />)
+    renderPanel()
     expect(await screen.findByText('批量批改 v2.1')).toBeTruthy()
     expect(screen.getByText('3 条提案')).toBeTruthy()
 
@@ -103,7 +110,7 @@ describe('ProposalPanel (kanban)', () => {
 
   it('shows an empty column hint when a lifecycle stage has no cards', async () => {
     fetchMock.mockResolvedValue(ok({ proposals: [proposal()] }))
-    render(<ProposalPanel />)
+    renderPanel()
     await screen.findByText('批量批改 v2.1')
     expect(within(columnFor('archived')).getByText('暂无提案')).toBeTruthy()
   })
@@ -121,7 +128,7 @@ describe('ProposalPanel (kanban)', () => {
       return {}
     })
 
-    render(<ProposalPanel />)
+    renderPanel()
     await screen.findAllByText('暂无提案')
 
     fireEvent.click(screen.getByText('＋ 新提案'))
@@ -172,7 +179,7 @@ describe('ProposalPanel (kanban)', () => {
       return {}
     })
 
-    render(<ProposalPanel />)
+    renderPanel()
     await screen.findByText('A 提案')
     expect(screen.getByText('B 提案')).toBeTruthy()
 
@@ -208,7 +215,7 @@ describe('ProposalPanel (kanban)', () => {
       return {}
     })
 
-    render(<ProposalPanel />)
+    renderPanel()
     await screen.findByText('批量批改 v2.1')
     fireEvent.click(screen.getByText('列表'))
     const rows = await screen.findAllByText('批量批改 v2.1')
@@ -239,7 +246,7 @@ describe('ProposalPanel (kanban)', () => {
       return {}
     })
 
-    render(<ProposalPanel />)
+    renderPanel()
     await screen.findByText('批量批改 v2.1')
     fireEvent.click(screen.getByText('批量批改 v2.1'))
     fireEvent.click(screen.getByText('加载详情'))
@@ -274,7 +281,7 @@ describe('ProposalPanel (kanban)', () => {
       return {}
     })
 
-    render(<ProposalPanel />)
+    renderPanel()
     await screen.findByText('批量批改 v2.1')
     fireEvent.click(screen.getByText('批量批改 v2.1'))
     fireEvent.click(screen.getByText('加载详情'))
@@ -294,13 +301,13 @@ describe('ProposalPanel (kanban)', () => {
   it('surfaces REST errors inline', async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({ error: '存储不可读' }) })
 
-    render(<ProposalPanel />)
+    renderPanel()
     await screen.findByText('存储不可读')
   })
 
   it('expands a card to load per-project detail facts', async () => {
     fetchMock.mockResolvedValue(ok({ proposals: [proposal({ status: 'implementing', projects: ['grading-core'] })] }))
-    render(<ProposalPanel />)
+    renderPanel()
     await screen.findByText('批量批改 v2.1')
 
     fireEvent.click(screen.getByText('批量批改 v2.1'))
@@ -407,7 +414,7 @@ describe('control room (workbench panel)', () => {
 
   it('offers the console as a third panel view', () => {
     fetchMock.mockResolvedValue(ok({ proposals: [] }))
-    render(<ProposalPanel />)
+    renderPanel()
 
     expect(screen.getByText('控制台')).toBeTruthy()
   })
@@ -477,7 +484,7 @@ describe('panel scroll contract (fix-panel-scroll)', () => {
 
   it('keeps the header outside and the board inside the single scroll layer (C3/C4)', async () => {
     fetchMock.mockResolvedValue(ok({ proposals: [proposal()] }))
-    const { container } = render(<ProposalPanel />)
+    const { container } = renderPanel()
     await screen.findByText('批量批改 v2.1')
 
     const root = container.querySelector('.wm-root') as HTMLElement
@@ -501,7 +508,7 @@ describe('panel scroll contract (fix-panel-scroll)', () => {
       }
       return Promise.resolve(ok({ proposals: [] }))
     })
-    const { container } = render(<ProposalPanel />)
+    const { container } = renderPanel()
     const root = container.querySelector('.wm-root') as HTMLElement
     const body = root.querySelector('.wm-body') as HTMLElement
 
@@ -520,7 +527,7 @@ describe('panel scroll contract (fix-panel-scroll)', () => {
       if (url.includes('/api/projects')) return Promise.resolve(ok({ projects: [] }))
       return Promise.resolve(ok({ proposals: [] }))
     })
-    const { container } = render(<ProposalPanel />)
+    const { container } = renderPanel()
     await screen.findAllByText('暂无提案')
 
     fireEvent.click(screen.getByText('＋ 新提案'))
@@ -581,7 +588,7 @@ describe('panel scroll contract (fix-panel-scroll)', () => {
       return {}
     })
 
-    render(<ProposalPanel />)
+    renderPanel()
     fireEvent.click(screen.getByText('团队'))
     await screen.findByText('r1')
     fireEvent.click(screen.getByText('r1'))
