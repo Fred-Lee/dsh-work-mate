@@ -26,6 +26,7 @@ import type { LifecycleServiceImpl } from './features/archive/service.ts'
 import { PROPOSAL_STATES, isProposalState } from './features/proposal/state-machine.ts'
 import { linkWikiToProposal } from './features/wiki/links.ts'
 import type { ProjectRegistry } from './features/project/registry.ts'
+import { listProjectBranches } from './features/project/branches.ts'
 import { syncProjectAssets } from './features/quality/sync.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
 import { generateChangeDir, readChangeState, validateProjectRoot } from './features/proposal/openspec.ts'
@@ -81,6 +82,10 @@ export interface ApiDeps {
 export interface CreateProjectBody {
   name?: string
   root?: string
+  /** Branch a new proposal targets by default (main/master when omitted). */
+  defaultBranch?: string
+  /** Optional grouping label for the panel tree. */
+  workspace?: string
 }
 
 export interface CreateProposalBody {
@@ -329,8 +334,24 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     const body = await readJsonBody<CreateProjectBody>(r.req)
     const name = (body.name ?? '').trim()
     const root = (body.root ?? '').trim()
-    const registered = await deps.registry.upsert(name, root)
+    const registered = await deps.registry.upsert(name, root, {
+      ...(body.defaultBranch !== undefined ? { defaultBranch: body.defaultBranch } : {}),
+      ...(body.workspace !== undefined ? { workspace: body.workspace } : {}),
+    })
     return { project: registered }
+  })
+
+  router.get('/api/projects/:name/branches', async (r) => {
+    const name = r.params['name'] ?? ''
+    const project = await deps.registry.get(name)
+    if (project === undefined) {
+      const known = (await deps.registry.list()).map((entry) => entry.name)
+      throw new Error(`project not found: ${name}（已注册：${known.join(', ') || '无'}）`)
+    }
+    return {
+      project: project.name,
+      branches: await listProjectBranches(project.root, project.defaultBranch),
+    }
   })
 
   router.delete('/api/projects/:name', async (r) => {

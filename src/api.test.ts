@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process'
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,6 +10,7 @@ import { LifecycleServiceImpl } from './features/archive/service.ts'
 import { WorktreeManager } from './features/worktree/manager.ts'
 import { Router, readJsonBody } from './http.ts'
 import { registerApiRoutes } from './api.ts'
+import { ProjectRegistry } from './features/project/registry.ts'
 import { EventLog } from './features/proposal/events.ts'
 import { DecisionService } from './features/decision/service.ts'
 
@@ -432,5 +434,69 @@ describe('injection judgement wiring (decision-node-tool-path)', () => {
     expect(asked).toContain('injection-risk')
     expect(events.some((event) => event['kind'] === 'decision' && event['node'] === 'injection-risk')).toBe(true)
     expect(JSON.stringify(upserted[0])).toContain('untrusted')
+  })
+})
+
+describe('project registry REST API', () => {
+  const git = (args: string[], cwd: string): Promise<string> =>
+    new Promise((resolvePromise, reject) => {
+      execFile('git', args, { cwd }, (error, stdout, stderr) => {
+        if (error) reject(new Error(stderr.trim() || error.message))
+        else resolvePromise(stdout)
+      })
+    })
+
+  const projectRouter = (registry: ProjectRegistry): Router => {
+    const r = new Router()
+    registerApiRoutes(r, {
+      proposals,
+      archive,
+      openspecRoot: 'openspec',
+      projectRoot: '',
+      registry,
+      qualitySyncEnabled: false,
+      claudeAssetsEnabled: false,
+    })
+    return r
+  }
+
+  it('stores defaultBranch/workspace and lists branches for a real repo', async () => {
+    const repo = join(home, 'repo')
+    await mkdir(repo, { recursive: true })
+    await git(['init', '-b', 'main'], repo)
+    await git(['config', 'user.email', 'test@example.com'], repo)
+    await git(['config', 'user.name', 'Test'], repo)
+    await git(['commit', '--allow-empty', '-m', 'init'], repo)
+    await git(['branch', 'test'], repo)
+
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    const r = projectRouter(registry)
+
+    const created = stubRes()
+    await r.handle(
+      '/api/projects',
+      stubReq('POST', '/api/projects', { name: 'demo', root: repo, defaultBranch: 'test', workspace: 'xkw' }),
+      created.res,
+    )
+    expect(json(created.result)).toMatchObject({
+      project: { name: 'demo', root: repo, defaultBranch: 'test', workspace: 'xkw' },
+    })
+
+    const listed = stubRes()
+    await r.handle('/api/projects/demo/branches', stubReq('GET', '/api/projects/demo/branches'), listed.res)
+    expect(json(listed.result)).toMatchObject({
+      project: 'demo',
+      branches: { current: 'main', default: 'test', local: ['main', 'test'] },
+    })
+  })
+
+  it('rejects branches for an unregistered project with candidates', async () => {
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    const r = projectRouter(registry)
+    const missing = stubRes()
+    await r.handle('/api/projects/ghost/branches', stubReq('GET', '/api/projects/ghost/branches'), missing.res)
+
+    expect(missing.result.status).toBe(400)
+    expect(JSON.stringify(json(missing.result))).toContain('project not found: ghost')
   })
 })
