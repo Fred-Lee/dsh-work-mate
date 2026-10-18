@@ -8,17 +8,17 @@
 agent preset 不是 `$DSH_HOME/.agent-presets/` 旧目录，而是 profile 里安装的
 `@deepseek-ai/dsh-agent-preset` bundle（如 Web 自带的 `standard` / `minimal` / `ptc`）。
 
-读角色（需求/方案评估、reviewer）必须映射到**不含写工具**的 readonly preset；
-开发/测试/协调角色映射到 workspace-write preset。最少需要两个 preset id，例如：
+读角色（需求/方案评估、reviewer）必须映射到不含写工具的 readonly preset；
+开发/测试/协调角色映射到 workspace-write preset。Web 自带 `minimal`（无 write/edit）
+与 `standard`（workspace-write）可直接使用：
 
 ```yaml
 # cordis.patch.yml（workmate 条目）
-teamReadonlyPreset: review
+teamReadonlyPreset: minimal
 teamWorkspacePreset: standard
 ```
 
-只读 preset 的最小 bundle 示例（目录里两个文件，用
-`plugin_manager action=install_bundle` 安装）：
+如果 `minimal` 不够严格（它仍带 shell），可自建只读 bundle（目录里两个文件，安装后需重启宿主）：
 
 ```yaml
 # review-preset/cordis.patch.yml
@@ -44,7 +44,10 @@ teamWorkspacePreset: standard
   "type": "module", "dsh": { "bundle": { "patch": "./cordis.patch.yml" } } }
 ```
 
-安装后 `list_plugins` 应出现 `preset-review` 且已激活；否则不要派发。
+安装后 `list_plugins` 应出现新增 preset 且已激活；否则不要派发。
+
+> **配置生效需要重启 harness**：`cordis.patch.yml` 的改动不会热加载。
+> 本机入口 `~/.dsh/harness-restart.sh`；重启后再跑真实 Run。
 
 ## 2. 准备工件
 

@@ -1,0 +1,30 @@
+# WorkMate team read-only preset: file reads/search only, no write/edit/shell.
+- insert:
+    - id: preset-workmate-review
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: workmate-review
+        name: WorkMate Review (read-only)
+        description: Read-only evaluator/reviewer for WorkMate team runs.
+        order: 30
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: >-
+                You are a read-only evaluator or reviewer in a WorkMate team run.
+                You may read and search files, but you must not modify the
+                repository. Every conclusion needs file/line evidence.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              read: true
+              readImage: true
+              write: false
+              edit: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
