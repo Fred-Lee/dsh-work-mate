@@ -33,3 +33,13 @@
 - [x] CRIT-1 入口模式自相矛盾：直接进 G2 跳过 G0/G1，但 G2 原要求 `REQ.md/PLAN.md/TASKS.json`，已有 OpenSpec 提案没有这些文件 — 违反：团队入口按工件判断 — 修复：新增归一化（派生 REQ/PLAN，标记 derived；tasks.md 生成 TASKS.json），G2 要求 TASKS.json 与 DAG 无环（已修）。
 - [x] CRIT-2 `planHash` 原定义 `REQ+PLAN+TASKS` 与 OpenSpec 工件不一致，跨提案无法对齐 — 违反：G2/G5 方案哈希 — 修复：改为方案工件规范化哈希（OpenSpec + 团队工件），与 `multiproject-branch-workbench` D12 对齐（已修）。
 - [x] CRIT-3 G5 单次批准与 `approval-gate` 原默认两道门冲突 — 违反：现有 approval-gate — 修复：由 `multiproject-branch-workbench` 增加 approval-gate delta，默认 `['merging']`；本提案只引用（已修）。
+
+## 实现核验（2026-10-19，实现期自审）
+
+<!-- reviewer: workmate-lead (implementation self-audit; independent reviewer still required before archive) -->
+
+- 代码证据：`src/features/team/{types,roster,tasks,artifacts,store,runner,coordinator,host-dispatcher,inbox,prompts,presets,models,summary,events,tools,evidence,completeness,auto-plan}.ts`、`src/client/App.tsx`（团队视图/波次/角色/收件箱）、`src/api.ts`（`/api/team/runs*`）、`src/index.ts`（25 工具）。
+- 测试证据：团队相关 20+ 文件；`pnpm test` 75 文件 / 555 条通过；`pnpm verify` 五门禁全绿；`verify:built` 确认团队 5 工具在构建产物中。
+- 真实宿主：通过 plugin manager 禁用/启用 `include:workmate` 热重载成功，WorkMate 指令重新注入（无需重启 harness）；浏览器端需刷新。
+- 仍未完成：无 agent 上下文的 G2 自动派发衔接（2.0 的 REST 侧限制）、`git diff` 结果与测试允许清单的自动闭环（已提供 `changedFilesSince`，当前主要依赖 worker `FILES:` 报告）、角色级 preset 的实际 profile 配置（代码与配置项已就绪）。
+- 归档前置：`review.md` 的独立 reviewer 仍待提供；当前标记为自审，不得当作独立审查通过。

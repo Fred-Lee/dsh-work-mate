@@ -33,3 +33,13 @@
 - [x] CRIT-1 `planHash` 定义跨提案不一致：本提案原写 `REQ+PLAN+TASKS`，但这是团队工件名，OpenSpec 提案只有 `proposal/design/tasks/specs` — 违反：lifecycle-state-machine 要求可机检的方案哈希 — 修复：D12 与 lifecycle spec 改为「OpenSpec 工件 + 团队工件（若存在）」的规范化哈希（已修）。
 - [x] CRIT-2 G5 单次批准与 `approval-gate` 默认 `['merging','archiving']` 冲突 — 违反：approval-gate 人工批准门 — 修复：新增 `specs/approval-gate` MODIFIED，默认改为 `['merging']`，配置可恢复两道；tasks 8.6 补齐（已修）。
 - [x] CRIT-3 `reviewing/ready` 仍隐含提案分支前置，自动推进无法跳过 — 违反：D12 证据派生与自动推进 — 修复：lifecycle spec 明确 `proposalBranch` 为可选追溯，tasks 8.7 移除存在/合并前置（已修）。
+
+## 实现核验（2026-10-19，实现期自审）
+
+<!-- reviewer: workmate-lead (implementation self-audit; independent reviewer still required before archive) -->
+
+- 代码证据：`src/features/project/{registry,branches,workspace-candidates,status}.ts`、`src/features/proposal/{targets,plan,isolation,writes,readiness}.ts`、`src/features/worktree/manager.ts`、`src/features/archive/{service,orchestrate,manifest}.ts`、`src/client/{App,api,team-waves}.tsx`、`src/api.ts`、`src/index.ts`。
+- 测试证据：`pnpm test` 75 文件 / 555 条通过；`pnpm verify` 五门禁全绿；`pnpm verify:built` 25 tools。
+- 面板证据：默认列表、状态筛选、项目树（当前分支/脏文件/活跃 worktree）、详情抽屉（概览/目标矩阵/任务/审查/事件）、流水线看板、`?view=list` 截图已存 `docs/assets/ui/`。
+- 仍未完成（不阻塞已实现能力）：`ui-primitives` 替换、`8.1` 之后的部分归档规格收尾、真机浏览器刷新后的最终截图。
+- 归档前置：`review.md` 的独立 reviewer 仍待提供；当前标记为自审，不得当作独立审查通过。
