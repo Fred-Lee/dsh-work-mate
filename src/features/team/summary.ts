@@ -61,3 +61,27 @@ export async function writeTeamSummary(input: WriteSummaryInput): Promise<string
   await writeFile(path, `${buildTeamSummary(input.run)}\n`, 'utf8')
   return path
 }
+
+export interface ParsedTeamSummary {
+  status?: string
+  tasksDone?: number
+  tasksTotal?: number
+}
+
+/** Tolerant read of a SUMMARY.md (for the archive manifest; never throws on shape). */
+export function parseTeamSummary(content: string): ParsedTeamSummary {
+  const lines = content.split('\n')
+  const result: ParsedTeamSummary = {}
+  const terminal = lines.findIndex((line) => line.trim() === '## 终态')
+  if (terminal !== -1) {
+    const value = lines
+      .slice(terminal + 1)
+      .map((line) => line.trim())
+      .find((line) => line.startsWith('- '))
+    if (value !== undefined) result.status = value.slice(2).trim()
+  }
+  const tableRows = lines.filter((line) => line.trim().startsWith('|') && !line.includes('---') && !line.includes('Task |'))
+  result.tasksTotal = tableRows.length
+  result.tasksDone = tableRows.filter((line) => line.includes('| done |')).length
+  return result
+}

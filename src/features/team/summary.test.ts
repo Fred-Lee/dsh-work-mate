@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { buildTeamSummary, writeTeamSummary } from './summary.ts'
+import { buildTeamSummary, parseTeamSummary, writeTeamSummary } from './summary.ts'
 import { DEFAULT_TEAM_BUDGET, type TeamRun } from './types.ts'
 
 const run = (): TeamRun => ({
@@ -50,4 +50,13 @@ describe('team summary', () => {
     expect(path).toBe(join(root, 'openspec', 'changes', 'p1', 'SUMMARY.md'))
     await expect(readFile(path, 'utf8')).resolves.toContain('# SUMMARY — p1')
   })
+  it('parses terminal status and done/total for the manifest', () => {
+    expect(parseTeamSummary(buildTeamSummary(run()))).toMatchObject({
+      status: 'partial',
+      tasksDone: 1,
+      tasksTotal: 2,
+    })
+    expect(parseTeamSummary('no summary here')).toEqual({ tasksDone: 0, tasksTotal: 0 })
+  })
+
 })

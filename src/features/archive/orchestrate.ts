@@ -17,6 +17,7 @@ import { checkCitations, fileSystemProbe, formatCitationReport } from '../qualit
 import { judgeReviewerIndependence, type Identity } from '../quality/reviewer-independence.ts'
 import type { Proposal } from '../proposal/store.ts'
 import type { ArchiveManifest, ArchiveManifestEntry } from './manifest.ts'
+import { parseTeamSummary } from '../team/summary.ts'
 import { collectArtifactLedger, computeDrift, declaredScopes } from '../proposal/artifacts.ts'
 import type { DecisionOutcome, DecisionQuestion } from '../decision/types.ts'
 
@@ -890,7 +891,24 @@ async function collectManifest(
     if (own.length > 0) entry.taskJudgements = own.map(({ task, verdict, certainty }) => ({ task, verdict, certainty }))
     projects.push(entry)
   }
-  return { at: new Date().toISOString(), projects }
+  let team: ArchiveManifest['team']
+  for (const target of targets) {
+    const active = join(target.root, options.openspecRoot, 'changes', proposal.openspecChangeId, 'SUMMARY.md')
+    const archivedDir = await findArchivedDir(target.root, options.openspecRoot, proposal.openspecChangeId)
+    const archived = archivedDir === undefined ? undefined : join(archivedDir, 'SUMMARY.md')
+    const path = (await readFile(active, 'utf8').then(() => active).catch(() => undefined)) ?? archived
+    const content = path === undefined ? undefined : await readFile(path, 'utf8').catch(() => undefined)
+    if (path === undefined || content === undefined) continue
+    const parsed = parseTeamSummary(content)
+    team = {
+      summaryPath: path,
+      ...(parsed.status !== undefined ? { status: parsed.status } : {}),
+      ...(parsed.tasksDone !== undefined ? { tasksDone: parsed.tasksDone } : {}),
+      ...(parsed.tasksTotal !== undefined ? { tasksTotal: parsed.tasksTotal } : {}),
+    }
+    break
+  }
+  return { at: new Date().toISOString(), projects, ...(team !== undefined ? { team } : {}) }
 }
 
 /**
