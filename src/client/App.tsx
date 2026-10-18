@@ -95,6 +95,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const [selectedBranch, setSelectedBranch] = useState('')
   const [isolation, setIsolation] = useState<IsolationPayload>({ occupancy: [], conflicts: [] })
   const [importOpen, setImportOpen] = useState(false)
+  const [treeOpen, setTreeOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const [statusFilter, setStatusFilter] = useState<'active' | 'all' | 'reviewing' | 'archived'>('active')
   const [drawerId, setDrawerId] = useState<string | null>(null)
@@ -381,6 +382,9 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
         />
         <button className="wm-btn mini" type="button" onClick={() => setShowArchived((prev) => !prev)}>
           {showArchived ? '隐藏已归档' : '显示已归档'}
+        </button>
+        <button className="wm-btn mini" type="button" onClick={() => setTreeOpen(true)}>
+          项目树
         </button>
         <button className="wm-btn mini" type="button" onClick={() => setImportOpen(true)}>
           从 Workspace 导入
@@ -840,6 +844,18 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
         />
       )}
 
+      {treeOpen && (
+        <ProjectTreeModal
+          projects={projects}
+          proposals={proposals}
+          onClose={() => setTreeOpen(false)}
+          onSelect={(name) => {
+            setSelectedProject(name)
+            setTreeOpen(false)
+          }}
+        />
+      )}
+
       {importOpen && (
         <ImportProjectsModal
           onClose={() => setImportOpen(false)}
@@ -1193,6 +1209,65 @@ function ProposalDrawer(props: {
           </div>
         )}
       </aside>
+    </div>
+  )
+}
+
+function ProjectTreeModal(props: {
+  projects: RegisteredProject[]
+  proposals: Proposal[]
+  onClose: () => void
+  onSelect: (name: string) => void
+}): JSX.Element {
+  const groups = new Map<string, RegisteredProject[]>()
+  for (const project of props.projects) {
+    const workspace = project.workspace ?? '未分组'
+    groups.set(workspace, [...(groups.get(workspace) ?? []), project])
+  }
+  return (
+    <div className="wm-modal" onClick={props.onClose}>
+      <div className="wm-modal-box" onClick={(event) => event.stopPropagation()}>
+        <h3>项目树</h3>
+        <p className="wm-progress-label">按 DSH Workspace 分组；点击项目过滤列表。</p>
+        {props.projects.length === 0 ? (
+          <div className="wm-empty">还没有注册项目</div>
+        ) : (
+          <div className="wm-tree">
+            {[...groups.entries()].map(([workspace, projects]) => (
+              <div className="wm-tree-group" key={workspace}>
+                <div className="wm-tree-group-head">{workspace}</div>
+                {projects.map((project) => {
+                  const related = props.proposals.filter((proposal) => proposal.projects.includes(project.name))
+                  const active = related.filter((proposal) => proposal.status !== 'archived')
+                  const worktrees = active.filter((proposal) =>
+                    (proposal.targets ?? []).some(
+                      (target) => target.project === project.name && target.worktreePath !== undefined,
+                    ),
+                  )
+                  return (
+                    <button className="wm-tree-row" key={project.name} type="button" onClick={() => props.onSelect(project.name)}>
+                      <div>
+                        <b>{project.name}</b>
+                        <div className="wm-progress-label">{project.root}</div>
+                      </div>
+                      <div className="wm-meta">
+                        <span>⎇ {project.defaultBranch ?? 'main'}</span>
+                        <span>进行中 {active.length}</span>
+                        <span>worktree {worktrees.length}</span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="wm-modal-foot">
+          <button className="wm-btn" type="button" onClick={props.onClose}>
+            关闭
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

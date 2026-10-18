@@ -623,4 +623,32 @@ describe('panel scroll contract (fix-panel-scroll)', () => {
     expect(screen.queryByText('进行中提案')).toBeNull()
   })
 
+  it('opens the project tree and filters by the chosen project', async () => {
+    routeMock((url, method) => {
+      if (url === '/workmate/api/proposals' && method === 'GET') {
+        return { proposals: [proposal({ projects: ['alpha'] })] }
+      }
+      if (url === '/workmate/api/projects' && method === 'GET') {
+        return { projects: [{ name: 'alpha', root: '/repo/alpha', defaultBranch: 'main', workspace: 'xkw' }] }
+      }
+      if (url === '/workmate/api/isolation') return { occupancy: [], conflicts: [] }
+      if (url === '/workmate/api/projects/alpha/branches') {
+        return { project: 'alpha', branches: { current: 'main', default: 'main', local: ['main'], remote: [] } }
+      }
+      return {}
+    })
+
+    render(<ProposalPanel />)
+    fireEvent.click(await screen.findByText('项目树'))
+    await screen.findByText('xkw')
+    expect(screen.getByText('进行中 1')).toBeTruthy()
+    const treeRow = screen
+      .getAllByText('alpha')
+      .map((element) => element.closest('.wm-tree-row'))
+      .find((element) => element !== null)
+    fireEvent.click(treeRow as Element)
+
+    await waitFor(() => expect((screen.getByLabelText('项目') as HTMLSelectElement).value).toBe('alpha'))
+  })
+
 })

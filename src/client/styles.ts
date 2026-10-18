@@ -354,4 +354,14 @@ export const PANEL_STYLE = `
   background: var(--wm-surface); border-top: 1px solid var(--wm-border);
 }
 
+.wm-tree { display: flex; flex-direction: column; gap: 10px; max-height: 55vh; overflow-y: auto; margin: 8px 0; }
+.wm-tree-group-head { font-size: 11px; color: var(--wm-muted); margin-bottom: 4px; }
+.wm-tree-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; text-align: left; cursor: pointer; padding: 8px 10px;
+  border: 1px solid var(--wm-border); border-radius: 8px;
+  background: var(--wm-card); color: var(--wm-fg);
+}
+.wm-tree-row:hover { box-shadow: var(--wm-shadow-lift); }
+
 `
