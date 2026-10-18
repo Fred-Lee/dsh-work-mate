@@ -67,3 +67,9 @@
 - H3：`workmate_team_run` 现在把 target worktree 的 `git diff --name-only <baseCommit>` + untracked 文件作为 `filesModified` 送入 settle；`REPORT:` 路径在 verifyReportPath=true 时必须存在，否则按 failed 处理。
 - H13（部分）：团队启动只允许提案处于 `implementing/merging`；target 提案的 G2 planHash 在进入 implementing 时已重校验。
 - 仍未修：H1 合并实现、H7 token/挂死超时、H8 六工件归一化生成。**still not archivable.**
+
+## 第五轮修复（2026-10-19）
+
+- H1：`merging→archiving` 现在逐 target 执行真实 `git merge --no-ff feature → base`；项目不在基线分支/工作区脏/冲突时拒绝并 `merge --abort`，提案保持 merging；真实 git 测试覆盖成功与冲突。
+- 工作台 task 8.4 恢复勾选：G5 一次批准覆盖合并与归档。
+- 仍未修：H7 token/挂死超时、六工件自动生成默认行为、TEAM-REVIEW reviewer 身份校验。**still not archivable.**

@@ -144,8 +144,9 @@ node $DSH web                                                # http://127.0.0.1:
   `QUESTION:`/`ESCALATION:` 结束会暂停 Run 并写入 inbox，回答后用 `resetTask` 继续；
 - 预算：并发 3、每 Task 重试 2、Run 2h / 300k tokens（仅宿主给 usage 才累计）/ 20
   Dispatch；超限 abort 并上报；
-- G5 拒绝：`rejectMerge(category=plan|implementation)` 退回 `implementing`；plan 类还会
-  作废最近一次 G2 approve，改完方案需重新 `approvePlan`；
+- G5：批准后 `merging→archiving` 自动逐 target `git merge feature→base`；冲突即 abort、保持 merging；
+  `rejectMerge(category=plan|implementation)` 退回 `implementing`；plan 类还会作废最近一次
+  G2 approve，改完方案需重新 `approvePlan`；
 - 归档证据：`teamEvidenceGate`（默认 block）在 `merging→archiving` 前检查 team-managed
   变更的 `TEST.md`/`TEAM-REVIEW.md` 段头；`SUMMARY.md` 会映射进归档 manifest 的 `team` 段。
 

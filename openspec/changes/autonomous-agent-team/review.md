@@ -72,3 +72,9 @@
 
 - H8（部分）：新增 `workmate_team_prepare`，从 proposal/design/tasks.md 派生 REQ/PLAN/TASKS.json（`derived: true`、不覆盖已有、缺 role/project 给出警告并按默认值派生）；证据工件仍不会自动生成。
 - 仍未修：H1 合并实现、H7 token/挂死超时、六份工件“随提案自动生成”仍不是默认行为。**still not archivable.**
+
+## 第五轮修复（2026-10-19）
+
+- H1：`merging→archiving` 现在逐 target 执行真实 `git merge --no-ff feature → base`；项目不在基线分支/工作区脏/冲突时拒绝并 `merge --abort`，提案保持 merging；真实 git 测试覆盖成功与冲突。
+- 工作台 task 8.4 恢复勾选：G5 一次批准覆盖合并与归档。
+- 仍未修：H7 token/挂死超时、六工件自动生成默认行为、TEAM-REVIEW reviewer 身份校验。**still not archivable.**
