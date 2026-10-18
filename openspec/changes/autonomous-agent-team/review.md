@@ -83,3 +83,8 @@
 
 - H7（部分）：`TeamBudget.maxWaveMs`（默认 30 分钟），协调器对整波结果 `Promise.race` 超时；超时 abort Run 并返回 `单波超时`，补测试。token 仍只在宿主给 usage 时累计，缺失显示「未计量」（契约限制，不伪造）。
 - 仍未修：六工件自动生成默认行为、TEAM-REVIEW reviewer 身份校验。**still not archivable.**
+
+## 第七轮修复（2026-10-19）
+
+- reviewer 独立性：`DispatchHandle.sessionId` → `SettleInput.sessionId` 落 Dispatch；协调器记录每个 session 的角色，reviewer 复用实现者 session 直接 failed（测试覆盖）。TEAM-REVIEW 文件内的 reviewer marker 仍只由人审，未做机检。
+- 仍未修：六工件自动生成默认行为。**still not archivable.**
