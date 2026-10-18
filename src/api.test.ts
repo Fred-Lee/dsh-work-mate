@@ -631,4 +631,27 @@ describe('project registry REST API', () => {
     })
   })
 
+  it('reports write-scope conflicts for active proposals', async () => {
+    const repo = join(home, 'ws')
+    await mkdir(join(repo, 'openspec', 'changes', 'wa'), { recursive: true })
+    await mkdir(join(repo, 'openspec', 'changes', 'wb'), { recursive: true })
+    await writeFile(join(repo, 'openspec', 'changes', 'wa', 'tasks.md'), '- [ ] 1 <!-- writes: src/order/** -->\n', 'utf8')
+    await writeFile(join(repo, 'openspec', 'changes', 'wb', 'tasks.md'), '- [ ] 1 <!-- writes: src/order/detail/** -->\n', 'utf8')
+
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    await registry.upsert('repo', repo)
+    const r = projectRouter(registry)
+    for (const id of ['wa', 'wb']) {
+      await proposals.upsert({ id, title: id, targets: [{ project: 'repo', baseBranch: 'main' }] })
+      await proposals.setStatus(id, 'implementing')
+    }
+
+    const res = stubRes()
+    await r.handle('/api/isolation/writes', stubReq('GET', '/api/isolation/writes'), res.res)
+
+    expect(json(res.result)).toMatchObject({
+      conflicts: [{ project: 'repo', proposalIds: ['wa', 'wb'], scopes: ['src/order/**'] }],
+    })
+  })
+
 })

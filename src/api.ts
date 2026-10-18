@@ -28,7 +28,9 @@ import { linkWikiToProposal } from './features/wiki/links.ts'
 import type { ProjectRegistry } from './features/project/registry.ts'
 import { listProjectBranches } from './features/project/branches.ts'
 import { listWorkspaceCandidates, type WorkspaceRegistryLike } from './features/project/workspace-candidates.ts'
-import { deriveBranchOccupancy, findBranchConflicts } from './features/proposal/isolation.ts'
+import { deriveBranchOccupancy, findBranchConflicts, isOccupying } from './features/proposal/isolation.ts'
+import { findWriteConflicts, readProposalWriteScopes } from './features/proposal/writes.ts'
+import { effectiveTargets } from './features/proposal/targets.ts'
 import { syncProjectAssets } from './features/quality/sync.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
 import { generateChangeDir, readChangeState, validateProjectRoot } from './features/proposal/openspec.ts'
@@ -367,6 +369,21 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     const proposals = await deps.proposals.list()
     const occupancy = deriveBranchOccupancy(proposals, deps.lifecycleMainBranch ?? 'main')
     return { occupancy, conflicts: findBranchConflicts(occupancy) }
+  })
+
+  router.get('/api/isolation/writes', async () => {
+    const proposals = await deps.proposals.list()
+    const claims: Array<{ proposalId: string; project: string; writes: string[] }> = []
+    for (const proposal of proposals) {
+      if (!isOccupying(proposal)) continue
+      for (const target of effectiveTargets(proposal, deps.lifecycleMainBranch ?? 'main')) {
+        const project = await deps.registry.get(target.project)
+        if (project === undefined) continue
+        const writes = await readProposalWriteScopes(project.root, deps.openspecRoot, proposal.openspecChangeId)
+        if (writes.length > 0) claims.push({ proposalId: proposal.id, project: target.project, writes })
+      }
+    }
+    return { claims, conflicts: findWriteConflicts(claims) }
   })
 
   router.get('/api/projects/candidates', async () => {

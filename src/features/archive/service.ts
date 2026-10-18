@@ -18,6 +18,8 @@ import {
 import type { ApprovalRecord, Proposal, ProposalTarget } from '../proposal/store.ts'
 import { computePlanFingerprint, type PlanFingerprint } from '../proposal/plan.ts'
 import { effectiveTargets } from '../proposal/targets.ts'
+import { isOccupying } from '../proposal/isolation.ts'
+import { findWriteConflicts, readProposalWriteScopes, type WriteClaim } from '../proposal/writes.ts'
 import type { ProposalService } from '../proposal/service.ts'
 import { WorktreeManager } from '../worktree/manager.ts'
 import { branchExists, isMergedInto } from '../worktree/git.ts'
@@ -383,6 +385,7 @@ export class LifecycleServiceImpl {
         )
       }
       case 'implementing':
+        await this.assertWriteScopes(proposal)
         return // worktree is created as the side effect; failures surface there
       case 'merging': {
         if (root === undefined) return
@@ -742,6 +745,50 @@ export class LifecycleServiceImpl {
     const proposal = await this.deps.proposals.get(id)
     if (!proposal) throw new Error(`proposal not found: ${id}`)
     return proposal
+  }
+
+  /**
+   * Declared write-scope overlap is a logical conflict that a worktree cannot
+   * fix: two active proposals editing the same files in one project will
+   * collide at merge time. Un-declared scopes are not checked here (no
+   * evidence), only declarations are.
+   */
+  private async assertWriteScopes(proposal: Proposal): Promise<void> {
+    const targets = effectiveTargets(proposal, this.mainBranch)
+    if (targets.length === 0) return
+    const roots = (await this.deps.resolveProjectRoots?.(proposal)) ?? []
+    const rootByProject = new Map(roots.map((entry) => [entry.project, entry.root]))
+    const projects = new Set(targets.map((target) => target.project))
+    const claims: WriteClaim[] = []
+    for (const target of targets) {
+      const projectRoot = rootByProject.get(target.project)
+      if (projectRoot === undefined) continue
+      const writes = await readProposalWriteScopes(projectRoot, this.openspecRoot, proposal.openspecChangeId)
+      if (writes.length > 0) claims.push({ proposalId: proposal.id, project: target.project, writes })
+    }
+    if (claims.length === 0) return
+
+    for (const other of await this.deps.proposals.list()) {
+      if (other.id === proposal.id || !isOccupying(other)) continue
+      const otherTargets = effectiveTargets(other, this.mainBranch).filter((target) => projects.has(target.project))
+      if (otherTargets.length === 0) continue
+      const otherRoots = (await this.deps.resolveProjectRoots?.(other)) ?? []
+      const otherRootByProject = new Map(otherRoots.map((entry) => [entry.project, entry.root]))
+      for (const target of otherTargets) {
+        const projectRoot = otherRootByProject.get(target.project)
+        if (projectRoot === undefined) continue
+        const writes = await readProposalWriteScopes(projectRoot, this.openspecRoot, other.openspecChangeId)
+        if (writes.length > 0) claims.push({ proposalId: other.id, project: target.project, writes })
+      }
+    }
+
+    const conflicts = findWriteConflicts(claims).filter((conflict) => conflict.proposalIds.includes(proposal.id))
+    if (conflicts.length > 0) {
+      const detail = conflicts
+        .map((conflict) => `${conflict.project}: ${conflict.proposalIds.join(' × ')} → ${conflict.scopes.join(', ')}`)
+        .join('；')
+      throw new InvalidTransitionError(`写域冲突 — ${detail}；先拆分写域或串行化这两个提案`)
+    }
   }
 
   private async primaryRoot(proposal: Proposal): Promise<string | undefined> {
