@@ -124,4 +124,6 @@
 - H-3：TEAM-REVIEW.md / TEST.md 的 `file:line` 引用纳入 reviewEvidenceGate（block 生效）。
 - H-4：回滚只删除本次新建的 worktree，复用 worktree 不再 force 删除。
 - H-5：`feat/workmate` 已快进到当前 HEAD（5ea681d），主干含变更目录与团队代码。
-- 仍未闭：H-6 跨恢复 reviewer session 检查、prepare 的 TASKS 项目矩阵默认主项目。**仍不可归档。**
+- H-6：协调器启动时从历史 dispatches 重载 session→role，跨 maxWaves 恢复也能发现 reviewer 复用；测试。
+- H-D：多 target 且任务未声明 `project` 时 prepare 直接拒绝，不再生成必然失败的主项目矩阵；测试。
+- **仍不可归档**：提案记录/工件/G2/G5/Run 未就绪，独立审查未最终放行。
