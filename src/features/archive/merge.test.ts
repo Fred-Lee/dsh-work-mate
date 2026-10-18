@@ -91,4 +91,61 @@ describe('G5 merge on archiving', () => {
     expect((await proposals.get('p2'))?.status).toBe('merging')
     await expect(git(['status', '--porcelain'], project)).resolves.toBe('')
   })
+  it('merges every target into its own base branch', async () => {
+    const second = await mkdtemp(join(tmpdir(), 'wm-merge-proj2-'))
+    try {
+      await git(['init', '-b', 'main'], second)
+      await git(['config', 'user.email', 't@t'], second)
+      await git(['config', 'user.name', 't'], second)
+      await writeFile(join(second, 'b.txt'), 'base\n', 'utf8')
+      await git(['add', '-A'], second)
+      await git(['commit', '-m', 'init'], second)
+      await git(['checkout', '-b', 'feature/p3'], second)
+      await writeFile(join(second, 'b.txt'), 'feature\n', 'utf8')
+      await git(['commit', '-am', 'feature'], second)
+      await git(['checkout', 'main'], second)
+
+      await git(['checkout', '-b', 'feature/p3'], project)
+      await writeFile(join(project, 'a.txt'), 'feature\n', 'utf8')
+      await git(['commit', '-am', 'feature'], project)
+      await git(['checkout', 'main'], project)
+
+      const projectLifecycle = new LifecycleServiceImpl({
+        proposals,
+        worktree: new WorktreeManager({
+          homeRoot: home,
+          subdir: 'workmate',
+          basePort: 3000,
+          portStep: 10,
+          copyFiles: [],
+          packageManager: 'pnpm',
+        }),
+        openspecRoot: 'openspec',
+        mainBranch: 'main',
+        approvalsRequired: [],
+        resolveProjectRoots: async () => [
+          { project: 'demo', root: project },
+          { project: 'other', root: second },
+        ],
+        orchestrate: async () => ({ ok: true, steps: [] }),
+      })
+      await mkdir(join(project, 'openspec', 'changes', 'p3'), { recursive: true })
+      await proposals.upsert({
+        id: 'p3',
+        title: 'p3',
+        targets: [
+          { project: 'demo', baseBranch: 'main', featureBranch: 'feature/p3' },
+          { project: 'other', baseBranch: 'main', featureBranch: 'feature/p3' },
+        ],
+      })
+      await proposals.setStatus('p3', 'merging')
+
+      await projectLifecycle.transition('p3', 'archiving')
+      await expect(git(['merge-base', '--is-ancestor', 'feature/p3', 'main'], project)).resolves.toBe('')
+      await expect(git(['merge-base', '--is-ancestor', 'feature/p3', 'main'], second)).resolves.toBe('')
+    } finally {
+      await rm(second, { recursive: true, force: true })
+    }
+  })
+
 })
