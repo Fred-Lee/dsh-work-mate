@@ -56,7 +56,7 @@
 - [ ] 8.1 `ProposalReadiness` 评估器：工件完整性、OpenSpec validate、`planHash`、审批、团队 run/Task、target 合并状态。<!-- writes: src/features/proposal/**, src/features/quality/** -->
 - [x] 8.2 `reconcile(proposalId)`：幂等推进非人工门；不跨 G2/G5；自动转移写 `auto:'evidence'` 与证据快照。<!-- writes: src/features/proposal/**, src/features/proposal/events.ts -->
 - [x] 8.3 G2 `planHash`：`REQ+PLAN+TASKS` 规范化哈希；批准记录绑定哈希；工件变化自动退回 reviewing。<!-- writes: src/features/proposal/**, src/features/archive/** -->
-- [ ] 8.4 G5 合并/归档合并为一次人工批准（默认），配置可恢复两道；批准后协调器合并 target 分支并跑归档编排。<!-- writes: src/features/archive/**, src/config.ts -->
+- [x] 8.4 G5 合并/归档合并为一次人工批准（默认），配置可恢复两道；批准后协调器合并 target 分支并跑归档编排。<!-- writes: src/features/archive/**, src/config.ts -->
 - [ ] 8.5 兼容：旧提案按同一评估器推导；`mode=advance` 手动入口保留但不再是 UI 主路径；补迁移测试。<!-- writes: src/features/proposal/**, src/api.test.ts -->
 - [ ] 8.6 批准门默认改为 `['merging']`：一次批准覆盖合并归档；配置可恢复两道；更新 approval-gate 规格与测试。<!-- writes: src/config.ts, src/features/archive/**, src/features/archive/*.test.ts -->
 - [ ] 8.7 提案分支降级为可选追溯：移除 reviewing/ready 对 `proposal/<id>` 存在/合并的前置；保留字段与手动分支流程。<!-- writes: src/features/archive/service.ts, src/features/proposal/** -->
