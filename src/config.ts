@@ -27,6 +27,8 @@ export interface Config {
   gitnexusEnabled?: boolean
   /** WeKnora REST base URL; empty disables knowledge search (M3). @default '' */
   weknoraBaseUrl?: string
+  /** Generate the change dir only in the primary target or in every target. @default 'primary' */
+  openspecTargets?: string
   /**
    * OpenSpec root relative to the target project. Applies to EVERY path that
    * touches the change directory: generation, status, lifecycle preconditions,
@@ -201,6 +203,10 @@ export const Config: z<Config> = z.object({
   maxConcurrent: z.number().default(3).description('Upper bound for swarm parallel agents at archive time (reserved).'),
   gitnexusEnabled: z.boolean().default(true).description('Master switch for the GitNexus knowledge bridge.'),
   weknoraBaseUrl: z.string().default('').description('WeKnora REST base URL; empty disables knowledge search.'),
+  openspecTargets: z
+    .string()
+    .default('primary')
+    .description('Generate the OpenSpec change directory in the primary project only (primary) or in every target (all).'),
   openspecRoot: z
     .string()
     .default('openspec')
@@ -320,6 +326,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   maxConcurrent: 3,
   gitnexusEnabled: true,
   weknoraBaseUrl: '',
+  openspecTargets: 'primary',
   openspecRoot: 'openspec',
   projectRoot: '',
   qualitySyncEnabled: true,

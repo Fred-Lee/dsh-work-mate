@@ -50,6 +50,8 @@ export interface ApiDeps {
   archive: LifecycleServiceImpl
   registry: ProjectRegistry
   openspecRoot: string
+  /** Generate the change dir only in the primary target or in every target. @default 'primary' */
+  openspecTargets?: 'primary' | 'all'
   /** Config-level default project root; may be empty. */
   projectRoot: string
   /** Official Workspace registry getter; absent = candidate import hidden. */
@@ -677,13 +679,24 @@ export async function createProposal(
     return { proposal, note: reason }
   }
   validateProjectRoot(projectRoot)
-  const openspec = await generateChangeDir(projectRoot, deps.openspecRoot, id, title, {
+  const templateInput = {
     ...(source !== undefined ? { source } : {}),
     ...(body.sourceRef !== undefined ? { sourceRef: body.sourceRef } : {}),
     ...(body.relatesTo !== undefined ? { relatesTo: body.relatesTo } : {}),
     ...(provenance !== undefined ? { provenance } : {}),
     ...(body.notes !== undefined ? { notes: body.notes } : {}),
-  })
+  }
+  const openspec = await generateChangeDir(projectRoot, deps.openspecRoot, id, title, templateInput)
+  const secondaryOpenspec: Array<{ project: string; status: string; dir: string }> = []
+  if (deps.openspecTargets === 'all' && targets !== undefined && targets.length > 1) {
+    for (const target of targets.slice(1)) {
+      if (target.project === primaryProject) continue
+      const registeredTarget = await deps.registry.get(target.project)
+      if (registeredTarget?.root === undefined) continue
+      const created = await generateChangeDir(registeredTarget.root, deps.openspecRoot, id, title, templateInput)
+      if (created.dir !== undefined) secondaryOpenspec.push({ project: target.project, status: created.status, dir: created.dir })
+    }
+  }
 
   let qualitySync: Awaited<ReturnType<typeof syncProjectAssets>> | undefined
   if (deps.qualitySyncEnabled) {
@@ -692,6 +705,7 @@ export async function createProposal(
   return {
     proposal,
     openspec,
+    ...(secondaryOpenspec.length > 0 ? { openspecSecondary: secondaryOpenspec } : {}),
     ...(qualitySync !== undefined
       ? { qualitySync: { written: qualitySync.written, skipped: qualitySync.skipped, note: qualitySync.note } }
       : {}),

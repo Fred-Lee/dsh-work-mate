@@ -12,7 +12,7 @@
 ## 2. 提案目标矩阵
 
 - [x] 2.1 `ProposalTarget` 类型与 `targets` 持久化；`effectiveTargets(proposal)` 兼容层（旧标量合成单目标），单目标继续回写标量。<!-- writes: src/features/proposal/** -->
-- [ ] 2.2 创建入口接受 `targets`（`"project:branch,project:branch"` 或结构化）与 `primaryProject`；工具与 REST 共用同一校验；`generateChangeDir` 按 `openspecTargets`（primary|all）落主/副项目。<!-- writes: src/api.ts, src/index.ts, src/config.ts -->
+- [x] 2.2 创建入口接受 `targets`（`"project:branch,project:branch"` 或结构化）与 `primaryProject`；工具与 REST 共用同一校验；`generateChangeDir` 按 `openspecTargets`（primary|all）落主/副项目。<!-- writes: src/api.ts, src/index.ts, src/config.ts -->
 
 ## 3. 多目标 worktree
 

@@ -448,12 +448,13 @@ describe('project registry REST API', () => {
       })
     })
 
-  const projectRouter = (registry: ProjectRegistry, teamRuns?: TeamRunStore): Router => {
+  const projectRouter = (registry: ProjectRegistry, teamRuns?: TeamRunStore, openspecTargets?: 'primary' | 'all'): Router => {
     const r = new Router()
     registerApiRoutes(r, {
       proposals,
       archive,
       openspecRoot: 'openspec',
+      ...(openspecTargets !== undefined ? { openspecTargets } : {}),
       projectRoot: '',
       registry,
       qualitySyncEnabled: false,
@@ -535,6 +536,33 @@ describe('project registry REST API', () => {
     await expect(readFile(join(b, 'openspec/changes/multi/proposal.md'), 'utf8')).rejects.toThrow()
   })
 
+
+  it('seeds the openspec change directory in every target when openspecTargets=all', async () => {
+    const a = join(home, 'all-a')
+    const b = join(home, 'all-b')
+    await mkdir(a, { recursive: true })
+    await mkdir(b, { recursive: true })
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    await registry.upsert('a', a)
+    await registry.upsert('b', b)
+    const r = projectRouter(registry, undefined, 'all')
+    const created = stubRes()
+    await r.handle(
+      '/api/proposals',
+      stubReq('POST', '/api/proposals', {
+        id: 'all-targets',
+        title: 'all',
+        targets: [
+          { project: 'a', baseBranch: 'main' },
+          { project: 'b', baseBranch: 'main' },
+        ],
+      }),
+      created.res,
+    )
+    expect(created.result.status).toBe(200)
+    await expect(readFile(join(a, 'openspec/changes/all-targets/proposal.md'), 'utf8')).resolves.toContain('all-targets')
+    await expect(readFile(join(b, 'openspec/changes/all-targets/proposal.md'), 'utf8')).resolves.toContain('all-targets')
+  })
   it('honours an explicit primaryProject for the openspec root', async () => {
     const a = join(home, 'pa')
     const b = join(home, 'pb')

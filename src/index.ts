@@ -570,6 +570,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       archive,
       registry,
       openspecRoot: resolved.openspecRoot,
+      openspecTargets: resolved.openspecTargets === 'all' ? 'all' : 'primary',
       projectRoot: resolved.projectRoot,
       workspaceRegistry: () => workspaceRegistry,
       lifecycleMainBranch: resolved.lifecycleMainBranch,

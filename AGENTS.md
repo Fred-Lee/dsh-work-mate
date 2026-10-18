@@ -162,7 +162,8 @@ node $DSH web                                                # http://127.0.0.1:
 - `archiving` 逐 target 校验 `featureBranch → baseBranch` 已合并，归档后逐 target 回收；
 - 面板的详情抽屉按 target 展示 base/feature/worktree/端口；`/api/isolation` 暴露分支占用，
   `/api/isolation/writes` 暴露声明写域冲突，`/api/isolation/drift` 暴露基线漂移；
-- 兼容规则：新代码读 `effectiveTargets`，不再假设单标量；写回时多 target 不写标量投影。
+- 兼容规则：新代码读 `effectiveTargets`，不再假设单标量；写回时多 target 不写标量投影；
+  `openspecTargets=all` 时 change 目录会在每个 target 生成（默认只主项目）。
 
 ## 里程碑路线（`docs/DESIGN.md` §7）
 
