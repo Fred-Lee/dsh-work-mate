@@ -109,14 +109,25 @@ export class TeamCoordinator {
         if (TERMINAL.has(final.status) || (await this.runner.nextWave(runId)).length > 0) continue
         return { run: final, waves, stopped: '本波次没有成功派发的任务' }
       }
-      const outcomes = await Promise.all(
-        handles.map((entry) =>
-          entry.handle.result.catch((error: unknown) => ({
-            status: 'failed' as const,
-            outcome: error instanceof Error ? error.message : String(error),
-          })),
+      const outcomes = await Promise.race([
+        Promise.all(
+          handles.map((entry) =>
+            entry.handle.result.catch((error: unknown) => ({
+              status: 'failed' as const,
+              outcome: error instanceof Error ? error.message : String(error),
+            })),
+          ),
         ),
-      )
+        new Promise<'wave-timeout'>((resolvePromise) =>
+          setTimeout(() => resolvePromise('wave-timeout'), Math.max(1, run.budget.maxWaveMs)),
+        ),
+      ])
+      if (outcomes === 'wave-timeout') {
+        const aborted = await this.runner.abort(runId)
+        const stopped = `单波超时 ${run.budget.maxWaveMs}ms（worker 未在预算内结束）`
+        await this.events?.run({ run: aborted, detail: stopped })
+        return { run: aborted, waves, stopped }
+      }
       let asked: { id: string } | undefined
       for (const [index, entry] of handles.entries()) {
         const outcome = outcomes[index] as SettleInput | undefined

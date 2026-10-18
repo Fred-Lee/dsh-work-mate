@@ -229,4 +229,22 @@ describe('TeamCoordinator', () => {
     expect(result.run.tokensUsed).toBe(60)
   })
 
+  it('aborts a wave that exceeds maxWaveMs instead of hanging', async () => {
+    await runner.createRun({
+      id: 'r1',
+      proposalId: 'p1',
+      template: 'bug-fix',
+      tasks: [task('t1')],
+      budget: { maxWaveMs: 30, maxDurationMs: 60_000 },
+    })
+    const hanging: TeamDispatcher = {
+      async start() {
+        return { result: new Promise<SettleInput>(() => undefined) }
+      },
+    }
+    const result = await new TeamCoordinator(runner, hanging).run('r1')
+    expect(result.stopped).toContain('单波超时')
+    expect(result.run.status).toBe('aborted')
+  }, 5_000)
+
 })

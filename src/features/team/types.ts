@@ -77,6 +77,8 @@ export interface TeamBudget {
   maxParallel: number
   maxAttempts: number
   maxDurationMs: number
+  /** Hard cap for one wave; a hung worker must not park the run forever. */
+  maxWaveMs: number
   maxTokens: number
   maxDispatches: number
 }
@@ -86,6 +88,7 @@ export const DEFAULT_TEAM_BUDGET: TeamBudget = {
   maxParallel: 3,
   maxAttempts: 2,
   maxDurationMs: 2 * 60 * 60 * 1000,
+  maxWaveMs: 30 * 60 * 1000,
   maxTokens: 300_000,
   maxDispatches: 20,
 }
