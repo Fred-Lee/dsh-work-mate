@@ -54,3 +54,10 @@
 - C4：多 target 失败释放端口、回滚删除本次 feature 分支；真实 git 测试覆盖。
 
 仍未修：H3 未在 settle 用 `git diff --name-only`、H4 只读 preset 默认不生效、H5 团队证据不查 Run 终态、H7 token 预算宿主无 usage、H8 六份工件未生成、H13 启动未校验提案 G2 状态。**不得归档。**
+
+## 第二轮修复（2026-10-19）
+
+- C2：`TEAM-REVIEW.md` 接入 review-gate：未解决阻断级发现使归档失败；step 名 `team-review`；测试覆盖。
+- H4：`teamRequireRolePresets` 默认改为 `true`，缺角色 preset 默认拒绝派发。
+- H5：团队证据门默认 `block`；要求 `SUMMARY.md`；最近 Run 为 partial/blocked/aborted 时阻断归档；测试覆盖。
+- 仍未修：H1 合并实现、H3 真实 git diff/reportPath 存在性、H7 token usage、H8 工件生成、H13 启动前 G2/状态校验。**still not archivable.**

@@ -145,7 +145,7 @@ node $DSH web                                                # http://127.0.0.1:
   Dispatch；超限 abort 并上报；
 - G5 拒绝：`rejectMerge(category=plan|implementation)` 退回 `implementing`；plan 类还会
   作废最近一次 G2 approve，改完方案需重新 `approvePlan`；
-- 归档证据：`teamEvidenceGate`（默认 warn）在 `merging→archiving` 前检查 team-managed
+- 归档证据：`teamEvidenceGate`（默认 block）在 `merging→archiving` 前检查 team-managed
   变更的 `TEST.md`/`TEAM-REVIEW.md` 段头；`SUMMARY.md` 会映射进归档 manifest 的 `team` 段。
 
 ## 多项目 target（2026-10-19，`multiproject-branch-workbench`）

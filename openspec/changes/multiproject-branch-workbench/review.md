@@ -54,3 +54,10 @@
 - H2 创建：客户端提交 targets/primaryProject；服务端拒绝“多 project 无 targets”的静默单目标化。
 
 仍未修：C2 的 review-gate 接入（已改名 `TEAM-REVIEW.md` 避免大小写碰撞，但未接入 severity/未解决 CRITICAL 检查）、H1 无合并实现、H3 未用 git diff、H4 只读 preset 默认不生效、H5 团队证据默认 warn 且不查 Run 终态、H8 六份工件未生成。**不得归档。**
+
+## 第二轮修复（2026-10-19）
+
+- C3：G2 在 target 提案 implementing 前重校验 planHash；reconcile 支持 ready→reviewing；planHash 纳入 REQ/PLAN/TASKS 并忽略 checkbox。
+- H2：创建提案提交 targets/primaryProject，服务端拒绝多 project 无 targets。
+- C2/H4/H5 的团队侧修复见 `autonomous-agent-team/review.md`。
+- 仍未修：H1 合并实现、H3 真实 git diff、H8 六工件生成等。**still not archivable.**
