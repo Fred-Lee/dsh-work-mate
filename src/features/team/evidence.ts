@@ -55,6 +55,9 @@ export async function checkTeamEvidence(
     for (const section of REQUIRED_SECTIONS[artifact]) {
       if (!content.includes(section)) errors.push(`${artifact} 缺「${section}」`)
     }
+    if (artifact === 'TEAM-REVIEW.md' && !/<!--\s*reviewer:\s*\S+/.test(content)) {
+      errors.push('TEAM-REVIEW.md 缺 reviewer 身份标记（<!-- reviewer: <id> -->）')
+    }
   }
 
   return { managed: true, ok: errors.length === 0, errors }

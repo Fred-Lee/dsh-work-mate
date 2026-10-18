@@ -228,7 +228,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
     const project = await seedProject()
     await writeFile(
       join(project, 'openspec', 'changes', 'p1', 'TEAM-REVIEW.md'),
-      '## CRITICAL 问题\n\n- [ ] CRIT-1 未解决\n',
+      '<!-- reviewer: independent -->\n## CRITICAL 问题\n\n- [ ] CRIT-1 未解决\n',
       'utf8',
     )
     const result = await orchestrateArchive(archivingProposal(), [{ project: 'demo', root: project }], {
