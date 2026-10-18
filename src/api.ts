@@ -336,6 +336,18 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     }
   })
 
+  router.post('/api/proposals/:id/plan-approve', async (r) => {
+    const body = await readJsonBody<{ rationale?: string }>(r.req)
+    const result = await deps.archive.approvePlan(r.params['id'] ?? '', {
+      ...(body.rationale !== undefined ? { rationale: body.rationale } : {}),
+    })
+    return result
+  })
+
+  router.post('/api/proposals/:id/reconcile', async (r) => {
+    return deps.archive.reconcile(r.params['id'] ?? '')
+  })
+
   router.get('/api/projects', async () => {
     return { projects: await deps.registry.list() }
   })

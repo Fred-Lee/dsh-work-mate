@@ -15,7 +15,8 @@ import {
   STATE_HINTS,
   type ProposalState,
 } from '../proposal/state-machine.ts'
-import type { Proposal, ProposalTarget } from '../proposal/store.ts'
+import type { ApprovalRecord, Proposal, ProposalTarget } from '../proposal/store.ts'
+import { computePlanFingerprint, type PlanFingerprint } from '../proposal/plan.ts'
 import { effectiveTargets } from '../proposal/targets.ts'
 import type { ProposalService } from '../proposal/service.ts'
 import { WorktreeManager } from '../worktree/manager.ts'
@@ -357,23 +358,29 @@ export class LifecycleServiceImpl {
         return
       }
       case 'reviewing': {
-        const branch = proposal.proposalBranch ?? `proposal/${proposal.id}`
-        if (!(await branchExists(root, branch))) {
-          throw new InvalidTransitionError(
-            `提案分支 ${branch} 不存在 — 先创建分支并提交提案文件（提交信息携带 [proposal:${proposal.id}]）`,
-          )
-        }
-        return
+        const fingerprint = await computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId)
+        if (fingerprint.hash !== undefined) return
+        // Legacy proposal-branch flow remains valid but is no longer required.
+        const branch = proposal.proposalBranch
+        if (branch !== undefined && (await branchExists(root, branch))) return
+        throw new InvalidTransitionError(
+          `方案工件不完整：缺 ${fingerprint.missing.join(', ')} — 补齐 proposal.md/design.md/tasks.md`,
+        )
       }
       case 'ready': {
-        if (proposal.proposalBranch === undefined) return
-        const trunk = this.mainBranch
-        if (!(await isMergedInto(root, proposal.proposalBranch, trunk))) {
-          throw new InvalidTransitionError(
-            `提案分支 ${proposal.proposalBranch} 尚未合并进 ${trunk} — 等待提案评审合并`,
-          )
-        }
-        return
+        const fingerprint = await computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId)
+        const approvals = (proposal.approvals ?? []).filter(
+          (approval) => approval.gate === 'ready' && approval.decision === 'approve' && approval.planHash !== undefined,
+        )
+        const latest = approvals[approvals.length - 1]
+        if (fingerprint.hash !== undefined && latest?.planHash === fingerprint.hash) return
+        // Legacy branch merge keeps old proposals advancing.
+        if (proposal.proposalBranch !== undefined && (await isMergedInto(root, proposal.proposalBranch, this.mainBranch))) return
+        throw new InvalidTransitionError(
+          fingerprint.hash === undefined
+            ? `方案工件不完整，无法生成 planHash — 缺 ${fingerprint.missing.join(', ')}`
+            : `G2 方案未确认：先在面板确认 planHash ${fingerprint.hash.slice(0, 12)}…（方案变更会使其失效）`,
+        )
       }
       case 'implementing':
         return // worktree is created as the side effect; failures surface there
@@ -536,6 +543,68 @@ export class LifecycleServiceImpl {
    * orchestration. Success stamps `archived` and reclaims the worktree.
    * `force` skips the review gate only — never the CLI steps.
    */
+  /** Compute the plan fingerprint for a proposal (G2 approval covers this hash). */
+  async planFingerprint(id: string): Promise<PlanFingerprint> {
+    const proposal = await this.mustGet(id)
+    const root = await this.primaryRoot(proposal)
+    if (root === undefined) throw new InvalidTransitionError('无关联项目根 — 无法计算 planHash')
+    return computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId)
+  }
+
+  /** Human G2 approval of one exact plan revision. */
+  async approvePlan(
+    id: string,
+    options: { rationale?: string; actor?: 'human' | 'system' } = {},
+  ): Promise<{ approval: ApprovalRecord; fingerprint: PlanFingerprint }> {
+    const proposal = await this.mustGet(id)
+    const fingerprint = await this.planFingerprint(id)
+    if (fingerprint.hash === undefined) {
+      throw new InvalidTransitionError(`方案工件不完整，无法确认 — 缺 ${fingerprint.missing.join(', ')}`)
+    }
+    const approval = await this.deps.proposals.addApproval(id, {
+      gate: 'ready',
+      actor: options.actor ?? 'human',
+      decision: 'approve',
+      ...(options.rationale !== undefined && options.rationale !== '' ? { rationale: options.rationale } : {}),
+      planHash: fingerprint.hash,
+    })
+    return { approval, fingerprint }
+  }
+
+  /**
+   * Evidence-driven authoring advance: draft → proposing → reviewing → ready.
+   * Stops at the first missing evidence or gate (G2 approval of the current
+   * planHash); never crosses a human gate. Idempotent.
+   */
+  async reconcile(
+    id: string,
+  ): Promise<{ proposal: Proposal; transitions: Array<{ from: ProposalState; to: ProposalState }>; blocked?: string }> {
+    const transitions: Array<{ from: ProposalState; to: ProposalState }> = []
+    for (let step = 0; step < 3; step += 1) {
+      const proposal = await this.mustGet(id)
+      const next: ProposalState | undefined =
+        proposal.status === 'draft'
+          ? 'proposing'
+          : proposal.status === 'proposing'
+            ? 'reviewing'
+            : proposal.status === 'reviewing'
+              ? 'ready'
+              : undefined
+      if (next === undefined) return { proposal, transitions }
+      try {
+        await this.transition(id, next, { actor: 'system' })
+        transitions.push({ from: proposal.status, to: next })
+      } catch (error) {
+        return {
+          proposal: await this.mustGet(id),
+          transitions,
+          blocked: error instanceof Error ? error.message : String(error),
+        }
+      }
+    }
+    return { proposal: await this.mustGet(id), transitions }
+  }
+
   async runArchive(id: string, options: ArchiveOptions = {}): Promise<TransitionOutcome> {
     const proposal = await this.mustGet(id)
     if (proposal.status !== 'archiving') {

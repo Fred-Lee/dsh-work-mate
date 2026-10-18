@@ -68,6 +68,8 @@ export interface ApprovalRecord {
   at: string
   /** Implementation-branch HEAD the approval covers, when git was available. */
   commit?: string
+  /** Plan fingerprint this approval covers (G2); absent for legacy approvals. */
+  planHash?: string
   /**
    * Gates this approval waived via `force` (change `harden-archive-gates`).
    * Absent for an ordinary state approval; the optional field needs no migration.

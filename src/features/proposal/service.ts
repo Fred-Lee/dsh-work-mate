@@ -36,6 +36,8 @@ export interface AddApprovalInput {
   commit?: string
   /** Gates waived by `force` (change `harden-archive-gates`); absent for state approvals. */
   forcedGates?: string[]
+  /** Plan fingerprint this approval covers (G2); recorded for `ready`. */
+  planHash?: string
 }
 
 /** Fields the lifecycle layer may patch directly (manager outputs, branches, wiki refs). */
@@ -287,6 +289,7 @@ export class ProposalServiceImpl implements ProposalService {
       ...(input.forcedGates !== undefined && input.forcedGates.length > 0 ? { forcedGates: input.forcedGates } : {}),
       at: this.now().toISOString(),
       ...(input.commit !== undefined && input.commit !== '' ? { commit: input.commit } : {}),
+      ...(input.planHash !== undefined && input.planHash !== '' ? { planHash: input.planHash } : {}),
     }
     existing.approvals = [...(existing.approvals ?? []), record]
     existing.updatedAt = record.at
