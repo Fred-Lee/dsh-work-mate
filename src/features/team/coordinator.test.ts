@@ -195,4 +195,21 @@ describe('TeamCoordinator', () => {
     expect((await runner.nextWave('r1')).map((entry) => entry.id)).toEqual(['t1'])
   })
 
+  it('stops after maxWaves and leaves the run resumable', async () => {
+    await runner.createRun({
+      id: 'r1',
+      proposalId: 'p1',
+      template: 'requirement-full',
+      tasks: [task('t1'), task('t2', { dependsOn: ['t1'] })],
+    })
+    const dispatcher = new FakeDispatcher()
+    const result = await new TeamCoordinator(runner, dispatcher).run('r1', { maxWaves: 1 })
+
+    expect(result.waves).toBe(1)
+    expect(result.stopped).toContain('波次上限')
+    expect(result.run.status).toBe('running')
+    expect(dispatcher.starts.map((request) => request.task.id)).toEqual(['t1'])
+    expect((await runner.nextWave('r1')).map((entry) => entry.id)).toEqual(['t2'])
+  })
+
 })

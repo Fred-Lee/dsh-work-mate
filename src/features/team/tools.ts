@@ -42,6 +42,66 @@ const json = (value: unknown) => [{ type: 'text' as const, text: JSON.stringify(
 const asJson = (value: unknown): never => JSON.parse(JSON.stringify(value)) as never
 
 export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
+  const startRun = async (
+    exec: { agent?: unknown; signal?: AbortSignal },
+    runId: string,
+    options: { provider?: string; projectRoot?: string; maxWaves?: number } = {},
+  ): Promise<unknown> => {
+    const run = await deps.runner.get(runId)
+    const subagents = deps.subagents()
+    if (subagents === undefined) throw new Error('宿主未提供 subagents 服务 — 无法派发团队 worker')
+    const agent = exec.agent
+    if (agent === undefined) throw new Error('团队派发需要当前 agent 作为父会话')
+    const proposal = await deps.proposals.get(run.proposalId)
+    if (proposal === undefined) throw new Error(`proposal not found: ${run.proposalId}`)
+    const primary = proposal.primaryProject ?? proposal.projects[0]
+    const registered = primary === undefined ? undefined : await deps.registry.get(primary)
+    const root = (options.projectRoot ?? registered?.root ?? deps.projectRoot).trim()
+    if (root === '') throw new Error('无可用项目根 — 先注册项目或在参数里给 projectRoot')
+    const resolvedRoot = validateProjectRoot(root)
+    const targets = effectiveTargets(proposal, deps.lifecycleMainBranch)
+    const cwdForTask = (task: { project: string; id: string }): string => {
+      const target = targets.find((entry) => entry.project === task.project)
+      if (target?.worktreePath === undefined) {
+        throw new Error(`target ${task.project} 没有 worktree — 先推进提案到 implementing`)
+      }
+      return target.worktreePath
+    }
+    const roleModels = parseRoleModels(deps.roleModels)
+    if (roleModels.errors.length > 0) {
+      throw new Error(`teamRoleModels 配置非法 — ${roleModels.errors.join('；')}`)
+    }
+    const missingPresets = assertRolePresets({
+      tasks: run.tasks,
+      config: deps.rolePresetConfig,
+      required: deps.requireRolePresets,
+    })
+    if (missingPresets.length > 0) {
+      throw new Error(`角色权限 preset 未配置 — ${missingPresets.join('；')}。配置 teamReadonlyPreset/teamWorkspacePreset`)
+    }
+    const dispatcher = new HostSubagentDispatcher(subagents, {
+      parent: agent,
+      cwdForTask,
+      agentPresetForRole: (role) => presetForRole(role, deps.rolePresetConfig),
+      agentOptionsForRole: (role) => roleModels.models[role],
+      ...(options.provider !== undefined ? { provider: options.provider } : {}),
+      signal: exec.signal ?? new AbortController().signal,
+    })
+    const result = await new TeamCoordinator(
+      deps.runner,
+      dispatcher,
+      undefined,
+      new TeamEventLog(deps.events),
+    ).run(runId, options.maxWaves !== undefined ? { maxWaves: options.maxWaves } : {})
+    const summaryPath = await writeTeamSummary({
+      projectRoot: resolvedRoot,
+      openspecRoot: deps.openspecRoot,
+      changeId: proposal.openspecChangeId,
+      run: result.run,
+    })
+    return { ...result, summaryPath }
+  }
+
   ctx.tools.register(
     defineTool({
       name: 'workmate_team_plan',
@@ -55,9 +115,12 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
         },
         id: { type: 'string', description: 'Optional run id (generated when omitted).' },
         projectRoot: { type: 'string', description: 'Root hosting the OpenSpec change; defaults to the primary project.' },
+        start: { type: 'boolean', description: 'Create then dispatch the first wave immediately (requires host agent).' },
+        maxWaves: { type: 'number', description: 'Wave cap when start=true; default 1.' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => json(value) },
-      async execute(args) {
+      timeoutMs: 30 * 60_000,
+      async execute(args, exec) {
         const proposal = await deps.proposals.get(args.proposalId)
         if (proposal === undefined) throw new Error(`proposal not found: ${args.proposalId}`)
         const template = (args.template ?? 'requirement-full') as string
@@ -93,7 +156,12 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
           tasks,
         })
         const waves = planTeamWaves(tasks, run.budget.maxParallel).map((wave) => wave.map((task) => task.id))
-        return asJson({ run, waves })
+        if (args.start !== true) return asJson({ run, waves })
+        const started = await startRun(exec, run.id, {
+          ...(args.projectRoot !== undefined ? { projectRoot: args.projectRoot } : {}),
+          maxWaves: args.maxWaves ?? 1,
+        })
+        return asJson({ run, waves, started })
       },
     }),
   )
@@ -107,63 +175,18 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
         runId: { type: 'string', required: true, description: 'Run id returned by workmate_team_plan.' },
         provider: { type: 'string', description: 'Subagent provider name (default: spawn).' },
         projectRoot: { type: 'string', description: 'Root hosting the OpenSpec change; defaults to the primary project.' },
+        maxWaves: { type: 'number', description: 'Stop after N waves and leave the run resumable (first-wave dispatch).' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => json(value) },
       timeoutMs: 30 * 60_000,
       async execute(args, exec) {
-        const run = await deps.runner.get(args.runId)
-        const subagents = deps.subagents()
-        if (subagents === undefined) throw new Error('宿主未提供 subagents 服务 — 无法派发团队 worker')
-        const agent = (exec as { agent?: unknown }).agent
-        if (agent === undefined) throw new Error('团队派发需要当前 agent 作为父会话')
-        const proposal = await deps.proposals.get(run.proposalId)
-        if (proposal === undefined) throw new Error(`proposal not found: ${run.proposalId}`)
-        const primary = proposal.primaryProject ?? proposal.projects[0]
-        const registered = primary === undefined ? undefined : await deps.registry.get(primary)
-        const root = (args.projectRoot ?? registered?.root ?? deps.projectRoot).trim()
-        if (root === '') throw new Error('无可用项目根 — 先注册项目或在参数里给 projectRoot')
-        const resolvedRoot = validateProjectRoot(root)
-        const targets = effectiveTargets(proposal, deps.lifecycleMainBranch)
-        const cwdForTask = (task: { project: string; id: string }): string => {
-          const target = targets.find((entry) => entry.project === task.project)
-          if (target?.worktreePath === undefined) {
-            throw new Error(`target ${task.project} 没有 worktree — 先推进提案到 implementing`)
-          }
-          return target.worktreePath
-        }
-        const roleModels = parseRoleModels(deps.roleModels)
-        if (roleModels.errors.length > 0) {
-          throw new Error(`teamRoleModels 配置非法 — ${roleModels.errors.join('；')}`)
-        }
-        const missingPresets = assertRolePresets({
-          tasks: run.tasks,
-          config: deps.rolePresetConfig,
-          required: deps.requireRolePresets,
-        })
-        if (missingPresets.length > 0) {
-          throw new Error(`角色权限 preset 未配置 — ${missingPresets.join('；')}。配置 teamReadonlyPreset/teamWorkspacePreset`)
-        }
-        const dispatcher = new HostSubagentDispatcher(subagents, {
-          parent: agent,
-          cwdForTask,
-          agentPresetForRole: (role) => presetForRole(role, deps.rolePresetConfig),
-          agentOptionsForRole: (role) => roleModels.models[role],
-          ...(args.provider !== undefined ? { provider: args.provider } : {}),
-          signal: (exec as { signal?: AbortSignal }).signal ?? new AbortController().signal,
-        })
-        const result = await new TeamCoordinator(
-          deps.runner,
-          dispatcher,
-          undefined,
-          new TeamEventLog(deps.events),
-        ).run(args.runId)
-        const summaryPath = await writeTeamSummary({
-          projectRoot: resolvedRoot,
-          openspecRoot: deps.openspecRoot,
-          changeId: proposal.openspecChangeId,
-          run: result.run,
-        })
-        return asJson({ ...result, summaryPath })
+        return asJson(
+          await startRun(exec, args.runId, {
+            ...(args.provider !== undefined ? { provider: args.provider } : {}),
+            ...(args.projectRoot !== undefined ? { projectRoot: args.projectRoot } : {}),
+            ...(args.maxWaves !== undefined ? { maxWaves: args.maxWaves } : {}),
+          }),
+        )
       },
     }),
   )

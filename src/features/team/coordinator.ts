@@ -50,7 +50,7 @@ export class TeamCoordinator {
   ) {}
 
   /** Drive a run to a terminal status; returns the final run (never throws for task failures). */
-  async run(runId: string): Promise<CoordinatorResult> {
+  async run(runId: string, options: { maxWaves?: number } = {}): Promise<CoordinatorResult> {
     await this.runner.start(runId)
     let waves = 0
     for (;;) {
@@ -156,6 +156,11 @@ export class TeamCoordinator {
         return { run, waves, stopped: `等待回答 ${asked.id}`, questionId: asked.id }
       }
       waves += 1
+      if (options.maxWaves !== undefined && waves >= options.maxWaves) {
+        const run = await this.runner.get(runId)
+        await this.events?.run({ run, detail: `wave-limit:${options.maxWaves}` })
+        return { run, waves, stopped: `达到波次上限 ${options.maxWaves}` }
+      }
     }
   }
 }
