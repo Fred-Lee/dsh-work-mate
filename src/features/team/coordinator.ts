@@ -58,6 +58,17 @@ export class TeamCoordinator {
     await this.runner.start(runId)
     let waves = 0
     const workerSessions = new Map<string, string>()
+    // A run resumed after maxWaves has a fresh in-memory map; reload the
+    // identities already recorded in dispatches so a reviewer cannot reuse an
+    // implementer session across resumes.
+    const resumed = await this.runner.get(runId)
+    for (const dispatch of resumed.dispatches ?? []) {
+      if (dispatch.sessionId === undefined) continue
+      const role = resumed.tasks.find((task) => task.id === dispatch.taskId)?.role
+      if (role !== undefined && !workerSessions.has(dispatch.sessionId)) {
+        workerSessions.set(dispatch.sessionId, role)
+      }
+    }
     for (;;) {
       const run = await this.runner.get(runId)
       if (TERMINAL.has(run.status)) {

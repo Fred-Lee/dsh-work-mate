@@ -62,7 +62,25 @@ describe('prepareTeamArtifacts', () => {
       primaryProject: 'demo',
     })
     expect(result.warnings.join()).toContain('未声明 role')
+    expect(result.warnings.join()).toContain('未声明 project')
     const tasks = parseTeamTasks(await readFile(join(dir(), 'TASKS.json'), 'utf8'))
     expect(tasks[0]).toMatchObject({ project: 'demo', role: 'backend-dev' })
   })
+  it('rejects deriving a multi-target TASKS.json without project annotations', async () => {
+    await rm(join(dir(), 'TASKS.json'), { force: true })
+    await writeFile(join(dir(), 'tasks.md'), '- [ ] 未声明项目的任务 <!-- writes: src/** -->\n', 'utf8')
+    await expect(
+      prepareTeamArtifacts({
+        projectRoot: root,
+        openspecRoot: 'openspec',
+        changeId: 'p1',
+        primaryProject: 'demo',
+        targets: [
+          { project: 'demo', baseBranch: 'main' },
+          { project: 'other', baseBranch: 'main' },
+        ],
+      }),
+    ).rejects.toThrow(/多 target/)
+  })
+
 })

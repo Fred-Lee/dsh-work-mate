@@ -36,7 +36,7 @@ const section = (content: string | undefined, heading: string, fallback: string)
   return match?.[1]?.trim() || fallback
 }
 
-const deriveTasks = (tasksMd: string | undefined, project: string, warnings: string[]): unknown => {
+const deriveTasks = (tasksMd: string | undefined, project: string, targets: readonly ProposalTarget[], warnings: string[]): unknown => {
   const tasks: Array<Record<string, unknown>> = []
   const lines = (tasksMd ?? '').split('\n')
   let index = 0
@@ -52,6 +52,13 @@ const deriveTasks = (tasksMd: string | undefined, project: string, warnings: str
     }
     const role = meta('role') ?? 'backend-dev'
     if (meta('role') === undefined) warnings.push(`t${index} 未声明 role，按 backend-dev 派生`)
+    if (meta('project') === undefined && targets.length > 1) {
+      throw new Error(`t${index} 未声明 project — 多 target 提案必须在 tasks.md 里逐条注解 <!-- project: ... -->`)
+    }
+    const taskProject = meta('project') ?? project
+    if (meta('project') === undefined) {
+      warnings.push(`t${index} 未声明 project，默认主项目 ${project}`)
+    }
     const writes = (meta('writes') ?? '')
       .split(',')
       .map((entry) => entry.trim())
@@ -65,7 +72,7 @@ const deriveTasks = (tasksMd: string | undefined, project: string, warnings: str
       id: meta('id') ?? `t${index}`,
       title: raw.replace(/<!--[\s\S]*?-->/g, '').trim(),
       role,
-      project: meta('project') ?? project,
+      project: taskProject,
       writes,
       dependsOn,
       acceptance: meta('accepts') ?? meta('acceptance') ?? raw.replace(/<!--[\s\S]*?-->/g, '').trim(),
@@ -142,7 +149,7 @@ export async function prepareTeamArtifacts(input: PrepareInput): Promise<Prepare
   if ((await read(tasksPath)) !== undefined) {
     skipped.push('TASKS.json')
   } else {
-    const derived = deriveTasks(tasksMd, input.primaryProject, warnings)
+    const derived = deriveTasks(tasksMd, input.primaryProject, input.targets ?? [], warnings)
     const parsed = parseTeamTasks(JSON.stringify(derived))
     await writeFile(tasksPath, `${JSON.stringify({ ...(derived as object), tasks: parsed }, null, 2)}\n`, 'utf8')
     written.push('TASKS.json')

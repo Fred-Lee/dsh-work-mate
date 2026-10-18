@@ -287,4 +287,32 @@ describe('TeamCoordinator', () => {
     expect(result.run.status).not.toBe('aborted')
   }, 5_000)
 
+  it('detects reviewer session reuse after a resumed run reloads dispatches', async () => {
+    await runner.createRun({
+      id: 'r1',
+      proposalId: 'p1',
+      template: 'requirement-full',
+      tasks: [
+        task('impl', { role: 'backend-dev', project: 'demo' }),
+        task('review', { role: 'reviewer', project: 'demo', dependsOn: ['impl'] }),
+      ],
+      budget: { maxAttempts: 1 },
+    })
+    await runner.dispatch('r1', 'impl', 'd1')
+    await runner.settle('r1', 'd1', { status: 'done', outcome: 'ok', sessionId: 'session-1' })
+    const sameSession: TeamDispatcher = {
+      async start() {
+        return {
+          sessionId: 'session-1',
+          result: Promise.resolve({ status: 'done' as const, outcome: 'ok', reportPath: 'TEAM-REVIEW.md' }),
+        }
+      },
+    }
+    const result = await new TeamCoordinator(runner, sameSession).run('r1')
+    expect(result.run.tasks.find((entry) => entry.id === 'review')?.status).toBe('failed')
+    expect(result.run.dispatches?.find((dispatch) => dispatch.taskId === 'review')?.outcome).toContain(
+      '不能复用实现者会话',
+    )
+  })
+
 })
