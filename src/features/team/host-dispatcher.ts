@@ -90,6 +90,13 @@ export function extractFilesModified(output: readonly unknown[] | undefined): st
   return files.length > 0 ? files : undefined
 }
 
+/** Optional `REPORT: path` marker for artifact-owning roles. */
+export function extractReportPath(output: readonly unknown[] | undefined): string | undefined {
+  const match = /(?:^|\n)\s*REPORT:\s*(.+)/i.exec(textOf(output))
+  const path = match?.[1]?.trim()
+  return path === undefined || path === '' ? undefined : path.replace(/^["'`]|["'`]$/g, '')
+}
+
 /** One worker prompt built from the role contract and the task (kept for callers/tests). */
 export function buildTaskPrompt(request: DispatchRequest): string {
   return buildTaskPromptFromRole({
@@ -128,6 +135,7 @@ export class HostSubagentDispatcher implements TeamDispatcher {
         try {
           const result = await activation.result
           const filesModified = extractFilesModified(result.output)
+          const reportPath = extractReportPath(result.output)
           const marker = extractWorkerMarker(result.output)
           if (marker?.kind === 'question') {
             return { status: 'blocked', question: marker.body, outcome: `child ${activation.childId} asked a question` }
@@ -147,6 +155,7 @@ export class HostSubagentDispatcher implements TeamDispatcher {
               : { outcome: result.diagnostic ?? `child ${activation.childId} stopped: ${String(result.stopReason)}` }),
             ...(result.usage?.totalTokens !== undefined ? { tokensUsed: result.usage.totalTokens } : {}),
             ...(filesModified !== undefined ? { filesModified } : {}),
+            ...(reportPath !== undefined ? { reportPath } : {}),
           }
         } finally {
           await activation.dispose().catch(() => undefined)

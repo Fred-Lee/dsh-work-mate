@@ -50,24 +50,24 @@ describe('checkTeamEvidence', () => {
     })
   })
 
-  it('reports missing TEST.md and REVIEW.md', async () => {
+  it('reports missing TEST.md and TEAM-REVIEW.md', async () => {
     await writeTasks('p1')
     const result = await checkTeamEvidence(root, 'openspec', 'p1')
     expect(result.managed).toBe(true)
     expect(result.ok).toBe(false)
     expect(result.errors.join()).toContain('TEST.md 缺失')
-    expect(result.errors.join()).toContain('REVIEW.md 缺失')
+    expect(result.errors.join()).toContain('TEAM-REVIEW.md 缺失')
   })
 
   it('accepts complete artifacts and rejects missing sections', async () => {
     await writeTasks('p1')
     await writeArtifact('p1', 'TEST.md', ['## 场景', '## 执行命令', '## 结果与证据', '## 覆盖缺口'])
-    await writeArtifact('p1', 'REVIEW.md', ['## 确认项', '## 疑问项', '## 建议补充项'])
+    await writeArtifact('p1', 'TEAM-REVIEW.md', ['## 确认项', '## 疑问项', '## 建议补充项'])
     const missing = await checkTeamEvidence(root, 'openspec', 'p1')
     expect(missing.ok).toBe(false)
-    expect(missing.errors.join()).toContain('REVIEW.md 缺「## CRITICAL 问题」')
+    expect(missing.errors.join()).toContain('TEAM-REVIEW.md 缺「## CRITICAL 问题」')
 
-    await writeArtifact('p1', 'REVIEW.md', ['## 确认项', '## 疑问项', '## 建议补充项', '## CRITICAL 问题'])
+    await writeArtifact('p1', 'TEAM-REVIEW.md', ['## 确认项', '## 疑问项', '## 建议补充项', '## CRITICAL 问题'])
     await expect(checkTeamEvidence(root, 'openspec', 'p1')).resolves.toMatchObject({ managed: true, ok: true })
   })
 

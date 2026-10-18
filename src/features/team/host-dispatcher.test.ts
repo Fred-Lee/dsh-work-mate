@@ -140,4 +140,13 @@ describe('HostSubagentDispatcher', () => {
     })
   })
 
+  it('reports REPORT paths for artifact-owning roles', async () => {
+    const subagents = new FakeSubagents({
+      stopReason: 'completed',
+      output: [{ type: 'text', text: 'done\nREPORT: TEST.md' }],
+    })
+    const dispatcher = new HostSubagentDispatcher(subagents, { parent: {}, cwdForTask: () => '/wt' })
+    await expect((await dispatcher.start(request)).result).resolves.toMatchObject({ reportPath: 'TEST.md' })
+  })
+
 })

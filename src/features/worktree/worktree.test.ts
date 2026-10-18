@@ -134,6 +134,20 @@ describe('WorktreeManager (real git)', () => {
     expect(list).not.toContain('.workmates')
     await expect(manager.ports().get('p1')).resolves.toBeUndefined()
   }, 30_000)
+
+  it('rollback removal deletes the unmerged feature branch and releases its ports', async () => {
+    const manager = makeManager()
+    await manager.create({ projectRoot: project, proposalId: 'rollback-p1' })
+    const removed = await manager.remove({
+      projectRoot: project,
+      proposalId: 'rollback-p1',
+      force: true,
+      deleteBranch: true,
+    })
+    expect(removed.removed).toBe(true)
+    await expect(gitish(['rev-parse', '--verify', 'feature/rollback-p1'], project)).rejects.toThrow()
+    await expect(manager.ports().get('rollback-p1')).resolves.toBeUndefined()
+  }, 30_000)
   it('creates one target worktree per project with disjoint ports', async () => {
     const other = await mkdtemp(join(tmpdir(), 'wm-wt-other-'))
     try {

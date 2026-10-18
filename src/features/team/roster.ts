@@ -77,7 +77,7 @@ export const ROLE_CONTRACTS: Record<TeamRole, RoleContract> = {
     role: 'reviewer',
     label: '独立审查',
     permission: 'read-only',
-    artifacts: ['REVIEW.md'],
+    artifacts: ['TEAM-REVIEW.md'],
     canModifyCode: false,
     responsibility: '独立评审方案与实现，给出 severity/file/line/status',
     forbidden: ['不审自己写的实现', '不改代码'],

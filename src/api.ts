@@ -571,6 +571,9 @@ export async function createProposal(
   const id = (body.id ?? '').trim() || `proposal-${Date.now().toString(36)}`
   const title = (body.title ?? '').trim()
   if (!title) throw new Error('title is required')
+  if ((body.projects?.length ?? 0) > 1 && (body.targets?.length ?? 0) === 0) {
+    throw new Error('多项目提案必须提供 targets（每项目 baseBranch），不能只传 projects 静默退化为单 target')
+  }
 
   const source = body.source
   if (source !== undefined && !PROPOSAL_SOURCES.includes(source)) {

@@ -14,7 +14,7 @@ describe('validateWorkerDone', () => {
       'reportPath',
     )
     expect(
-      validateWorkerDone({ id: 't1', role: 'reviewer' }, { status: 'done', reportPath: 'REVIEW.md' }),
+      validateWorkerDone({ id: 't1', role: 'reviewer' }, { status: 'done', reportPath: 'TEAM-REVIEW.md' }),
     ).toEqual([])
   })
 

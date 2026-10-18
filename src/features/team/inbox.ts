@@ -2,7 +2,7 @@
  * Team inbox and positive-proof rules (change `autonomous-agent-team`, T2-2.4).
  *
  * A worker's `done` is accepted only with evidence: a result summary, or a
- * report for roles that own an artifact (TEST.md / REVIEW.md). Questions and
+ * report for roles that own an artifact (TEST.md / TEAM-REVIEW.md). Questions and
  * escalations stay open until a human/coordinator answers them; no silent
  * auto-close.
  */
@@ -41,7 +41,7 @@ export function validateWorkerDone(
   const hasReport = input.reportPath !== undefined && input.reportPath.trim() !== ''
   if (!hasSummary && !hasReport) errors.push(`${task.id} 声称 done 但没有结果说明或报告`)
   if ((task.role === 'integration-tester' || task.role === 'reviewer') && !hasReport) {
-    errors.push(`${task.id}（${task.role}）done 必须提供 reportPath（TEST.md/REVIEW.md）`)
+    errors.push(`${task.id}（${task.role}）done 必须提供 reportPath（TEST.md/TEAM-REVIEW.md）`)
   }
   if (input.filesModified !== undefined && input.filesModified.length > 0) {
     if (task.writes.length === 0) {

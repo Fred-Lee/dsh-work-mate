@@ -2,7 +2,7 @@
  * Team evidence gate (change `autonomous-agent-team`, T4).
  *
  * A team-managed change is identified by `TASKS.json`: only then are TEST.md and
- * REVIEW.md required. This keeps legacy proposals that never used a team run
+ * TEAM-REVIEW.md required. This keeps legacy proposals that never used a team run
  * from being blocked by evidence they never promised.
  */
 import { readFile, stat } from 'node:fs/promises'
@@ -49,7 +49,7 @@ export async function checkTeamEvidence(
     }
   }
 
-  for (const artifact of ['TEST.md', 'REVIEW.md'] as const) {
+  for (const artifact of ['TEST.md', 'TEAM-REVIEW.md'] as const) {
     const content = await required(join(dir, artifact), artifact, errors)
     if (content === undefined) continue
     for (const section of REQUIRED_SECTIONS[artifact]) {

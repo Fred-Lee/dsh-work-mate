@@ -10,7 +10,7 @@ describe('team artifacts', () => {
       expect(REQUIRED_SECTIONS[artifact]).toBeDefined()
     }
     expect(REQUIRED_SECTIONS['REQ.md']).toContain('## 边界与禁止项')
-    expect(REQUIRED_SECTIONS['REVIEW.md']).toContain('## CRITICAL 问题')
+    expect(REQUIRED_SECTIONS['TEAM-REVIEW.md']).toContain('## CRITICAL 问题')
   })
 
   it('renders markdown skeletons with a run id', () => {

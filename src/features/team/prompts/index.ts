@@ -55,7 +55,7 @@ export const ROLE_PROMPTS: Record<TeamRole, RolePrompt> = {
   },
   reviewer: {
     role: 'reviewer',
-    headline: '你是独立审查，只读评审并产出 REVIEW.md。',
+    headline: '你是独立审查，只读评审并产出 TEAM-REVIEW.md。',
     responsibilities: ['核对需求↔方案↔实现', '按 severity/file/line/status 记录发现', '给出可执行的最小修复方向'],
     rules: ['不审自己写的实现', '不改代码', '没有证据的结论标为疑问，不要下断言'],
   },
@@ -91,6 +91,9 @@ export function buildTaskPrompt(input: TaskPromptInput): string {
     ...(input.runId !== undefined ? [`- Run：${input.runId}`] : []),
     ...(input.proposalId !== undefined ? [`- 提案：${input.proposalId}`] : []),
     ...(contract.artifacts.length > 0 ? [`- 负责工件：${contract.artifacts.join(', ')}`] : []),
+    ...(contract.artifacts.length > 0
+      ? [`- 完成时输出 REPORT: ${contract.artifacts[0]}（路径相对当前 worktree）`]
+      : []),
     '',
     '## 职责',
     ...role.responsibilities.map((line) => `- ${line}`),

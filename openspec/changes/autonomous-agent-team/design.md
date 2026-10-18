@@ -57,9 +57,9 @@ WorkMate 不实现 loop、不发消息给模型、不存对话正文；只记录
 
 G2 批准即**启动信号**：协调器收到批准后直接启动 Run 并派发实现波次；团队 SHALL NOT 重新阅读需求、重新做一遍方案评估或重新生成 `PLAN.md/TASKS.json`——这些正是 G0/G1 的产物，重复评估既浪费 token 又制造第二份方案。方案若需修改，回到 G1 重新生成并让 `planHash` 失效。
 - **G3 集成测试**：实现波次完成后 `integration-tester` 产出 `TEST.md`。
-- **G4 独立审查**：`reviewer` 产出 `REVIEW.md`；与实现者身份不同。
+- **G4 独立审查**：`reviewer` 产出 `TEAM-REVIEW.md`；与实现者身份不同。
 - **G5 合并/归档**：一次人工批准覆盖「合并 + 归档」（默认）；批准后协调器合并 target 分支并跑归档编排，不再第二次确认。
-- **G5 被拒回流**：方案方向被否 SHALL 退回 `ready` 重走 G1/G2；实现/测试/审查问题 SHALL 退回 `implementing` 生成修复 Task（引用 `REVIEW.md`/`TEST.md` 的具体发现），不重走方案；每次拒绝写 approval 记录与理由。
+- **G5 被拒回流**：方案方向被否 SHALL 退回 `ready` 重走 G1/G2；实现/测试/审查问题 SHALL 退回 `implementing` 生成修复 Task（引用 `TEAM-REVIEW.md`/`TEST.md` 的具体发现），不重走方案；每次拒绝写 approval 记录与理由。
 
 ### D6 自主推进策略
 
@@ -77,7 +77,7 @@ G2 通过（批准 `planHash`）后，协调器直接启动 Run 并派发实现 
 
 ### D8 工件与证据
 
-提案目录新增 `REQ.md`、`PLAN.md`、`TASKS.json`、`TEST.md`、`REVIEW.md`、`SUMMARY.md`。`REVIEW.md` 的 severity/file/line/status 直接接入现有 `review-gate` 与 `reviewEvidenceGate`；`TEST.md` 的命令与结果作为归档证据；`TASKS.json` 的 `writes` 复用 swarm 冲突检测。证据缺失或与 commit 不符时门禁失败，不以「回执成功」代替产物。
+提案目录新增 `REQ.md`、`PLAN.md`、`TASKS.json`、`TEST.md`、`TEAM-REVIEW.md`、`SUMMARY.md`。`TEAM-REVIEW.md` 的 severity/file/line/status 直接接入现有 `review-gate` 与 `reviewEvidenceGate`；`TEST.md` 的命令与结果作为归档证据；`TASKS.json` 的 `writes` 复用 swarm 冲突检测。证据缺失或与 commit 不符时门禁失败，不以「回执成功」代替产物。
 
 ### D9 模板
 
@@ -102,7 +102,7 @@ G2 通过（批准 `planHash`）后，协调器直接启动 Run 并派发实现 
 - **token 成本**：7 角色 × 多仓 × 多轮，成本可能高于人工；模板默认只启用必要角色，Run 显示预估与已用。
 - **角色交接质量**：依赖 `REQ/PLAN/TASKS` 的完整性；G2 硬门必须真的拦住缺边界/缺验收的输入。
 - **重复派发/幽灵 worker**：严格沿用 Orca 的 active Dispatch 校验与 positive proof；不存在「看到进程就重发」。
-- **证据造假**：`TEST.md`/`REVIEW.md` 必须引用真实命令/文件；沿用 `reviewEvidenceGate` 机检，行号越界只 warn 但文件必须存在。
+- **证据造假**：`TEST.md`/`TEAM-REVIEW.md` 必须引用真实命令/文件；沿用 `reviewEvidenceGate` 机检，行号越界只 warn 但文件必须存在。
 - **跨仓依赖**：前后端并行时契约先行的任务必须显式进 DAG；否则集成测试会晚于实现。
 
 ## Open questions（推荐默认，待确认）

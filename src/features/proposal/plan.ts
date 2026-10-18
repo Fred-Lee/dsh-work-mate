@@ -1,8 +1,10 @@
 /**
  * Canonical plan fingerprint (change `multiproject-branch-workbench`, design
  * D12): G2 approves a `planHash`, not a vibe. The hash covers the OpenSpec plan
- * artifacts (`proposal.md`, `design.md`, `tasks.md`, `specs/**\/*.md`); team
- * artifacts are added by the team proposal when they exist.
+ * artifacts (`proposal.md`, `design.md`, `tasks.md`, `specs/**\/*.md`) plus the
+ * optional team artifacts (`REQ.md`, `PLAN.md`, `TASKS.json`) when present.
+ * `tasks.md` checkbox state is normalized away: completing a task must not
+ * invalidate the approved plan, changing its text must.
  *
  * Missing proposal/design/tasks yields no hash (and names what is missing);
  * specs are optional because small fixes legitimately have none.
@@ -69,14 +71,19 @@ export async function computePlanFingerprint(
     else missing.push(name)
   }
   const specs = await specFiles(changeDir)
-  const files = [...present, ...specs].sort()
+  const teamFiles: string[] = []
+  for (const name of ['REQ.md', 'PLAN.md', 'TASKS.json']) {
+    if (await isFile(join(changeDir, name))) teamFiles.push(name)
+  }
+  const files = [...present, ...specs, ...teamFiles].sort()
   if (missing.length > 0) return { files, missing }
   if (files.length === 0) return { files, missing }
   const hash = createHash('sha256')
   for (const file of files) {
+    const content = await readFile(join(changeDir, file), 'utf8')
     hash.update(file)
     hash.update('\u0000')
-    hash.update(await readFile(join(changeDir, file), 'utf8'))
+    hash.update(file === 'tasks.md' ? content.replace(/^(\s*[-*]\s+)\[[ xX]\]/gm, '$1[ ]') : content)
     hash.update('\u0000')
   }
   return { hash: hash.digest('hex'), files, missing }

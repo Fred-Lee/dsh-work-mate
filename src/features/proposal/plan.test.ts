@@ -45,8 +45,11 @@ describe('computePlanFingerprint', () => {
     const before = await computePlanFingerprint(root, 'openspec', 'p1')
 
     await write('tasks.md', '- [x] t\n')
-    const after = await computePlanFingerprint(root, 'openspec', 'p1')
+    const checkboxOnly = await computePlanFingerprint(root, 'openspec', 'p1')
+    expect(checkboxOnly.hash).toBe(before.hash)
 
+    await write('tasks.md', '- [ ] changed text\n')
+    const after = await computePlanFingerprint(root, 'openspec', 'p1')
     expect(before.hash).not.toBe(after.hash)
   })
 

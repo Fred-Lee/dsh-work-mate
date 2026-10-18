@@ -21,7 +21,7 @@
 | **前端开发** `frontend-dev` | 按 target 的仓库与分支实现前端改动 | 提交 + `task` 证据 | 只改声明的前端写域 |
 | **后端开发** `backend-dev` | 按 target 的仓库与分支实现后端/服务改动 | 提交 + `task` 证据 | 只改声明的后端写域 |
 | **集成测试** `integration-tester` | 跨仓契约、端到端、回归；复现失败并给证据 | `TEST.md` | 只读 + 测试脚本；不改业务代码 |
-| **独立审查** `reviewer` | 独立评审实现与方案一致性；不能审自己写的 | `REVIEW.md`（severity/file/line/status） | 只读；与实现者身份不同 |
+| **独立审查** `reviewer` | 独立评审实现与方案一致性；不能审自己写的 | `TEAM-REVIEW.md`（severity/file/line/status） | 只读；与实现者身份不同 |
 
 > 角色可以按提案模板裁剪：纯调研不需要前后端；纯 bug 修复可以跳过需求评估或方案评估（但独立审查仍需要）。
 
@@ -34,7 +34,7 @@ intake（用户一句话 / 提案）
             └─ G2 方案硬门（reviewer + 人确认）   ← 默认必须过人；可通过配置收紧/放宽
                  └─ 自主波次：backend / frontend（按 DAG 并行）
                       └─ G3 集成测试（integration-tester）→ TEST.md
-                           └─ G4 独立审查（reviewer）→ REVIEW.md
+                           └─ G4 独立审查（reviewer）→ TEAM-REVIEW.md
                                 └─ G5 合并/归档（人批准，沿用现有 approval-gate）
 ```
 
@@ -84,10 +84,10 @@ intake（用户一句话 / 提案）
 | `PLAN.md` | solution-evaluator | 方案、模块、目标矩阵、依赖 DAG、风险、回滚 |
 | `TASKS.json` | solution-evaluator | `{id, role, project, writes, depends_on, acceptance, status}` |
 | `TEST.md` | integration-tester | 场景、命令、结果、失败复现、覆盖缺口 |
-| `REVIEW.md` | reviewer | severity/file/line/status、独立身份、证据引用 |
+| `TEAM-REVIEW.md` | reviewer | severity/file/line/status、独立身份、证据引用 |
 | `SUMMARY.md` | coordinator | 每个 Task 的 outcome、证据、未解阻塞 |
 
-与现有门禁的关系：`REVIEW.md` / `TEST.md` 直接喂给现有 `review-gate` 与归档审查；`TASKS.json` 的 writes 复用 `swarm/plan.ts` 的 `scopesIntersect`；证据引用沿用 `reviewEvidenceGate` 的机检规则。
+与现有门禁的关系：`TEAM-REVIEW.md` / `TEST.md` 直接喂给现有 `review-gate` 与归档审查；`TASKS.json` 的 writes 复用 `swarm/plan.ts` 的 `scopesIntersect`；证据引用沿用 `reviewEvidenceGate` 的机检规则。
 
 ## 5. 与现有 WorkMate 能力的关系
 

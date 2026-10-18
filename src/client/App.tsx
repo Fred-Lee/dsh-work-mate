@@ -1506,10 +1506,16 @@ function CreateModal(props: {
     if (!title.trim() || busy) return
     setBusy(true)
     try {
+      const selected = projects.filter((project) => checked.includes(project.name))
+      const targets = selected.map((project) => ({
+        project: project.name,
+        baseBranch: project.defaultBranch ?? 'main',
+      }))
       const result = await createProposal({
         title: title.trim(),
         ...(id.trim() ? { id: id.trim() } : {}),
         ...(checked.length > 0 ? { projects: checked } : {}),
+        ...(targets.length > 0 ? { targets, primaryProject: targets[0]?.project } : {}),
         ...(props.projectRoot.trim() ? { projectRoot: props.projectRoot.trim() } : {}),
       })
       setCreated({ id: result.proposal.id })

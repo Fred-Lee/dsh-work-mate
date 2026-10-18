@@ -83,7 +83,7 @@ describe('team evidence gate', () => {
     await writeTasks()
     await writeFile(join(changeDir(), 'TEST.md'), '## 场景\n## 执行命令\n## 结果与证据\n## 覆盖缺口\n', 'utf8')
     await writeFile(
-      join(changeDir(), 'REVIEW.md'),
+      join(changeDir(), 'TEAM-REVIEW.md'),
       '## 确认项\n## 疑问项\n## 建议补充项\n## CRITICAL 问题\n',
       'utf8',
     )

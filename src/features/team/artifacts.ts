@@ -10,7 +10,7 @@ export const REQUIRED_SECTIONS: Record<TeamArtifact, readonly string[]> = {
   'PLAN.md': ['## 方案', '## 目标矩阵', '## 依赖与波次', '## 风险与回滚'],
   'TASKS.json': [],
   'TEST.md': ['## 场景', '## 执行命令', '## 结果与证据', '## 覆盖缺口'],
-  'REVIEW.md': ['## 确认项', '## 疑问项', '## 建议补充项', '## CRITICAL 问题'],
+  'TEAM-REVIEW.md': ['## 确认项', '## 疑问项', '## 建议补充项', '## CRITICAL 问题'],
   'SUMMARY.md': ['## Run', '## 逐任务结果', '## 未解阻塞', '## 终态'],
 }
 

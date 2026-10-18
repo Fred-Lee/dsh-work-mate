@@ -5,7 +5,7 @@
 - [x] 1.1 定义 7 角色名册与 `RoleContract`：职责、产出、可写域、权限预设、禁止项；支持模板裁剪。<!-- writes: src/features/team/**, src/config.ts -->
 - [x] 1.2 定义 `Run` / `Task` / `Dispatch` 数据模型与 `team-runs.json` 原子存储；损坏 fail-closed。<!-- writes: src/features/team/**, src/features/proposal/store.ts -->
 - [x] 1.3 `TASKS.json` schema 与校验：每个 Task 必须有 `role/project/writes/depends_on/acceptance`；DAG 无环。<!-- writes: src/features/team/**, src/features/swarm/plan.ts -->
-- [x] 1.4 六份工件模板：`REQ.md` / `PLAN.md` / `TASKS.json` / `TEST.md` / `REVIEW.md` / `SUMMARY.md`，随提案目录生成。<!-- writes: src/features/team/**, src/features/proposal/openspec.ts -->
+- [x] 1.4 六份工件模板：`REQ.md` / `PLAN.md` / `TASKS.json` / `TEST.md` / `TEAM-REVIEW.md` / `SUMMARY.md`，随提案目录生成。<!-- writes: src/features/team/**, src/features/proposal/openspec.ts -->
 - [ ] 1.5 入口判断：检查 OpenSpec 工件完整性与 validate，决定从 G2 还是 G0 开始；支持调用方覆盖并记录理由。<!-- writes: src/features/team/**, src/features/proposal/** -->
 - [ ] 1.6 入口归一化：从 `proposal.md/design.md` 派生 `REQ.md/PLAN.md`（`derived: true`），从 `tasks.md` 生成 `TASKS.json`（role/project/writes/depends_on/acceptance），不改变方案范围。<!-- writes: src/features/team/**, src/features/proposal/openspec.ts -->
 
@@ -27,7 +27,7 @@
 - [x] 3.2 技术方案评估角色：产出 `PLAN.md` + `TASKS.json`（目标矩阵/依赖/回滚），只读代码。<!-- writes: src/features/team/prompts/**, assets/** -->
 - [x] 3.3 前端/后端角色：按 target 写域实现，产出提交与 Task 证据；不得越界改文件。<!-- writes: src/features/team/prompts/**, assets/** -->
 - [x] 3.4 集成测试角色：跨仓契约/E2E/回归，产出 `TEST.md`；允许改测试脚本但不改业务代码。<!-- writes: src/features/team/prompts/**, assets/** -->
-- [x] 3.5 独立审查角色：只读评审，产出 `REVIEW.md`；与实现者身份不同。<!-- writes: src/features/team/prompts/**, assets/** -->
+- [x] 3.5 独立审查角色：只读评审，产出 `TEAM-REVIEW.md`；与实现者身份不同。<!-- writes: src/features/team/prompts/**, assets/** -->
 - [x] 3.6 权限预设：评估/审查只读，开发/测试/协调器 workspace 写；不默认 full access；启动时固定。<!-- writes: src/features/team/**, src/config.ts -->
 - [x] 3.7 模型配置：默认继承会话模型，支持角色级覆盖；本版本不要求逐角色配置。<!-- writes: src/features/team/**, src/config.ts -->
 

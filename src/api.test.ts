@@ -736,4 +736,14 @@ describe('project registry REST API', () => {
     })
   })
 
+  it('refuses a multi-project proposal without targets instead of silently single-targeting', async () => {
+    const { createProposal } = await import('./api.ts')
+    await expect(
+      createProposal(
+        { proposals: { upsert: async (input: Record<string, unknown>) => input } } as never,
+        { title: 'multi', projects: ['a', 'b'] },
+      ),
+    ).rejects.toThrow(/targets/)
+  })
+
 })

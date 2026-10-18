@@ -17,7 +17,7 @@
 - **编排模型**：`Run → Task → Dispatch`，任务来自 `TASKS.json` 的依赖 DAG；按波次并行派发，`check/reply/ack` 收件箱，`worker_done` 结算，`escalation/question` 回到人。
 - **门禁**：G2 方案硬门 + 人确认门；通过后自主执行实现波次 → 集成测试 → 独立审查；`merging/archiving` 仍由人批准（沿用现有 approval-gate）。
 - **提案即输入**：G2 确认 `planHash` 后协调器直接启动团队 run；团队 SHALL NOT 重读/重评需求；`PLAN.md + TASKS.json` 即执行依据。状态由证据派生并自动推进（见 `multiproject-branch-workbench` D12），不再逐态点击。
-- **工件与证据**：提案目录新增 `REQ.md`、`PLAN.md`、`TASKS.json`、`TEST.md`、`REVIEW.md`、`SUMMARY.md`；审查/测试证据接入现有 `review-gate` 与归档门。
+- **工件与证据**：提案目录新增 `REQ.md`、`PLAN.md`、`TASKS.json`、`TEST.md`、`TEAM-REVIEW.md`、`SUMMARY.md`；审查/测试证据接入现有 `review-gate` 与归档门。
 - **面板**：新增「团队」视图——角色看板、DAG、收件箱、运行时间线、证据面板。
 - **模板**：需求全流程 / bug 修复 / 调研 / 交付四类模板，决定启用哪些角色与门禁强度。
 - **入口与默认档**：已有完整 OpenSpec 工件的提案直接从 G2 开始，不重复评估；角色权限按职责分级（评估/审查只读，开发/测试/协调器 workspace）；模型先统一默认、保留角色覆盖；默认并发 3、每 Task 2 次重试、Run 预算 2h/300k tokens/20 Dispatch；G5 被拒按方案/实现原因分流。
@@ -41,12 +41,12 @@
 - 依赖：`multiproject-branch-workbench` 的 `ProposalTarget` 与 worktree（T2 起）；swarm 的 `scopesIntersect` 与任务 worktree（复用）。
 - 数据：`$DSH_HOME/workmate/team-runs.json`（Run/Task/Dispatch 聚合，原子写）；事件写现有 `events.jsonl`；不改 `proposals.json` 语义。
 - Client：`src/client/App.tsx` 新增团队视图；沿用 UI 重构后的上下文栏/项目树/抽屉。
-- 文档：`docs/AGENT-TEAM-DESIGN.md`、`docs/WORKDSH-REVIEW.md`。
+- 文档：`docs/AGENT-TEAM-DESIGN.md`、`docs/WORKDSH-TEAM-REVIEW.md`。
 - 测试：新增 team 单测（DAG、调度、重试、门禁、inbox）；真机验收需原生 Session 与 worktree。
 
 ## 来源 / Provenance
 
 - source: `spec`
 - relatesTo: `multiproject-branch-workbench`
-- 设计依据：`docs/AGENT-TEAM-DESIGN.md`、`docs/WORKDSH-REVIEW.md`
+- 设计依据：`docs/AGENT-TEAM-DESIGN.md`、`docs/WORKDSH-TEAM-REVIEW.md`
 - 不做：自建 LLM runtime、自建群聊/IM、Bot 市场、替代宿主 Conversation。

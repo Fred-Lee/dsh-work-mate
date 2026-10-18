@@ -257,5 +257,7 @@ export interface CreateProposalBody {
   id?: string
   title: string
   projects?: string[]
+  targets?: ProposalTarget[]
+  primaryProject?: string
   projectRoot?: string
 }

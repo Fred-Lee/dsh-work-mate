@@ -394,6 +394,7 @@ export class LifecycleServiceImpl {
         )
       }
       case 'implementing':
+        await this.assertCurrentPlanApproval(proposal)
         await this.assertWriteScopes(proposal)
         return // worktree is created as the side effect; failures surface there
       case 'merging': {
@@ -510,6 +511,7 @@ export class LifecycleServiceImpl {
               project: entry.project,
               proposalId: proposal.id,
               force: true,
+              deleteBranch: true,
             })
           } catch {
             // best effort: the original failure is the one worth reporting
@@ -632,6 +634,20 @@ export class LifecycleServiceImpl {
     const transitions: Array<{ from: ProposalState; to: ProposalState }> = []
     for (let step = 0; step < 3; step += 1) {
       const proposal = await this.mustGet(id)
+      if (proposal.status === 'ready') {
+        const root = await this.primaryRoot(proposal)
+        const fingerprint =
+          root === undefined ? { hash: undefined } : await computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId)
+        const approvals = (proposal.approvals ?? []).filter((approval) => approval.gate === 'ready')
+        const latest = approvals[approvals.length - 1]
+        if (fingerprint.hash !== undefined && latest?.planHash !== fingerprint.hash) {
+          const outcome = await this.transition(id, 'reviewing', { actor: 'system' })
+          transitions.push({ from: 'ready', to: 'reviewing' })
+          if (transitions.length >= 3) return { proposal: outcome.proposal, transitions }
+          continue
+        }
+        return { proposal, transitions }
+      }
       const next: ProposalState | undefined =
         proposal.status === 'draft'
           ? 'proposing'
@@ -794,7 +810,7 @@ export class LifecycleServiceImpl {
     return proposal
   }
 
-  /** TEST.md/REVIEW.md are required only when the change opted into a team run. */
+  /** TEST.md/TEAM-REVIEW.md are required only when the change opted into a team run. */
   private async assertTeamEvidence(root: string, proposal: Proposal): Promise<void> {
     const gate = this.deps.teamEvidenceGate ?? 'warn'
     if (gate === 'off') return
@@ -806,6 +822,27 @@ export class LifecycleServiceImpl {
       throw error
     }
     console.warn(`[workmate] team evidence warning for ${proposal.id}: ${result.errors.join('；')}`)
+  }
+
+  /**
+   * G2 must still cover the current plan when implementation starts. Only
+   * target-based proposals are enforced here; legacy scalar proposals keep
+   * their historical flow (no targets/approval snapshot).
+   */
+  private async assertCurrentPlanApproval(proposal: Proposal): Promise<void> {
+    if (proposal.targets === undefined || proposal.targets.length === 0) return
+    const root = await this.primaryRoot(proposal)
+    if (root === undefined) return
+    const fingerprint = await computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId)
+    // Headless/legacy target fixtures may have no plan artifacts; G2 is enforced
+    // where a plan exists (reviewing/ready). Never fabricate a hash.
+    if (fingerprint.hash === undefined) return
+    const approvals = (proposal.approvals ?? []).filter((approval) => approval.gate === 'ready')
+    const latest = approvals[approvals.length - 1]
+    if (latest?.decision === 'approve' && latest.planHash === fingerprint.hash) return
+    throw new InvalidTransitionError(
+      `G2 方案已变化或未确认（当前 planHash ${fingerprint.hash.slice(0, 12)}…）— 重新确认方案后再进入 implementing`,
+    )
   }
 
   /**

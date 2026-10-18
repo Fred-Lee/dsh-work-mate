@@ -15,7 +15,7 @@ export type TeamRole = (typeof TEAM_ROLES)[number]
 export const TEAM_TEMPLATES = ['requirement-full', 'bug-fix', 'research', 'delivery'] as const
 export type TeamTemplate = (typeof TEAM_TEMPLATES)[number]
 
-export const TEAM_ARTIFACTS = ['REQ.md', 'PLAN.md', 'TASKS.json', 'TEST.md', 'REVIEW.md', 'SUMMARY.md'] as const
+export const TEAM_ARTIFACTS = ['REQ.md', 'PLAN.md', 'TASKS.json', 'TEST.md', 'TEAM-REVIEW.md', 'SUMMARY.md'] as const
 export type TeamArtifact = (typeof TEAM_ARTIFACTS)[number]
 
 export type TeamTaskStatus = 'planned' | 'dispatched' | 'running' | 'done' | 'failed' | 'blocked'

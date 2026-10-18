@@ -3,7 +3,7 @@
 ### Requirement: 六份团队工件
 
 每个 Run SHALL 在提案目录生成并维护六份工件：`REQ.md`（需求评估）、`PLAN.md`（技术方案）、
-`TASKS.json`（DAG 任务）、`TEST.md`（集成测试）、`REVIEW.md`（独立审查）、`SUMMARY.md`
+`TASKS.json`（DAG 任务）、`TEST.md`（集成测试）、`TEAM-REVIEW.md`（独立审查）、`SUMMARY.md`
 （运行汇总）。工件 SHALL 标明作者角色、生成/更新时间与来源 Run；SHALL NOT 由非对应角色
 代写（协调器只可汇总，不可代写 REQ/PLAN/REVIEW/TEST）。
 
@@ -22,16 +22,16 @@
 
 ### Requirement: 独立审查与测试证据
 
-`REVIEW.md` SHALL 由与实现者不同的身份产出，包含 severity、文件:行、问题、状态
+`TEAM-REVIEW.md` SHALL 由与实现者不同的身份产出，包含 severity、文件:行、问题、状态
 （open/fixed/accepted）；`TEST.md` SHALL 包含测试场景、实际执行的命令、结果与失败复现。
 两者 SHALL 引用真实存在的文件与命令输出；缺失证据或与 commit 不符时 SHALL 阻断对应门禁。
 
-`REVIEW.md` / `TEST.md` SHALL 接入现有 `review-gate` 与 `reviewEvidenceGate`：未解决的
+`TEAM-REVIEW.md` / `TEST.md` SHALL 接入现有 `review-gate` 与 `reviewEvidenceGate`：未解决的
 CRITICAL 或证据文件不存在即失败；行号越界只 warn。
 
 #### Scenario: 审查者与实现者同身份
 
-- **WHEN** `REVIEW.md` 的 reviewer 与实现该 Task 的 worker 相同
+- **WHEN** `TEAM-REVIEW.md` 的 reviewer 与实现该 Task 的 worker 相同
 - **THEN** G4 失败，标记 `same-as-author`，不得进入归档
 
 #### Scenario: 测试证据不可核

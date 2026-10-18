@@ -174,13 +174,20 @@ export class WorktreeManager {
 
     const allocation = await this.allocator.allocate(portKey)
 
-    // 1. create (serialized by the mutex) — branch from the target baseline
-    await gitExec(
-      ['worktree', 'add', '-b', featureBranch, worktreePath, baseBranch],
-      projectRoot,
-      15_000,
-      input.signal,
-    )
+    // 1. create (serialized by the mutex) — branch from the target baseline.
+    // A failed add must not leak the reserved port: release it here; the
+    // caller's rollback only knows about fully created targets.
+    try {
+      await gitExec(
+        ['worktree', 'add', '-b', featureBranch, worktreePath, baseBranch],
+        projectRoot,
+        15_000,
+        input.signal,
+      )
+    } catch (error) {
+      await this.allocator.release(portKey).catch(() => undefined)
+      throw error
+    }
 
     // 3. copy the config whitelist from the main checkout
     const copied: string[] = []
@@ -286,6 +293,8 @@ export class WorktreeManager {
     mainBranch?: string
     baseBranch?: string
     force?: boolean
+    /** Rollback path: delete the feature branch this creation made (unmerged ok). */
+    deleteBranch?: boolean
     signal?: AbortSignal
   }): Promise<{ removed: boolean; summary: string }> {
     const { projectRoot, proposalId } = input
@@ -300,18 +309,24 @@ export class WorktreeManager {
       }
     }
 
-    await this.allocator.release(this.portKey(proposalId, input.project))
     try {
       await gitExec(['worktree', 'remove', '--force', worktreePath], projectRoot, 15_000, input.signal)
-      return { removed: true, summary: `worktree ${worktreePath} removed and ports released` }
     } catch (error) {
-      // branch may hold unmerged state even under force; report honestly
+      // Keep the allocation: the worktree still exists and may still hold a port.
       try {
         await gitExec(['worktree', 'list'], projectRoot)
       } catch {
         // ignore
       }
       return { removed: false, summary: `git worktree remove failed: ${error instanceof Error ? error.message : String(error)}` }
+    }
+    if (input.deleteBranch === true) {
+      await gitExec(['branch', '-D', featureBranch], projectRoot, 10_000, input.signal).catch(() => undefined)
+    }
+    await this.allocator.release(this.portKey(proposalId, input.project))
+    return {
+      removed: true,
+      summary: `worktree ${worktreePath} removed${input.deleteBranch === true ? ` and branch ${featureBranch}` : ''} and ports released`,
     }
   }
 

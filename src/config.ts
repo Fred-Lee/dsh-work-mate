@@ -103,7 +103,7 @@ export interface Config {
   reviewEvidenceGate?: string
   /**
    * Require team artifacts before archiving a team-managed change (`TASKS.json`
-   * present): TEST.md and REVIEW.md with their required sections.
+   * present): TEST.md and TEAM-REVIEW.md with their required sections.
    * `off` | `warn` | `block`. @default 'warn'
    */
   teamEvidenceGate?: string
@@ -249,7 +249,7 @@ export const Config: z<Config> = z.object({
   teamEvidenceGate: z
     .string()
     .default('warn')
-    .description('Require TEST.md/REVIEW.md for team-managed changes: off | warn | block.'),
+    .description('Require TEST.md/TEAM-REVIEW.md for team-managed changes: off | warn | block.'),
   teamAutoPlan: z
     .boolean()
     .default(false)

@@ -97,4 +97,29 @@ describe('evidence-driven authoring reconcile', () => {
     await proposals.upsert({ id: 'p4', title: 'p4', projects: ['demo'] })
     await expect(lifecycle.approvePlan('p4')).rejects.toThrow(/方案工件不完整/)
   })
+  it('blocks implementing when the target plan no longer matches G2', async () => {
+    await writePlan('p5', '- [ ] old\n')
+    await proposals.upsert({
+      id: 'p5',
+      title: 'p5',
+      targets: [{ project: 'demo', baseBranch: 'main' }],
+    })
+    await lifecycle.reconcile('p5')
+    await lifecycle.approvePlan('p5')
+    await proposals.setStatus('p5', 'ready', { actor: 'human' })
+
+    await writePlan('p5', '- [ ] changed\n')
+    await expect(lifecycle.transition('p5', 'implementing')).rejects.toThrow(/G2 方案已变化/)
+    expect((await proposals.get('p5'))?.status).toBe('ready')
+  })
+
+  it('ignores tasks.md checkbox state in the plan hash', async () => {
+    await writePlan('p6', '- [ ] 1. impl\n')
+    await proposals.upsert({ id: 'p6', title: 'p6', projects: ['demo'] })
+    const before = await lifecycle.planFingerprint('p6')
+    await writePlan('p6', '- [x] 1. impl\n')
+    const after = await lifecycle.planFingerprint('p6')
+    expect(after.hash).toBe(before.hash)
+  })
+
 })
