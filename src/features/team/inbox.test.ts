@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { TeamInbox, validateWorkerDone } from './inbox.ts'
 
-const task = { id: 't1', role: 'backend-dev' as const }
+const task = { id: 't1', role: 'backend-dev' as const, writes: ['src/main/**'] }
 
 describe('validateWorkerDone', () => {
   it('requires a summary or report for every done claim', () => {
@@ -53,4 +53,15 @@ describe('TeamInbox', () => {
     inbox.answer(q.id, '决定 A')
     expect(() => inbox.answer(q.id, 'again')).toThrow('already answered')
   })
+  it('machine-checks reported files against declared writes', () => {
+    expect(validateWorkerDone(task, { status: 'done', outcome: 'ok', filesModified: ['src/main/a.ts'] })).toEqual([])
+    expect(
+      validateWorkerDone(task, { status: 'done', outcome: 'ok', filesModified: ['docs/readme.md'] })[0],
+    ).toContain('越界改文件')
+    expect(
+      validateWorkerDone({ id: 't2', role: 'backend-dev', writes: [] }, { status: 'done', outcome: 'ok', filesModified: ['src/a'] })[0],
+    ).toContain('未声明写域')
+    expect(validateWorkerDone(task, { status: 'done', outcome: 'ok' })).toEqual([])
+  })
+
 })

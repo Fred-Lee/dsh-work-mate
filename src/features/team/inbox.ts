@@ -6,6 +6,7 @@
  * escalations stay open until a human/coordinator answers them; no silent
  * auto-close.
  */
+import { scopesIntersect } from '../swarm/plan.ts'
 import type { SettleInput } from './runner.ts'
 import type { TeamRole, TeamTaskRecord } from './types.ts'
 
@@ -24,10 +25,15 @@ export interface WorkerDoneInput {
   status: SettleInput['status']
   outcome?: string
   reportPath?: string
+  /** Files the worker says it changed; when absent the check is unmeasured. */
+  filesModified?: string[]
 }
 
 /** Positive proof required for `done`; empty array means accepted. */
-export function validateWorkerDone(task: Pick<TeamTaskRecord, 'id' | 'role'>, input: WorkerDoneInput): string[] {
+export function validateWorkerDone(
+  task: Pick<TeamTaskRecord, 'id' | 'role' | 'writes'>,
+  input: WorkerDoneInput,
+): string[] {
   if (input.status !== 'done') return []
   const errors: string[] = []
   const hasSummary = input.outcome !== undefined && input.outcome.trim() !== ''
@@ -35,6 +41,16 @@ export function validateWorkerDone(task: Pick<TeamTaskRecord, 'id' | 'role'>, in
   if (!hasSummary && !hasReport) errors.push(`${task.id} 声称 done 但没有结果说明或报告`)
   if ((task.role === 'integration-tester' || task.role === 'reviewer') && !hasReport) {
     errors.push(`${task.id}（${task.role}）done 必须提供 reportPath（TEST.md/REVIEW.md）`)
+  }
+  if (input.filesModified !== undefined && input.filesModified.length > 0) {
+    if (task.writes.length === 0) {
+      errors.push(`${task.id} 改了文件但未声明写域 — 无法机检 (${input.filesModified.join(', ')})`)
+    } else {
+      const outside = input.filesModified.filter(
+        (file) => !task.writes.some((scope) => scopesIntersect(scope, file)),
+      )
+      if (outside.length > 0) errors.push(`${task.id} 越界改文件：${outside.join(', ')}`)
+    }
   }
   return errors
 }

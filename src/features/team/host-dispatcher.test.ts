@@ -129,4 +129,15 @@ describe('HostSubagentDispatcher', () => {
     expect(outcome.tokensUsed).toBeUndefined()
   })
 
+  it('reports FILES markers for write-scope checks', async () => {
+    const subagents = new FakeSubagents({
+      stopReason: 'completed',
+      output: [{ type: 'text', text: 'done\nFILES: src/main/a.ts, tests/a.test.ts' }],
+    })
+    const dispatcher = new HostSubagentDispatcher(subagents, { parent: {}, cwdForTask: () => '/wt' })
+    await expect((await dispatcher.start(request)).result).resolves.toMatchObject({
+      filesModified: ['src/main/a.ts', 'tests/a.test.ts'],
+    })
+  })
+
 })

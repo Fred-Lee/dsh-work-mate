@@ -79,6 +79,17 @@ export function extractWorkerMarker(
   return undefined
 }
 
+/** Optional `FILES: a, b` report for write-scope checks. */
+export function extractFilesModified(output: readonly unknown[] | undefined): string[] | undefined {
+  const match = /(?:^|\n)\s*FILES:\s*(.+)/i.exec(textOf(output))
+  if (match?.[1] === undefined) return undefined
+  const files = match[1]
+    .split(',')
+    .map((file) => file.trim())
+    .filter((file) => file !== '')
+  return files.length > 0 ? files : undefined
+}
+
 /** One worker prompt built from the role contract and the task (kept for callers/tests). */
 export function buildTaskPrompt(request: DispatchRequest): string {
   return buildTaskPromptFromRole({
@@ -116,6 +127,7 @@ export class HostSubagentDispatcher implements TeamDispatcher {
       result: (async (): Promise<SettleInput> => {
         try {
           const result = await activation.result
+          const filesModified = extractFilesModified(result.output)
           const marker = extractWorkerMarker(result.output)
           if (marker?.kind === 'question') {
             return { status: 'blocked', question: marker.body, outcome: `child ${activation.childId} asked a question` }
@@ -134,6 +146,7 @@ export class HostSubagentDispatcher implements TeamDispatcher {
               ? { outcome: `child ${activation.childId} completed` }
               : { outcome: result.diagnostic ?? `child ${activation.childId} stopped: ${String(result.stopReason)}` }),
             ...(result.usage?.totalTokens !== undefined ? { tokensUsed: result.usage.totalTokens } : {}),
+            ...(filesModified !== undefined ? { filesModified } : {}),
           }
         } finally {
           await activation.dispose().catch(() => undefined)
