@@ -96,6 +96,7 @@ describe('ProposalPanel (kanban)', () => {
 
     expect(within(columnFor('draft')).getByText('批量批改 v2.1')).toBeTruthy()
     expect(within(columnFor('executing')).getByText('另一提案')).toBeTruthy()
+    fireEvent.click(screen.getByText('显示已归档'))
     expect(within(columnFor('archived')).getByText('旧提案')).toBeTruthy()
     expect(within(columnFor('draft')).getByText('1')).toBeTruthy()
   })

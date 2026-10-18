@@ -88,6 +88,8 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const [selectedBranch, setSelectedBranch] = useState('')
   const [isolation, setIsolation] = useState<IsolationPayload>({ occupancy: [], conflicts: [] })
   const [importOpen, setImportOpen] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
+  const [search, setSearch] = useState('')
 
   const refresh = useCallback(async () => {
     try {
@@ -215,10 +217,18 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
     [refresh, loadDetail],
   )
 
-  const visibleProposals = useMemo(
-    () => (selectedProject === '' ? proposals : proposals.filter((proposal) => proposal.projects.includes(selectedProject))),
-    [proposals, selectedProject],
-  )
+  const visibleProposals = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return proposals.filter((proposal) => {
+      if (selectedProject !== '' && !proposal.projects.includes(selectedProject)) return false
+      if (query === '') return true
+      return (
+        proposal.title.toLowerCase().includes(query) ||
+        proposal.id.toLowerCase().includes(query) ||
+        proposal.projects.some((project) => project.toLowerCase().includes(query))
+      )
+    })
+  }, [proposals, selectedProject, search])
 
   const columns = useMemo(
     () =>
@@ -294,6 +304,15 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
             ⚠ {isolation.conflicts.length} 个分支冲突
           </span>
         )}
+        <input
+          className="wm-search"
+          value={search}
+          placeholder="搜索提案 / 项目…"
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <button className="wm-btn mini" type="button" onClick={() => setShowArchived((prev) => !prev)}>
+          {showArchived ? '隐藏已归档' : '显示已归档'}
+        </button>
         <button className="wm-btn mini" type="button" onClick={() => setImportOpen(true)}>
           从 Workspace 导入
         </button>
@@ -317,7 +336,15 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                 </header>
                 <div className="wm-col-body">
                   {column.cards.length === 0 && <div className="wm-col-empty">暂无提案</div>}
-                  {column.cards.map((proposal) => {
+                  {column.label === '已归档' && !showArchived && column.cards.length > 0 && (
+                    <div className="wm-col-empty">
+                      已隐藏 {column.cards.length} 条已归档
+                      <button className="wm-btn mini" type="button" onClick={() => setShowArchived(true)}>
+                        显示
+                      </button>
+                    </div>
+                  )}
+                  {(column.label === '已归档' && !showArchived ? [] : column.cards).map((proposal) => {
                     const detail = details[proposal.id]
                     const tasks = detail?.openspec?.tasks
                     return (

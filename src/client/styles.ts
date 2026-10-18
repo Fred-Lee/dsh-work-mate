@@ -269,4 +269,11 @@ export const PANEL_STYLE = `
   word-break: break-all; margin-top: 2px;
 }
 
+.wm-search {
+  flex: 1 1 160px; min-width: 120px; max-width: 260px;
+  font-size: 12px; padding: 4px 8px; border-radius: 8px;
+  border: 1px solid var(--wm-border); background: var(--wm-bg); color: var(--wm-fg);
+}
+.wm-col-empty .wm-btn { margin-left: 6px; }
+
 `
