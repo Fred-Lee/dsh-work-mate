@@ -21,7 +21,7 @@ const request: DispatchRequest = { run, task, dispatchId: 'd1' }
 class FakeSubagents implements SubagentServiceLike {
   readonly specs: SubagentStartSpecLike[] = []
   disposed = 0
-  constructor(private readonly result: { stopReason?: string; diagnostic?: string }) {}
+  constructor(private readonly result: { stopReason?: string; diagnostic?: string; output?: unknown[] }) {}
   async startActivation(spec: SubagentStartSpecLike) {
     this.specs.push(spec)
     return {
@@ -94,6 +94,17 @@ describe('HostSubagentDispatcher', () => {
     })
     await dispatcher.start(request)
     expect(subagents.specs[0]?.request.agentPreset).toBe('preset-readonly')
+  })
+
+  it('turns a QUESTION marker into a paused outcome, not done', async () => {
+    const subagents = new FakeSubagents({
+      stopReason: 'completed',
+      output: [{ type: 'text', text: 'QUESTION: 用哪个分支？' }],
+    })
+    const dispatcher = new HostSubagentDispatcher(subagents, { parent: {}, cwdForTask: () => '/wt' })
+
+    const { result } = await dispatcher.start(request)
+    await expect(result).resolves.toMatchObject({ status: 'blocked', question: '用哪个分支？' })
   })
 
 })

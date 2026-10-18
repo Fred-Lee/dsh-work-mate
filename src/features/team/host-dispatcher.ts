@@ -53,6 +53,27 @@ export interface HostDispatcherOptions {
   agentPresetForRole?: (role: TeamRole) => string | undefined
 }
 
+const textOf = (output: readonly unknown[] | undefined): string =>
+  (output ?? [])
+    .map((block) =>
+      block !== null && typeof block === 'object' && (block as { type?: unknown }).type === 'text'
+        ? String((block as { text?: unknown }).text ?? '')
+        : '',
+    )
+    .join('\n')
+
+/** A worker can pause the run by ending with QUESTION:/ESCALATION: instead of pretending success. */
+export function extractWorkerMarker(
+  output: readonly unknown[] | undefined,
+): { kind: 'question' | 'escalation'; body: string } | undefined {
+  const text = textOf(output)
+  const question = /(?:^|\n)\s*QUESTION:\s*(.+)/i.exec(text)
+  if (question?.[1] !== undefined) return { kind: 'question', body: question[1].trim() }
+  const escalation = /(?:^|\n)\s*ESCALATION:\s*(.+)/i.exec(text)
+  if (escalation?.[1] !== undefined) return { kind: 'escalation', body: escalation[1].trim() }
+  return undefined
+}
+
 /** One worker prompt built from the role contract and the task (kept for callers/tests). */
 export function buildTaskPrompt(request: DispatchRequest): string {
   return buildTaskPromptFromRole({
@@ -88,6 +109,17 @@ export class HostSubagentDispatcher implements TeamDispatcher {
       result: (async (): Promise<SettleInput> => {
         try {
           const result = await activation.result
+          const marker = extractWorkerMarker(result.output)
+          if (marker?.kind === 'question') {
+            return { status: 'blocked', question: marker.body, outcome: `child ${activation.childId} asked a question` }
+          }
+          if (marker?.kind === 'escalation') {
+            return {
+              status: 'blocked',
+              escalation: marker.body,
+              outcome: `child ${activation.childId} escalated`,
+            }
+          }
           const completed = result.stopReason === undefined || result.stopReason === 'completed'
           return {
             status: completed ? 'done' : 'failed',

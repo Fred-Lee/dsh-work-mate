@@ -117,4 +117,16 @@ describe('TeamRunner', () => {
     await runner.settle('r1', 'd1', { status: 'failed' })
     await expect(runner.dispatch('r1', 't1', 'd2')).rejects.toThrow(/Dispatch 上限/)
   })
+  it('requeues a blocked task after an answer and allows it to dispatch again', async () => {
+    await runner.createRun({ id: 'r1', proposalId: 'p1', template: 'bug-fix', tasks: [task('t1')] })
+    await runner.dispatch('r1', 't1', 'd1')
+    await runner.settle('r1', 'd1', { status: 'blocked', question: '用哪个分支？' })
+    expect((await runner.get('r1')).tasks[0]?.status).toBe('blocked')
+
+    await runner.resetTask('r1', 't1')
+    const reset = await runner.get('r1')
+    expect(reset.tasks[0]).toMatchObject({ status: 'planned', attempts: 0 })
+    expect((await runner.nextWave('r1')).map((entry) => entry.id)).toEqual(['t1'])
+  })
+
 })

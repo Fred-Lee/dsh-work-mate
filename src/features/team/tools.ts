@@ -12,6 +12,7 @@ import { HostSubagentDispatcher, type SubagentServiceLike } from './host-dispatc
 import { effectiveTargets } from '../proposal/targets.ts'
 import { isTeamTemplate, type TeamTemplate } from './types.ts'
 import type { TeamRunner } from './runner.ts'
+import type { TeamInbox } from './inbox.ts'
 import { TeamEventLog } from './events.ts'
 import { writeTeamSummary } from './summary.ts'
 import type { EventLog } from '../proposal/events.ts'
@@ -29,6 +30,8 @@ export interface TeamToolDeps {
   lifecycleMainBranch: string
   /** Append-only proposal event log (team events share it). */
   events: EventLog
+  /** In-process inbox for worker questions/escalations. */
+  inbox: TeamInbox
 }
 
 const json = (value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }]
@@ -130,9 +133,13 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
           ...(args.provider !== undefined ? { provider: args.provider } : {}),
           signal: (exec as { signal?: AbortSignal }).signal ?? new AbortController().signal,
         })
-        const result = await new TeamCoordinator(deps.runner, dispatcher, undefined, new TeamEventLog(deps.events)).run(
-          args.runId,
-        )
+        const result = await new TeamCoordinator(
+          deps.runner,
+          dispatcher,
+          undefined,
+          new TeamEventLog(deps.events),
+          deps.inbox,
+        ).run(args.runId)
         const summaryPath = await writeTeamSummary({
           projectRoot: resolvedRoot,
           openspecRoot: deps.openspecRoot,
@@ -140,6 +147,39 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
           run: result.run,
         })
         return asJson({ ...result, summaryPath })
+      },
+    }),
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_team_inbox',
+      description: 'List inbox messages (questions/escalations/worker_done) for one team Run.',
+      parameters: { runId: { type: 'string', required: true, description: 'Team Run id.' } },
+      output: { schema: { type: 'json' }, render: (_args, value) => json(value) },
+      isConcurrencySafe: () => true,
+      async execute(args) {
+        return asJson({ messages: deps.inbox.all(args.runId) })
+      },
+    }),
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_team_answer',
+      description: 'Answer a paused team question/escalation and requeue its blocked task; run workmate_team_run again to continue.',
+      parameters: {
+        messageId: { type: 'string', required: true, description: 'Inbox message id.' },
+        reply: { type: 'string', required: true, description: 'The decision/answer given to the worker.' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => json(value) },
+      async execute(args) {
+        const message = deps.inbox.answer(args.messageId, args.reply)
+        const run =
+          message.runId !== undefined && message.taskId !== undefined
+            ? await deps.runner.resetTask(message.runId, message.taskId)
+            : undefined
+        return asJson({ message, run })
       },
     }),
   )

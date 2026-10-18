@@ -36,6 +36,10 @@ export interface SettleInput {
   outcome?: string
   reportPath?: string
   filesModified?: string[]
+  /** Worker needs a human/coordinator decision; the run pauses instead of retrying. */
+  question?: string
+  /** Worker is blocked by a scope/decision it cannot take alone. */
+  escalation?: string
 }
 
 export class TeamRunner {
@@ -180,6 +184,20 @@ export class TeamRunner {
 
   async abort(id: string): Promise<TeamRun> {
     return this.store.patch(id, { status: 'aborted' }, this.now)
+  }
+
+  /** Requeue one blocked task after a human answer; attempts restart so the worker can try again. */
+  async resetTask(id: string, taskId: string): Promise<TeamRun> {
+    const run = await this.get(id)
+    const task = run.tasks.find((entry) => entry.id === taskId)
+    if (task === undefined) throw new Error(`task not found: ${taskId}`)
+    if (task.status !== 'blocked' && task.status !== 'failed') {
+      throw new Error(`task ${taskId} is ${task.status} — 只有 blocked/failed 可重置`)
+    }
+    task.status = 'planned'
+    task.attempts = 0
+    delete task.dispatchId
+    return this.store.patch(id, { status: 'running', tasks: [...run.tasks] }, this.now)
   }
 }
 

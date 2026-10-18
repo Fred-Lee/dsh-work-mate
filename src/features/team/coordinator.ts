@@ -9,11 +9,11 @@
  * a second wave before the current one settles, so one Run has at most
  * `maxParallel` workers and no duplicated dispatch.
  */
-import type { TeamRunner } from './runner.ts'
-import type { SettleInput } from './runner.ts'
+import type { SettleInput, TeamRunner } from './runner.ts'
 import type { TeamRun, TeamTaskRecord } from './types.ts'
 import type { TeamEventSink } from './events.ts'
 import { validateWorkerDone } from './inbox.ts'
+import type { TeamInbox } from './inbox.ts'
 
 export interface DispatchRequest {
   run: TeamRun
@@ -36,6 +36,8 @@ export interface CoordinatorResult {
   waves: number
   /** Set when the run stopped without being terminal. */
   stopped?: string
+  /** Inbox message awaiting a human/coordinator answer. */
+  questionId?: string
 }
 
 const TERMINAL = new Set<TeamRun['status']>(['succeeded', 'partial', 'blocked', 'aborted'])
@@ -46,6 +48,7 @@ export class TeamCoordinator {
     private readonly dispatcher: TeamDispatcher,
     private readonly now: () => Date = () => new Date(),
     private readonly events?: TeamEventSink,
+    private readonly inbox?: TeamInbox,
   ) {}
 
   /** Drive a run to a terminal status; returns the final run (never throws for task failures). */
@@ -106,9 +109,32 @@ export class TeamCoordinator {
           })),
         ),
       )
+      let asked: { id: string } | undefined
       for (const [index, entry] of handles.entries()) {
-        const outcome = outcomes[index]
+        const outcome = outcomes[index] as SettleInput | undefined
         if (outcome === undefined) continue
+        const question = outcome.question ?? outcome.escalation
+        if (question !== undefined && question.trim() !== '') {
+          const kind = outcome.escalation !== undefined ? 'escalation' : 'question'
+          const message = this.inbox?.post({ runId, taskId: entry.task.id, kind, body: question })
+          asked = message
+          const settled = await this.runner.settle(runId, entry.dispatchId, {
+            ...outcome,
+            status: 'blocked',
+            outcome: question,
+          })
+          const task = settled.tasks.find((item) => item.id === entry.task.id)
+          if (task !== undefined) {
+            await this.events?.settled({
+              run: settled,
+              task,
+              dispatchId: entry.dispatchId,
+              status: 'blocked',
+              detail: question,
+            })
+          }
+          continue
+        }
         const proofErrors = validateWorkerDone(entry.task, outcome)
         const effective =
           proofErrors.length > 0
@@ -125,6 +151,11 @@ export class TeamCoordinator {
             ...(effective.outcome !== undefined ? { detail: effective.outcome } : {}),
           })
         }
+      }
+      if (asked !== undefined) {
+        const run = await this.runner.get(runId)
+        await this.events?.run({ run, detail: `paused:${asked.id}` })
+        return { run, waves, stopped: `等待回答 ${asked.id}`, questionId: asked.id }
       }
       waves += 1
     }
