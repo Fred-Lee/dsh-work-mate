@@ -135,4 +135,6 @@
 - P2(b)：协调器把 `handle.sessionId` 合并进 settle；reviewer 复用命中时 cancel 并消费 handle.result，避免孤儿 child。
 - P2(c)：空文本 tagged CRIT 不再吞掉 legacy。
 - P2(d)：prepare 先派生/校验 TASKS 再写 REQ/PLAN，多 target 失败不再留半份产物。
-- 主干 `feat/workmate` 同步。**仍不可归档**：提案工件/G2/G5/Run/独立审查放行未就绪。
+- 主干 `feat/workmate` 同步。
+- 追加：`workmate_team_plan` 仅允许 ready/implementing/merging，堵住 archiving 后新建 planned Run 的通道。
+- **仍不可归档**：提案工件/G2/G5/Run/独立审查放行未就绪。
