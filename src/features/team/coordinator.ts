@@ -70,16 +70,35 @@ export class TeamCoordinator {
       const handles: Array<{ taskId: string; dispatchId: string; handle: DispatchHandle }> = []
       for (const task of wave) {
         const dispatchId = `${runId}-${task.id}-a${task.attempts + 1}`
-        const dispatched = await this.runner.dispatch(runId, task.id, dispatchId)
-        const current = dispatched.tasks.find((entry) => entry.id === task.id)
-        if (current === undefined) continue
-        const handle = await this.dispatcher.start({ run: dispatched, task: current, dispatchId })
-        handles.push({ taskId: task.id, dispatchId, handle })
+        try {
+          const dispatched = await this.runner.dispatch(runId, task.id, dispatchId)
+          const current = dispatched.tasks.find((entry) => entry.id === task.id)
+          if (current === undefined) continue
+          const handle = await this.dispatcher.start({ run: dispatched, task: current, dispatchId })
+          handles.push({ taskId: task.id, dispatchId, handle })
+        } catch (error) {
+          // A start failure is a failed attempt, not a crash of the whole run.
+          await this.runner
+            .settle(runId, dispatchId, {
+              status: 'failed',
+              outcome: error instanceof Error ? error.message : String(error),
+            })
+            .catch(() => undefined)
+        }
       }
       if (handles.length === 0) {
-        return { run: await this.runner.get(runId), waves, stopped: '本波次没有成功派发的任务' }
+        const final = await this.runner.get(runId)
+        if (TERMINAL.has(final.status) || (await this.runner.nextWave(runId)).length > 0) continue
+        return { run: final, waves, stopped: '本波次没有成功派发的任务' }
       }
-      const outcomes = await Promise.all(handles.map((entry) => entry.handle.result))
+      const outcomes = await Promise.all(
+        handles.map((entry) =>
+          entry.handle.result.catch((error: unknown) => ({
+            status: 'failed' as const,
+            outcome: error instanceof Error ? error.message : String(error),
+          })),
+        ),
+      )
       for (const [index, entry] of handles.entries()) {
         const outcome = outcomes[index]
         if (outcome !== undefined) await this.runner.settle(runId, entry.dispatchId, outcome)

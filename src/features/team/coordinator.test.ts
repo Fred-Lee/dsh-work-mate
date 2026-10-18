@@ -112,4 +112,23 @@ describe('TeamCoordinator', () => {
     expect(result.run.status).toBe('aborted')
     expect(result.stopped).toContain('时长预算')
   })
+  it('settles a failed dispatcher start instead of crashing the run', async () => {
+    await runner.createRun({
+      id: 'r1',
+      proposalId: 'p1',
+      template: 'bug-fix',
+      tasks: [task('t1')],
+      budget: { maxAttempts: 1 },
+    })
+    const dispatcher: TeamDispatcher = {
+      async start() {
+        throw new Error('host rejected the child')
+      },
+    }
+
+    const result = await new TeamCoordinator(runner, dispatcher).run('r1')
+    expect(result.run.status).toBe('partial')
+    expect(result.run.tasks[0]?.status).toBe('failed')
+  })
+
 })

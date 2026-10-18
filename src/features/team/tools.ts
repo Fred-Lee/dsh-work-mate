@@ -6,6 +6,9 @@ import type { ProjectRegistry } from '../project/registry.ts'
 import type { ProposalService } from '../proposal/service.ts'
 import { validateProjectRoot } from '../proposal/openspec.ts'
 import { planTeamWaves, parseTeamTasks, teamTasksPath } from './tasks.ts'
+import { TeamCoordinator } from './coordinator.ts'
+import { HostSubagentDispatcher, type SubagentServiceLike } from './host-dispatcher.ts'
+import { effectiveTargets } from '../proposal/targets.ts'
 import { isTeamTemplate, type TeamTemplate } from './types.ts'
 import type { TeamRunner } from './runner.ts'
 
@@ -16,6 +19,10 @@ export interface TeamToolDeps {
   openspecRoot: string
   /** Config-level default project root; may be empty. */
   projectRoot: string
+  /** Optional host subagent service; absent means no autonomous dispatch. */
+  subagents: () => SubagentServiceLike | undefined
+  /** Trunk used when projecting legacy single-target branches. */
+  lifecycleMainBranch: string
 }
 
 const json = (value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }]
@@ -65,6 +72,44 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
         })
         const waves = planTeamWaves(tasks, run.budget.maxParallel).map((wave) => wave.map((task) => task.id))
         return asJson({ run, waves })
+      },
+    }),
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'workmate_team_run',
+      description:
+        'Drive a planned team Run to a terminal status: one native subagent per task, cwd bound to the target worktree, wave by wave. Requires the host subagents service.',
+      parameters: {
+        runId: { type: 'string', required: true, description: 'Run id returned by workmate_team_plan.' },
+        provider: { type: 'string', description: 'Subagent provider name (default: spawn).' },
+      },
+      output: { schema: { type: 'json' }, render: (_args, value) => json(value) },
+      timeoutMs: 30 * 60_000,
+      async execute(args, exec) {
+        const run = await deps.runner.get(args.runId)
+        const subagents = deps.subagents()
+        if (subagents === undefined) throw new Error('宿主未提供 subagents 服务 — 无法派发团队 worker')
+        const agent = (exec as { agent?: unknown }).agent
+        if (agent === undefined) throw new Error('团队派发需要当前 agent 作为父会话')
+        const proposal = await deps.proposals.get(run.proposalId)
+        const targets = proposal === undefined ? [] : effectiveTargets(proposal, deps.lifecycleMainBranch)
+        const cwdForTask = (task: { project: string; id: string }): string => {
+          const target = targets.find((entry) => entry.project === task.project)
+          if (target?.worktreePath === undefined) {
+            throw new Error(`target ${task.project} 没有 worktree — 先推进提案到 implementing`)
+          }
+          return target.worktreePath
+        }
+        const dispatcher = new HostSubagentDispatcher(subagents, {
+          parent: agent,
+          cwdForTask,
+          ...(args.provider !== undefined ? { provider: args.provider } : {}),
+          signal: (exec as { signal?: AbortSignal }).signal ?? new AbortController().signal,
+        })
+        const result = await new TeamCoordinator(deps.runner, dispatcher).run(args.runId)
+        return asJson(result)
       },
     }),
   )

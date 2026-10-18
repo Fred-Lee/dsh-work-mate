@@ -32,6 +32,7 @@ import { parseTargetsSpec } from './features/proposal/targets.ts'
 import { TeamRunStore } from './features/team/store.ts'
 import { TeamRunner } from './features/team/runner.ts'
 import { registerTeamTools } from './features/team/tools.ts'
+import type { SubagentServiceLike } from './features/team/host-dispatcher.ts'
 import type { WorkspaceRegistryLike } from './features/project/workspace-candidates.ts'
 import { AgentProvider, type HostLlmFace } from './features/decision/agent.ts'
 import { RulesProvider } from './features/decision/rules.ts'
@@ -473,12 +474,18 @@ export function apply(ctx: Context, config: Config = {}): void {
   }
 
   registerTools(ctx, { proposals, archive, registry, worktree, swarm, decision, vaultExport: runVaultExport, resolved, events })
+  let subagentsService: SubagentServiceLike | undefined
+  ctx.inject(['subagents'], (scope) => {
+    subagentsService = scope.get('subagents') as SubagentServiceLike
+  })
   registerTeamTools(ctx, {
     proposals,
     registry,
     runner: teamRunner,
     openspecRoot: resolved.openspecRoot,
     projectRoot: resolved.projectRoot,
+    subagents: () => subagentsService,
+    lifecycleMainBranch: resolved.lifecycleMainBranch,
   })
   // Native guidance surfaces: two runtime skills + one flow section. Lazy, so
   // a composition without those services keeps the plugin ACTIVE.
