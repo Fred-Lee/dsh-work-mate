@@ -143,4 +143,16 @@ describe('syncProjectAssets', () => {
     expect(result.note).toContain('claudeAssetsEnabled=false')
     expect(existsSync(join(project, '.claude'))).toBe(false)
   })
+  it('does not double-count a resolved tagged CRIT but still counts an unresolved legacy twin', () => {
+    const doubled = parseReviewMd('## CRITICAL 问题\n- [x] CRIT-1 缺失回滚方案\n- [x] 缺失回滚方案\n')
+    const tally = reviewTally(doubled)
+    expect(tally.findings).toBe(1)
+    expect(tally.bySeverity.CRIT.total).toBe(1)
+
+    const twin = parseReviewMd('## CRITICAL 问题\n- [x] CRIT-1 缺失回滚方案\n- [ ] 缺失回滚方案\n')
+    const twinTally = reviewTally(twin)
+    expect(twinTally.findings).toBe(2)
+    expect(twinTally.blocking).toBe(1)
+  })
+
 })

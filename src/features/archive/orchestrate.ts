@@ -25,6 +25,8 @@ export interface OrchestrationStep {
   step:
     | 'review-gate'
     | 'team-review'
+    | 'team-review-evidence'
+    | 'team-test-evidence'
     | 'review-independent'
     | 'review-evidence'
     | 'tasks'
@@ -466,12 +468,14 @@ export async function orchestrateArchive(
       const label = targets.length > 1 ? `[${target.project}] ` : ''
       let content: string | undefined
       let teamContent: string | undefined
+      let testContent: string | undefined
       try {
         const changeDir = await resolveChangeDir(target.root, options.openspecRoot, proposal.openspecChangeId)
         content = await readFile(join(changeDir, 'review.md'), 'utf8').catch(() => undefined)
         // Team changes use a distinct uppercase artifact; macOS is case-insensitive,
         // so it must not share a name with the planning `review.md` (C2).
         teamContent = await readFile(join(changeDir, 'TEAM-REVIEW.md'), 'utf8').catch(() => undefined)
+        testContent = await readFile(join(changeDir, 'TEST.md'), 'utf8').catch(() => undefined)
         if (content === undefined && teamContent !== undefined) content = teamContent
       } catch {
         // unresolved change dir
@@ -490,7 +494,7 @@ export async function orchestrateArchive(
       const report = parseReviewMd(content)
       if (teamContent !== undefined) {
         const teamReport = parseReviewMd(teamContent)
-        const teamTally = reviewTally(withLegacyCriticals(teamReport), options.reviewBlockingSeverities ?? ['CRIT'])
+        const teamTally = reviewTally(teamReport, options.reviewBlockingSeverities ?? ['CRIT'])
         if (teamTally.blocking > 0) {
           gateFailed = true
           steps.push({
@@ -501,8 +505,25 @@ export async function orchestrateArchive(
         } else {
           steps.push({ step: 'team-review', status: 'ok', summary: `${label}TEAM-REVIEW.md 无阻断级发现` })
         }
+        if (options.reviewEvidenceGate !== undefined && options.reviewEvidenceGate !== 'off') {
+          const probe = fileSystemProbe(target.root)
+          for (const [step, name, text] of [
+            ['team-review-evidence', 'TEAM-REVIEW.md', teamContent],
+            ['team-test-evidence', 'TEST.md', testContent],
+          ] as const) {
+            if (text === undefined) continue
+            const citations = await checkCitations(text, probe)
+            const missing = citations.byVerdict['file-missing']
+            const block = options.reviewEvidenceGate === 'block' && missing > 0
+            if (block) gateFailed = true
+            steps.push({
+              step,
+              status: block ? 'failed' : missing > 0 || citations.byVerdict['line-out-of-range'] > 0 ? 'skipped' : 'ok',
+              summary: `${label}${name} ${formatCitationReport(citations)}${block ? ' —— reviewEvidenceGate=block，归档被阻断' : ''}`,
+            })
+          }
+        }
       }
-      const mergedReport = withLegacyCriticals(report)
       const graded =
         deps.decide === undefined
           ? []
@@ -541,7 +562,7 @@ export async function orchestrateArchive(
         })
       }
       const tally = reviewTally(
-        { ...mergedReport, findings: [...mergedReport.findings, ...graded] },
+        { ...report, findings: [...report.findings, ...graded] },
         options.reviewBlockingSeverities ?? ['CRIT'],
       )
       const counts = formatTally(tally)
@@ -860,22 +881,6 @@ async function findArchivedDir(root: string, openspecRoot: string, changeId: str
   } catch {
     return undefined
   }
-}
-
-/** Fold legacy `## CRITICAL 问题` entries into findings unless an unresolved tagged CRIT already covers them. */
-function withLegacyCriticals(report: ReturnType<typeof parseReviewMd>): ReturnType<typeof parseReviewMd> {
-  const unresolvedTagged = new Set(
-    report.findings.filter((finding) => finding.severity === 'CRIT' && !finding.resolved).map((finding) => finding.text),
-  )
-  const legacy = report.criticals
-    .filter((issue) => ![...unresolvedTagged].some((text) => text !== '' && issue.text.includes(text)))
-    .map((issue, index) => ({
-      severity: 'CRIT' as const,
-      tag: `LEGACY-${index + 1}`,
-      text: issue.text,
-      resolved: issue.resolved,
-    }))
-  return { ...report, findings: [...legacy, ...report.findings] }
 }
 
 /** Best-effort per-project delivery summary (design D4). */

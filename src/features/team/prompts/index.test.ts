@@ -53,4 +53,21 @@ describe('role prompts', () => {
     })
     expect(prompt).toContain('负责工件：TEST.md')
   })
+  it('gives a reviewer the dispatch id needed for the TEAM-REVIEW marker', () => {
+    const prompt = buildTaskPrompt({
+      task: {
+        id: 't3',
+        title: '审查订单',
+        role: 'reviewer',
+        project: 'repo',
+        writes: [],
+        acceptance: '给出审查结论',
+      },
+      runId: 'r1',
+      dispatchId: 'r1-t3-a1',
+    })
+    expect(prompt).toContain('Dispatch：r1-t3-a1')
+    expect(prompt).toContain('<!-- reviewer: r1-t3-a1 -->')
+  })
+
 })

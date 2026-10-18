@@ -88,6 +88,7 @@ describe('HostSubagentDispatcher', () => {
   it('builds a role-aware prompt that forbids scope invention', () => {
     const prompt = buildTaskPrompt(request)
     expect(prompt).toContain('允许写入：src/main/order/**')
+    expect(prompt).toContain('Dispatch：d1')
     expect(prompt).toContain('不要启动子代理')
     expect(prompt).toContain('不要伪造成功')
   })

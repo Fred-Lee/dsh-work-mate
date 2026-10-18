@@ -839,9 +839,11 @@ export class LifecycleServiceImpl {
     const latestRun = runs
       .filter((run) => run.proposalId === proposal.id)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
+    const managed = result.managed || latestRun !== undefined
+    if (!managed) return
     const runError =
-      latestRun !== undefined && ['partial', 'blocked', 'aborted'].includes(latestRun.status)
-        ? `最近团队 Run ${latestRun.id} 终态为 ${latestRun.status}，不得归档`
+      latestRun !== undefined && latestRun.status !== 'succeeded'
+        ? `最近团队 Run ${latestRun.id} 终态为 ${latestRun.status}，只有 succeeded 才能归档`
         : undefined
     const reviewerError = (() => {
       if (latestRun === undefined || result.reviewer === undefined) return undefined
@@ -854,9 +856,11 @@ export class LifecycleServiceImpl {
       }
       return undefined
     })()
-    if ((!result.managed || result.ok) && runError === undefined && reviewerError === undefined) return
+    const tasksError = result.managed ? undefined : '存在团队 Run 但 TASKS.json 缺失 — 团队证据不可绕过'
+    if (result.ok && runError === undefined && reviewerError === undefined && tasksError === undefined) return
     const errors = [
       ...result.errors,
+      ...(tasksError !== undefined ? [tasksError] : []),
       ...(runError !== undefined ? [runError] : []),
       ...(reviewerError !== undefined ? [reviewerError] : []),
     ]

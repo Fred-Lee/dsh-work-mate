@@ -102,6 +102,9 @@ export function buildTaskPrompt(input: TaskPromptInput): string {
     '',
     '## 规则',
     ...role.rules.map((line) => `- ${line}`),
+    ...(task.role === 'reviewer' && input.dispatchId !== undefined
+      ? [`- TEAM-REVIEW.md 首行写 <!-- reviewer: ${input.dispatchId} -->`]
+      : []),
     ...contract.forbidden.map((line) => `- ${line}`),
     '完成前把改动 commit 到当前 feature 分支；未提交不算 done。',
     '- 不要启动子代理。',

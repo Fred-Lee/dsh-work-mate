@@ -114,6 +114,7 @@ export function buildTaskPrompt(request: DispatchRequest): string {
     task: request.task,
     ...(request.run.id !== undefined ? { runId: request.run.id } : {}),
     ...(request.run.proposalId !== undefined ? { proposalId: request.run.proposalId } : {}),
+    dispatchId: request.dispatchId,
   })
 }
 

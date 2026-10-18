@@ -150,26 +150,39 @@ export function reviewTally(report: ReviewReport, blockingSeverities: readonly s
   const bySeverity = Object.fromEntries(
     SEVERITIES.map((severity) => [severity, { total: 0, open: 0 }]),
   ) as Record<ReviewSeverity, { total: number; open: number }>
-  for (const finding of report.findings) {
+  // Merge legacy `## CRITICAL 问题` entries with tagged findings. A critical is
+  // already represented only when a tagged CRIT has the same text AND the same
+  // resolution state — a resolved tagged CRIT must not hide an unresolved legacy
+  // entry with the same wording.
+  const legacy = report.criticals
+    .filter((issue) => {
+      const covered = report.findings.some(
+        (finding) =>
+          finding.severity === 'CRIT' &&
+          finding.resolved === issue.resolved &&
+          (issue.text === finding.text || issue.text.includes(finding.text)),
+      )
+      return !covered
+    })
+    .map((issue, index) => ({
+      severity: 'CRIT' as const,
+      tag: `LEGACY-${index + 1}`,
+      text: issue.text,
+      resolved: issue.resolved,
+    }))
+  const findings = [...report.findings, ...legacy]
+  for (const finding of findings) {
     bySeverity[finding.severity].total += 1
     if (!finding.resolved) bySeverity[finding.severity].open += 1
   }
-  // Legacy shape: a CRITICAL section without tags still counts as CRIT findings.
-  if (report.findings.length === 0) {
-    bySeverity.CRIT.total = report.criticals.length
-    bySeverity.CRIT.open = unresolvedCriticals(report).length
-  }
-  const blockingFindings = report.findings.filter(
+  const blockingFindings = findings.filter(
     (finding) => !finding.resolved && blockingSeverities.includes(finding.severity),
   )
-  const blocking = report.findings.length === 0 && blockingSeverities.includes('CRIT')
-    ? bySeverity.CRIT.open
-    : blockingFindings.length
   return {
     bySeverity,
-    findings: report.findings.length === 0 ? report.criticals.length : report.findings.length,
-    open: report.findings.length === 0 ? bySeverity.CRIT.open : report.findings.filter((f) => !f.resolved).length,
-    blocking,
+    findings: findings.length,
+    open: findings.filter((finding) => !finding.resolved).length,
+    blocking: blockingFindings.length,
     blockingFindings,
     ...(report.reviewer.reviewer !== undefined ? { reviewer: report.reviewer.reviewer } : {}),
     shadow: report.reviewer.shadow,
