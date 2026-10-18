@@ -127,3 +127,12 @@
 - H-6：协调器启动时从历史 dispatches 重载 session→role，跨 maxWaves 恢复也能发现 reviewer 复用；测试。
 - H-D：多 target 且任务未声明 `project` 时 prepare 直接拒绝，不再生成必然失败的主项目矩阵；测试。
 - **仍不可归档**：提案记录/工件/G2/G5/Run 未就绪，独立审查未最终放行。
+
+## 第十轮修复（2026-10-19，第四轮审查 P1/P2）
+
+- P1：`runArchive` 在真正归档前重查团队证据（最近 Run 必须 succeeded、TASKS.json 必须在），补 planned/running/缺 TASKS 的 runArchive 测试。
+- P2(a)：归档门增加 reviewer/implementer **sessionId 不相交**校验。
+- P2(b)：协调器把 `handle.sessionId` 合并进 settle；reviewer 复用命中时 cancel 并消费 handle.result，避免孤儿 child。
+- P2(c)：空文本 tagged CRIT 不再吞掉 legacy。
+- P2(d)：prepare 先派生/校验 TASKS 再写 REQ/PLAN，多 target 失败不再留半份产物。
+- 主干 `feat/workmate` 同步。**仍不可归档**：提案工件/G2/G5/Run/独立审查放行未就绪。
