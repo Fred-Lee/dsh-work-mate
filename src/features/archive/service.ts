@@ -15,7 +15,8 @@ import {
   STATE_HINTS,
   type ProposalState,
 } from '../proposal/state-machine.ts'
-import type { Proposal } from '../proposal/store.ts'
+import type { Proposal, ProposalTarget } from '../proposal/store.ts'
+import { effectiveTargets } from '../proposal/targets.ts'
 import type { ProposalService } from '../proposal/service.ts'
 import { WorktreeManager } from '../worktree/manager.ts'
 import { branchExists, isMergedInto } from '../worktree/git.ts'
@@ -147,7 +148,7 @@ export interface ArchiveOptions extends TransitionOptions {
 export interface TransitionOutcome {
   proposal: Proposal
   /** Set when the transition created the worktree (ready→implementing). */
-  worktree?: { worktreePath: string; portRange: number[]; install: string }
+  worktree?: { worktreePath: string; portRange: number[]; install: string; targets?: ProposalTarget[] }
   orchestration?: OrchestrationResult
   /**
    * True when the archive run skipped a gate via `force` (change `harden-archive-gates`).
@@ -415,22 +416,77 @@ export class LifecycleServiceImpl {
     options: TransitionOptions = {},
   ): Promise<TransitionOutcome['worktree'] | undefined> {
     if (to === 'implementing') {
-      const root = await this.primaryRoot(proposal)
-      if (root === undefined) {
+      let targets = effectiveTargets(proposal, this.mainBranch)
+      const roots = (await this.deps.resolveProjectRoots?.(proposal)) ?? []
+      // Legacy/headless records may have neither `targets` nor `projects` but a
+      // resolver that still knows the root (the pre-target tests rely on this).
+      if (targets.length === 0 && roots.length > 0) {
+        targets = roots.map((entry) => ({ project: entry.project, baseBranch: this.mainBranch }))
+      }
+      if (targets.length === 0) {
         throw new InvalidTransitionError('无关联项目根 — 无法创建 worktree；先在面板关联项目')
       }
-      const created = await this.deps.worktree.create({
-        projectRoot: root,
-        proposalId: proposal.id,
-        mainBranch: this.mainBranch,
-        ...(options.signal !== undefined ? { signal: options.signal } : {}),
-      })
+      const rootByProject = new Map(roots.map((entry) => [entry.project, entry.root]))
+      const missing = targets.filter((target) => !rootByProject.has(target.project)).map((target) => target.project)
+      if (missing.length > 0) {
+        throw new InvalidTransitionError(`项目根未注册：${missing.join(', ')} — 先在面板注册项目`)
+      }
+
+      const created: ProposalTarget[] = []
+      const installed: string[] = []
+      const done: Array<{ projectRoot: string; project: string }> = []
+      try {
+        for (const target of targets) {
+          const projectRoot = rootByProject.get(target.project) as string
+          const result = await this.deps.worktree.createTarget({
+            projectRoot,
+            project: target.project,
+            proposalId: proposal.id,
+            baseBranch: target.baseBranch,
+            ...(options.signal !== undefined ? { signal: options.signal } : {}),
+          })
+          created.push({
+            ...target,
+            featureBranch: result.featureBranch,
+            worktreePath: result.worktreePath,
+            portRange: result.portRange,
+          })
+          installed.push(result.install)
+          done.push({ projectRoot, project: target.project })
+        }
+      } catch (error) {
+        for (const entry of done.reverse()) {
+          try {
+            await this.deps.worktree.remove({
+              projectRoot: entry.projectRoot,
+              project: entry.project,
+              proposalId: proposal.id,
+              force: true,
+            })
+          } catch {
+            // best effort: the original failure is the one worth reporting
+          }
+        }
+        throw new InvalidTransitionError(
+          `创建 target worktree 失败（已回滚 ${done.length} 个）：${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+
+      const single = created.length === 1 ? created[0] : undefined
       await this.deps.proposals.patchFields(proposal.id, {
-        worktreePath: created.worktreePath,
-        portRange: created.portRange,
-        featureBranch: created.featureBranch,
+        targets: created,
+        ...(single !== undefined
+          ? { worktreePath: single.worktreePath, portRange: single.portRange, featureBranch: single.featureBranch }
+          : { worktreePath: undefined, portRange: undefined, featureBranch: undefined }),
       })
-      return { worktreePath: created.worktreePath, portRange: created.portRange, install: created.install }
+      const install = installed.includes('failed') ? 'failed' : installed.includes('installed') ? 'installed' : 'skipped'
+      const first = created[0] as ProposalTarget
+      return {
+        worktreePath: first.worktreePath as string,
+        portRange: first.portRange ?? [],
+        install,
+        targets: created,
+      }
     }
     if (to === 'archiving') {
       // wiki.md + commits.md land in the change dir BEFORE openspec archive
