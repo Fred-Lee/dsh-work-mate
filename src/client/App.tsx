@@ -941,6 +941,27 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
                 </button>
               </div>
             ))}
+          <div className="wm-team-roles">
+            {[...new Set(shown.tasks.map((task) => task.role))].map((role) => {
+              const roleTasks = shown.tasks.filter((task) => task.role === role)
+              const active = roleTasks.filter((task) => task.status === 'dispatched' || task.status === 'running').length
+              return (
+                <span className={`wm-team-role${active > 0 ? ' active' : ''}`} key={role}>
+                  {role} · {roleTasks.length}
+                  {active > 0 ? ` · 运行 ${active}` : ''}
+                </span>
+              )
+            })}
+          </div>
+          {shown.tasks.some((task) => task.status === 'dispatched' || task.status === 'running') && (
+            <div className="wm-team-current">
+              当前 worker：
+              {shown.tasks
+                .filter((task) => task.status === 'dispatched' || task.status === 'running')
+                .map((task) => `${task.id}（${task.role}）`)
+                .join('、')}
+            </div>
+          )}
           <div className="wm-team-waves">
             {taskWaves(shown.tasks).map((wave, index) => (
               <div className="wm-team-wave" key={index}>

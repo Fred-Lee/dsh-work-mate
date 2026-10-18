@@ -339,4 +339,12 @@ export const PANEL_STYLE = `
   font-size: 12px;
 }
 
+.wm-team-roles { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.wm-team-role {
+  font-size: 11px; padding: 3px 8px; border-radius: 999px;
+  border: 1px solid var(--wm-border); color: var(--wm-muted);
+}
+.wm-team-role.active { border-color: #3b82f6; color: #3b82f6; background: rgba(59, 130, 246, .10); }
+.wm-team-current { font-size: 12px; color: #3b82f6; margin-bottom: 6px; }
+
 `

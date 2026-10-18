@@ -587,6 +587,7 @@ describe('panel scroll contract (fix-panel-scroll)', () => {
     fireEvent.click(screen.getByText('r1'))
 
     await screen.findByText('backend-dev')
+    expect(screen.getByText(/当前 worker：t1/)).toBeTruthy()
     expect(screen.getByText('team-dispatch t1 dispatched role=backend-dev')).toBeTruthy()
   })
 
