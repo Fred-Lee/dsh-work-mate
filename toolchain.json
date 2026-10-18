@@ -1,15 +1,15 @@
 {
   "manifestVersion": 1,
   "profile": {
-    "dsh": "0.2.1-alpha.1",
-    "note": "Verified host baseline: DSH 0.2.1-alpha.1 (local workbench runs the @deepseek-ai/dsh-root 0.2.1-alpha.1 source tree, tag dsh-v0.2.1-alpha.1). Kernel packages are pinned to the same line as the running installation: @deepseek-ai/dsh-tools (build-against) and @deepseek-ai/schemastery (runtime). Compatibility with a running dsh is decided ONLY by peerDependencies whose name is '@deepseek-ai/dsh' or starts with '@deepseek-ai/dsh-' (packages/boot/app-boot/src/plugin-compatibility.ts), evaluated with semver.satisfies(runtime, range, {includePrerelease:true}); @deepseek-ai/dsh-tools is therefore declared as '*' in peerDependencies (a narrow range would get the plugin rejected on the next host line) while the devDependencies pin below is the build-against line used for typechecking and tests. At runtime the host's own resolution answers a linked importer's declared peers from the running installation (packages/boot/app-boot/src/profile-resolution/resolver.ts), so the plugin executes against the host's kernel copies."
+    "dsh": "0.2.1-rc.2",
+    "note": "Verified runtime baseline: the local web profile serves @deepseek-ai/dsh-tools 0.2.1-rc.2. The build-against line remains 0.2.1-alpha.1 because rc.2 is a workspace build not published to the npm registry; peerDependencies['@deepseek-ai/dsh-tools'] stays '*' so the host loads the plugin on either line. Compatibility is decided ONLY by peerDependencies named '@deepseek-ai/dsh' or starting with '@deepseek-ai/dsh-' (semver.satisfies(runtime, range, {includePrerelease:true})); dependencies are never consulted. At runtime the host resolves a linked importer's peers from the running installation, so the plugin executes against the host kernel copies."
   },
   "require": {
     "@deepseek-ai/cordis": "^4.0.2",
     "@deepseek-ai/dsh-tools": "0.2.1-alpha.1"
   },
   "runtime": {
-    "@deepseek-ai/schemastery": "3.18.5-alpha.1"
+    "@deepseek-ai/schemastery": "3.18.5"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
@@ -18,8 +18,8 @@
     {
       "id": "schemastery-duplicate-copy-type-mismatch",
       "summary": "Two schemastery copies in one program break the `z<Config>` annotation",
-      "detail": "@deepseek-ai/dsh-tools pins its own schemastery range (0.2.1-alpha.1 -> ~3.18.5-alpha.1). If the plugin's own copy is a different version (e.g. 3.18.2), the program contains two Schema types and `export const Config: z<Config> = z.object({...})` fails with TS2322 on `meta.default`.",
-      "resolution": "Keep the @deepseek-ai/schemastery version equal to the one the pinned @deepseek-ai/dsh-tools depends on (today 3.18.5-alpha.1) and re-run pnpm typecheck after any host-line bump."
+      "detail": "@deepseek-ai/dsh-tools pins its own schemastery range. If the plugin's own copy is a different version, the program contains two Schema types and the Config annotation fails with TS2322. The profile currently serves schemastery 3.18.5 while this repo typechecks against 3.18.5-alpha.1; keep the plugin copy on the same build-against line and re-run typecheck after any host bump.",
+      "resolution": "Keep @deepseek-ai/schemastery equal to the version the pinned @deepseek-ai/dsh-tools depends on, and re-run pnpm typecheck after any host-line bump."
     },
     {
       "id": "dsh-tools-peer-must-stay-star",

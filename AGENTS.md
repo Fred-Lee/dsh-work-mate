@@ -201,11 +201,12 @@ node $DSH web                                                # http://127.0.0.1:
 工件账本与 plan-drift 已落地（M15）。判断层（M16）插件默认关闭，但**本机 web profile 已开启**（`cordis.patch.yml` 的 workmate 行：`decisionEnabled=true`、3 次采样、缓存开启）；插件侧默认仍是关闭，
 `decisionProvider` 可切 `agent` / `rules` / `jev`（`jev` 仅接口占位，需 TypeSafe key 才有适配器）。
 
-已知环境事实（2026-10-05 复核）：本机 harness 与宿主内核线 **`0.2.1-alpha.1`**
-（源码树 `@deepseek-ai/dsh-root 0.2.1-alpha.1`，tag `dsh-v0.2.1-alpha.1`）；
-`@deepseek-ai/dsh-tools 0.2.1-alpha.1`（devDependency 钉此线）、
-`@deepseek-ai/schemastery 3.18.5-alpha.1`、`@deepseek-ai/cordis 4.0.5-alpha.1`
-（共享 store 实装值）。社区侧：`dsh-better-sidebar` 0.24.1+ 已适配，
+已知环境事实（2026-10-19 复核）：本机 profile **运行内核线是 `@deepseek-ai/dsh-tools 0.2.1-rc.2`**
+（`~/.dsh/profiles/node_modules` 实装），但 rc.2 是 workspace 构建、**未发布到 npm registry**，
+所以本仓库 devDependency 仍钉**可构建的 `0.2.1-alpha.1`**；`toolchain.json profile.dsh` 记录运行
+基线 rc.2，`require`/devDependencies 记录构建基线 alpha.1，`peer` 保持 `*` 让两条线都能装载。
+profile 侧 `@deepseek-ai/schemastery 3.18.5`、`@deepseek-ai/cordis 4.0.5`；本仓库构建用
+`schemastery 3.18.5-alpha.1`、`cordis ^4.0.2`（与 alpha.1 线一致）。社区侧：`dsh-better-sidebar` 0.24.1+ 已适配，
 `dsh-mnemon` / `@linxin666/*` / `@changfenhuang/dsh-annotation` 亦可用；
 `dsh-auto-review`、`dsh-mcp-adapter`、`@open-agfs/dsh-agfs`、`dsh-outline`
 **暂无兼容 0.2.x 的版本**（peer 停在 0.1.x）；`@deepseek-ai/dsh-mcp-client`
