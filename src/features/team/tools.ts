@@ -17,6 +17,7 @@ import { writeTeamSummary } from './summary.ts'
 import type { EventLog } from '../proposal/events.ts'
 import { assertRolePresets, presetForRole, type RolePresetConfig } from './presets.ts'
 import { parseRoleModels } from './models.ts'
+import { changedFilesAgainst } from '../quality/test-scope.ts'
 
 export interface TeamToolDeps {
   proposals: ProposalService
@@ -54,6 +55,11 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
     if (agent === undefined) throw new Error('团队派发需要当前 agent 作为父会话')
     const proposal = await deps.proposals.get(run.proposalId)
     if (proposal === undefined) throw new Error(`proposal not found: ${run.proposalId}`)
+    if (proposal.status !== 'implementing' && proposal.status !== 'merging') {
+      throw new Error(
+        `提案当前为 ${proposal.status}，团队派发前必须先到 implementing（G2 已批准、target worktree 已创建）`,
+      )
+    }
     const primary = proposal.primaryProject ?? proposal.projects[0]
     const registered = primary === undefined ? undefined : await deps.registry.get(primary)
     const root = (options.projectRoot ?? registered?.root ?? deps.projectRoot).trim()
@@ -84,6 +90,12 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
       cwdForTask,
       agentPresetForRole: (role) => presetForRole(role, deps.rolePresetConfig),
       agentOptionsForRole: (role) => roleModels.models[role],
+      verifyReportPath: true,
+      changedFilesForTask: async (task) => {
+        const target = targets.find((entry) => entry.project === task.project)
+        if (target?.worktreePath === undefined || target.baseCommit === undefined) return undefined
+        return changedFilesAgainst(target.worktreePath, target.baseCommit)
+      },
       ...(options.provider !== undefined ? { provider: options.provider } : {}),
       signal: exec.signal ?? new AbortController().signal,
     })

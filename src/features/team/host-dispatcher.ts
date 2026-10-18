@@ -10,6 +10,8 @@
 import type { DispatchHandle, DispatchRequest, TeamDispatcher } from './coordinator.ts'
 import type { SettleInput } from './runner.ts'
 import { buildTaskPrompt as buildTaskPromptFromRole } from './prompts/index.ts'
+import { stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { TeamRole, TeamTaskRecord } from './types.ts'
 
 export interface SubagentResultLike {
@@ -56,6 +58,10 @@ export interface HostDispatcherOptions {
   agentPresetForRole?: (role: TeamRole) => string | undefined
   /** Optional role→model overrides; omitted inherits the parent session model. */
   agentOptionsForRole?: (role: TeamRole) => { provider?: string; model?: string; reasoningEffort?: string } | undefined
+  /** Measure actual files changed in the worktree (git diff against the base commit). */
+  changedFilesForTask?: (task: TeamTaskRecord) => Promise<string[] | undefined>
+  /** Require REPORT paths to exist under cwd before accepting done. */
+  verifyReportPath?: boolean
 }
 
 const textOf = (output: readonly unknown[] | undefined): string =>
@@ -134,17 +140,33 @@ export class HostSubagentDispatcher implements TeamDispatcher {
       result: (async (): Promise<SettleInput> => {
         try {
           const result = await activation.result
-          const filesModified = extractFilesModified(result.output)
-          const reportPath = extractReportPath(result.output)
           const marker = extractWorkerMarker(result.output)
-          if (marker?.kind === 'question') {
-            return { status: 'blocked', question: marker.body, outcome: `child ${activation.childId} asked a question` }
-          }
-          if (marker?.kind === 'escalation') {
+          if (marker !== undefined) {
+            if (marker.kind === 'question') {
+              return { status: 'blocked', question: marker.body, outcome: `child ${activation.childId} asked a question` }
+            }
             return {
               status: 'blocked',
               escalation: marker.body,
               outcome: `child ${activation.childId} escalated`,
+            }
+          }
+          const markerReport = extractReportPath(result.output)
+          const markerFiles = extractFilesModified(result.output)
+          const measured = await this.options.changedFilesForTask?.(request.task)
+          const filesModified =
+            measured !== undefined || markerFiles !== undefined
+              ? [...new Set([...(measured ?? []), ...(markerFiles ?? [])])]
+              : undefined
+          const reportPath = markerReport
+          if (reportPath !== undefined && this.options.verifyReportPath === true) {
+            try {
+              await stat(join(cwd, reportPath))
+            } catch {
+              return {
+                status: 'failed',
+                outcome: `REPORT 路径不存在：${reportPath}`,
+              }
             }
           }
           const completed = result.stopReason === undefined || result.stopReason === 'completed'

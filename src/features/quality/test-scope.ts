@@ -71,3 +71,17 @@ export async function changedFilesSince(projectRoot: string, baseRef: string): P
     })
   })
 }
+
+/** Changed + untracked files against a ref (worktree state, not just commits). */
+export async function changedFilesAgainst(projectRoot: string, ref: string): Promise<string[] | undefined> {
+  const run = (args: string[]): Promise<string | undefined> =>
+    new Promise((resolvePromise) => {
+      execFile('git', args, { cwd: projectRoot }, (error, stdout) => resolvePromise(error ? undefined : stdout))
+    })
+  const [tracked, untracked] = await Promise.all([
+    run(['diff', '--name-only', ref]),
+    run(['ls-files', '--others', '--exclude-standard']),
+  ])
+  if (tracked === undefined) return undefined
+  return [...new Set([...tracked.split('\n'), ...(untracked ?? '').split('\n')].map((line) => line.trim()).filter((line) => line !== ''))]
+}

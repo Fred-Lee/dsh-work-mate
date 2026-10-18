@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  changedFilesAgainst,
   changedFilesSince,
   DEFAULT_TEST_ALLOWLIST,
   globToRegExp,
@@ -64,4 +65,18 @@ describe('changedFilesSince', () => {
   it('returns undefined when git cannot answer', async () => {
     await expect(changedFilesSince(root, 'missing-ref')).resolves.toBeUndefined()
   })
+  it('includes tracked and untracked files against a ref', async () => {
+    const base = await new Promise<string>((resolvePromise, reject) => {
+      execFile('git', ['rev-parse', 'HEAD'], { cwd: root }, (error, stdout) =>
+        error ? reject(error) : resolvePromise(stdout.trim()),
+      )
+    })
+    await writeFile(join(root, 'tracked.ts'), 'x\n', 'utf8')
+    await writeFile(join(root, 'untracked.ts'), 'y\n', 'utf8')
+    await git(['add', 'tracked.ts'], root)
+    await expect(changedFilesAgainst(root, base)).resolves.toEqual(
+      expect.arrayContaining(['tracked.ts', 'untracked.ts']),
+    )
+  })
+
 })

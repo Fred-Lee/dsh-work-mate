@@ -149,4 +149,31 @@ describe('HostSubagentDispatcher', () => {
     await expect((await dispatcher.start(request)).result).resolves.toMatchObject({ reportPath: 'TEST.md' })
   })
 
+  it('measures changed files via git and rejects a missing REPORT path', async () => {
+    const measured = new FakeSubagents({ stopReason: 'completed' })
+    const dispatcher = new HostSubagentDispatcher(measured, {
+      parent: {},
+      cwdForTask: () => '/wt',
+      changedFilesForTask: async () => ['src/main/a.ts'],
+      verifyReportPath: true,
+    })
+    await expect((await dispatcher.start(request)).result).resolves.toMatchObject({
+      filesModified: ['src/main/a.ts'],
+    })
+
+    const withReport = new FakeSubagents({
+      stopReason: 'completed',
+      output: [{ type: 'text', text: 'REPORT: TEST.md' }],
+    })
+    const missing = new HostSubagentDispatcher(withReport, {
+      parent: {},
+      cwdForTask: () => '/wt',
+      verifyReportPath: true,
+    })
+    await expect((await missing.start(request)).result).resolves.toMatchObject({
+      status: 'failed',
+      outcome: expect.stringContaining('REPORT 路径不存在'),
+    })
+  })
+
 })
