@@ -1,0 +1,50 @@
+#!/usr/bin/env node
+/**
+ * Built-artifact tool gate: load dist/index.js the way the host does (no
+ * bundler, real module evaluation) and assert the registered tool surface.
+ * `pnpm verify:client` covers the client bundle; this covers the host bundle.
+ */
+import { pathToFileURL } from 'node:url'
+import { join } from 'node:path'
+
+const root = process.cwd()
+const moduleUrl = pathToFileURL(join(root, 'dist', 'index.js')).href
+const mod = await import(moduleUrl)
+
+const registered = []
+const available = {}
+const ctx = {
+  tools: { register: (definition) => registered.push(definition) },
+  get: (key) => available[key],
+  inject: (deps, callback) => {
+    if (deps.every((dep) => available[dep] !== undefined)) {
+      callback({ ...available, get: (key) => available[key] })
+    }
+    return {}
+  },
+  provide: () => {},
+  effect: (fn) => fn(),
+}
+
+mod.apply(ctx)
+
+const names = registered.map((definition) => definition.name)
+const required = [
+  'workmate_proposal_create',
+  'workmate_proposal_status',
+  'workmate_team_plan',
+  'workmate_team_run',
+  'workmate_team_status',
+  'workmate_team_inbox',
+  'workmate_team_answer',
+]
+const missing = required.filter((name) => !names.includes(name))
+if (mod.name !== 'workmate') {
+  console.error(`[built-tools] FAILED — unexpected export name ${String(mod.name)}`)
+  process.exit(1)
+}
+if (missing.length > 0) {
+  console.error(`[built-tools] FAILED — missing tools: ${missing.join(', ')}`)
+  process.exit(1)
+}
+console.log(`[built-tools] ok — name=${mod.name}, tools=${registered.length}, team tools present`)

@@ -24,6 +24,7 @@ pnpm verify                    # 五条门禁：契约 + 工具链钉版 + 宿�
 pnpm verify:contract           # patch id / package.json / 入口 name 三处一致
 pnpm verify:toolchain          # toolchain.json ↔ package.json 钉版一致
 pnpm verify:host-compat        # dsh peer 范围与宿主基线（借宿主自己的判定函数）
+pnpm verify:built              # 加载 dist/index.js（真实模块求值）并断言宿主工具面（团队 5 工具在内）
 pnpm verify:client             # 在 VM 里真求值 dist/client/client.js：load 次数 / id / apply /
                                # inject / external 白名单（**默认拒绝**）——补"单测抓不到、
                                # 只有真机才暴露"那道门；它只管装载契约，不证明 UI 渲染对
