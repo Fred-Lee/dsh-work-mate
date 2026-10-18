@@ -68,7 +68,7 @@ function relativeTime(iso: string): string {
 
 export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const { projectRoot } = props
-  const [view, setView] = useState<'board' | 'graph' | 'console'>(() => initialView())
+  const [view, setView] = useState<'board' | 'list' | 'graph' | 'console'>(() => initialView())
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [details, setDetails] = useState<Record<string, ProposalStatusPayload>>({})
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -89,6 +89,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const [isolation, setIsolation] = useState<IsolationPayload>({ occupancy: [], conflicts: [] })
   const [importOpen, setImportOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
+  const [drawerId, setDrawerId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
   const refresh = useCallback(async () => {
@@ -165,6 +166,14 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
     [projectRootDraft],
   )
 
+  const openDrawer = useCallback(
+    (id: string) => {
+      setDrawerId(id)
+      if (details[id] === undefined) void loadDetail(id)
+    },
+    [details, loadDetail],
+  )
+
   const act = useCallback(
     async (id: string, action: 'advance' | 'back' | 'archive' | 'abandon' | 'plan', to?: ProposalState, force = false) => {
       setBusy(true)
@@ -239,6 +248,19 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
     [visibleProposals],
   )
 
+  const listRows = useMemo(() => {
+    const filtered = showArchived ? visibleProposals : visibleProposals.filter((proposal) => proposal.status !== 'archived')
+    return [...filtered].sort(
+      (left, right) =>
+        (left.status === 'archived' ? 1 : 0) - (right.status === 'archived' ? 1 : 0) ||
+        right.updatedAt.localeCompare(left.updatedAt),
+    )
+  }, [visibleProposals, showArchived])
+
+  const hiddenArchived = showArchived ? 0 : visibleProposals.filter((proposal) => proposal.status === 'archived').length
+
+  const drawerProposal = drawerId === null ? undefined : proposals.find((proposal) => proposal.id === drawerId)
+
   return (
     <div className="wm-root">
       <style dangerouslySetInnerHTML={{ __html: PANEL_STYLE }} />
@@ -253,6 +275,9 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           <div className="wm-pills">
             <button className={`wm-pill${view === 'board' ? ' active' : ''}`} type="button" onClick={() => setView('board')}>
               看板
+            </button>
+            <button className={`wm-pill${view === 'list' ? ' active' : ''}`} type="button" onClick={() => setView('list')}>
+              列表
             </button>
             <button className={`wm-pill${view === 'console' ? ' active' : ''}`} type="button" onClick={() => setView('console')}>
               控制台
@@ -325,6 +350,33 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           <GraphView projectRoot={projectRootDraft || undefined} />
         ) : view === 'console' ? (
           <ConsoleView onError={setError} />
+        ) : view === 'list' ? (
+          <div className="wm-list">
+            {listRows.length === 0 && <div className="wm-empty">没有匹配的提案</div>}
+            {listRows.map((proposal) => (
+              <button className="wm-list-row" key={proposal.id} type="button" onClick={() => openDrawer(proposal.id)}>
+                <div>
+                  <h3 className="wm-list-title">{proposal.title}</h3>
+                  <div className="wm-card-id">{proposal.id}</div>
+                </div>
+                <div className="wm-meta">
+                  <span className="wm-tier" style={{ color: STATE_META[proposal.status].tone }}>
+                    {STATE_META[proposal.status].label}
+                  </span>
+                  <span>{proposal.projects.length > 0 ? proposal.projects.join(' · ') : '未关联项目'}</span>
+                  <span>{relativeTime(proposal.updatedAt)}</span>
+                </div>
+              </button>
+            ))}
+            {hiddenArchived > 0 && (
+              <div className="wm-col-empty">
+                已隐藏 {hiddenArchived} 条已归档
+                <button className="wm-btn mini" type="button" onClick={() => setShowArchived(true)}>
+                  显示
+                </button>
+              </div>
+            )}
+          </div>
         ) : (
           <div className="wm-board">
             {columns.map((column) => (
@@ -718,6 +770,19 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
         )}
       </div>
 
+      {drawerId !== null && drawerProposal !== undefined && (
+        <ProposalDrawer
+          proposal={drawerProposal}
+          detail={details[drawerId]}
+          busy={busy}
+          pending={pending}
+          note={notes[drawerId]}
+          onClose={() => setDrawerId(null)}
+          onLoad={() => void loadDetail(drawerId)}
+          onAction={(action, to, force) => void act(drawerId, action, to, force)}
+        />
+      )}
+
       {importOpen && (
         <ImportProjectsModal
           onClose={() => setImportOpen(false)}
@@ -735,6 +800,121 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           onError={setError}
         />
       )}
+    </div>
+  )
+}
+
+function ProposalDrawer(props: {
+  proposal: Proposal
+  detail: ProposalStatusPayload | undefined
+  busy: boolean
+  pending: string
+  note?: string
+  onClose: () => void
+  onLoad: () => void
+  onAction: (action: 'advance' | 'back' | 'archive' | 'abandon' | 'plan', to?: ProposalState, force?: boolean) => void
+}): JSX.Element {
+  const { proposal, detail } = props
+  const tasks = detail?.openspec?.tasks
+  return (
+    <div className="wm-drawer-mask" onClick={props.onClose}>
+      <aside className="wm-drawer" onClick={(event) => event.stopPropagation()}>
+        <header className="wm-drawer-head">
+          <div>
+            <h3>{proposal.title}</h3>
+            <div className="wm-card-id">{proposal.id}</div>
+          </div>
+          <button className="wm-btn mini" type="button" onClick={props.onClose}>
+            关闭
+          </button>
+        </header>
+        <div className="wm-meta">
+          <span>{STATE_META[proposal.status].label}</span>
+          <span>{proposal.projects.length > 0 ? proposal.projects.join(' · ') : '未关联项目'}</span>
+          <span>{relativeTime(proposal.updatedAt)}</span>
+        </div>
+
+        {detail === undefined ? (
+          <div className="wm-actions">
+            <span className="wm-progress-label">加载详情…</span>
+            <button className="wm-btn mini" type="button" onClick={props.onLoad}>
+              重新加载
+            </button>
+          </div>
+        ) : (
+          <>
+            {detail.lifecycle !== undefined && (
+              <div className="wm-action-note">下一步：{detail.lifecycle.hint}</div>
+            )}
+            {detail.pendingApproval !== undefined && (
+              <div className="wm-tier wm-tier-diagnose">⏳ {detail.pendingApproval.reason}</div>
+            )}
+            {tasks !== undefined && tasks.total > 0 && (
+              <div>
+                <div className="wm-progress-track">
+                  <div className="wm-progress-fill" style={{ width: `${Math.round((tasks.done / tasks.total) * 100)}%` }} />
+                </div>
+                <div className="wm-progress-label">tasks {tasks.done}/{tasks.total}</div>
+              </div>
+            )}
+            {(detail.projects ?? []).map((project) => (
+              <div className="wm-section" key={project.project}>
+                <b>{project.project}</b>
+                {project.git?.branch !== undefined && project.git.branch !== '' && (
+                  <code style={{ marginLeft: 6 }}>⎇ {project.git.branch}</code>
+                )}
+                {project.git?.isWorktree === true && <code style={{ marginLeft: 4 }}>worktree</code>}
+                <div className="wm-progress-label">{project.root ?? project.note ?? '未注册项目根'}</div>
+              </div>
+            ))}
+            <div className="wm-actions">
+              {proposal.status === 'reviewing' && (
+                <button
+                  className="wm-btn mini primary"
+                  type="button"
+                  disabled={props.busy}
+                  onClick={() => props.onAction('plan')}
+                >
+                  {props.pending === `${proposal.id}:plan` ? '确认中…' : '确认方案'}
+                </button>
+              )}
+              {detail.lifecycle?.prev !== undefined && (
+                <button className="wm-btn mini" type="button" disabled={props.busy} onClick={() => props.onAction('back', detail.lifecycle?.prev)}>
+                  ‹ 回退到 {STATE_META[detail.lifecycle.prev].label}
+                </button>
+              )}
+              {detail.lifecycle?.next !== undefined && detail.lifecycle.next !== 'archived' && (
+                <button
+                  className="wm-btn mini primary"
+                  type="button"
+                  disabled={props.busy}
+                  onClick={() => props.onAction('advance')}
+                >
+                  {props.pending === `${proposal.id}:advance`
+                    ? '推进中…'
+                    : `推进到 ${STATE_META[detail.lifecycle.next].label} ›`}
+                </button>
+              )}
+              {proposal.status === 'archiving' && (
+                <>
+                  <button className="wm-btn mini primary" type="button" disabled={props.busy} onClick={() => props.onAction('archive')}>
+                    {props.pending === `${proposal.id}:archive` ? '归档中…' : '完成归档'}
+                  </button>
+                  <button className="wm-btn mini" type="button" disabled={props.busy} onClick={() => props.onAction('archive', undefined, true)}>
+                    强制归档
+                  </button>
+                </>
+              )}
+              {proposal.status !== 'archived' && (
+                <button className="wm-btn mini" type="button" disabled={props.busy} onClick={() => props.onAction('abandon')}>
+                  终止
+                </button>
+              )}
+            </div>
+            {props.note !== undefined && <div className="wm-action-note">{props.note}</div>}
+          </>
+        )}
+      </aside>
     </div>
   )
 }
@@ -966,10 +1146,10 @@ function CreateModal(props: {
  * ignores the query, the standalone page honours it, screenshots and docs links
  * stay reproducible.
  */
-function initialView(): 'board' | 'graph' | 'console' {
+function initialView(): 'board' | 'list' | 'graph' | 'console' {
   if (typeof window === 'undefined') return 'board'
   const requested = new URLSearchParams(window.location.search).get('view')
-  return requested === 'console' || requested === 'graph' ? requested : 'board'
+  return requested === 'console' || requested === 'graph' || requested === 'list' ? requested : 'board'
 }
 
 /** Human-readable dwell/cycle duration; unknown (0) stays unknown, never faked. */

@@ -191,6 +191,34 @@ describe('ProposalPanel (kanban)', () => {
     })
   })
 
+  it('opens a list row in the detail drawer', async () => {
+    routeMock((url, method) => {
+      if (url === '/workmate/api/proposals' && method === 'GET') {
+        return { proposals: [proposal({ status: 'reviewing' })] }
+      }
+      if (url === '/workmate/api/projects') return { projects: [] }
+      if (url === '/workmate/api/isolation') return { occupancy: [], conflicts: [] }
+      if (url.endsWith('/batch-grading-v2') && method === 'GET') {
+        return {
+          proposal: proposal({ status: 'reviewing' }),
+          projects: [],
+          lifecycle: { status: 'reviewing', hint: '确认方案后进入执行', prev: 'proposing', next: 'ready' },
+        }
+      }
+      return {}
+    })
+
+    render(<ProposalPanel />)
+    await screen.findByText('批量批改 v2.1')
+    fireEvent.click(screen.getByText('列表'))
+    const rows = await screen.findAllByText('批量批改 v2.1')
+    fireEvent.click(rows[rows.length - 1] as HTMLElement)
+
+    expect(await screen.findByText('关闭')).toBeTruthy()
+    expect(screen.getByText('下一步：确认方案后进入执行')).toBeTruthy()
+    expect(screen.getByText('确认方案')).toBeTruthy()
+  })
+
   it('drives the lifecycle from the expanded card (rollback posts the adjacent target)', async () => {
     let status: Proposal['status'] = 'reviewing'
     routeMock((url, method) => {
