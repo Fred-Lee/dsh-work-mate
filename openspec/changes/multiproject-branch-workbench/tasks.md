@@ -36,7 +36,7 @@
 
 - [ ] 6.1 上下文栏：Workspace / Project / 当前分支下拉 + 占用徽标 + 搜索 + 主按钮；切换项目过滤主区。<!-- writes: src/client/App.tsx, src/client/api.ts -->
 - [ ] 6.2 项目树：按 workspace 分组，显示当前分支、脏文件、活跃 change、活跃 worktree；窄屏收起为下拉。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
-- [ ] 6.3 主区列表优先：默认「我的变更」列表（进行中优先），看板为第二视图；筛选（全部/进行中/待批准/已归档）、项目筛选、搜索；已归档默认折叠。<!-- writes: src/client/App.tsx, src/client/api.ts -->
+- [x] 6.3 主区列表优先：默认「我的变更」列表（进行中优先），看板为第二视图；筛选（全部/进行中/待批准/已归档）、项目筛选、搜索；已归档默认折叠。<!-- writes: src/client/App.tsx, src/client/api.ts -->
 - [ ] 6.4 详情抽屉：选中行预取并打开；分段（概览/目标矩阵/任务/审查/事件）+ 固定动作条；去掉行内展开与「加载详情」二次点击；逐 target 展示分支/worktree/端口与释放操作。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
 - [ ] 6.5 创建三步模态：项目多选 → 每项目基线分支（默认 `defaultBranch`）→ 确认主项目/OpenSpec 归属/`feature/<id>` 预览；错误就地显示在项目行。<!-- writes: src/client/App.tsx, src/client/api.ts -->
 - [ ] 6.6 反馈与可访问性：首屏 skeleton、Toast、pending/disabled、行语义与 `aria-current`、抽屉焦点与 Escape、命令面板（`/` 或 Cmd+K）。<!-- writes: src/client/App.tsx, src/client/styles.ts -->

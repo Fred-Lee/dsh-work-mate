@@ -96,6 +96,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const [isolation, setIsolation] = useState<IsolationPayload>({ occupancy: [], conflicts: [] })
   const [importOpen, setImportOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<'active' | 'all' | 'reviewing' | 'archived'>('active')
   const [drawerId, setDrawerId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
@@ -266,15 +267,26 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   )
 
   const listRows = useMemo(() => {
-    const filtered = showArchived ? visibleProposals : visibleProposals.filter((proposal) => proposal.status !== 'archived')
+    const byStatus = visibleProposals.filter((proposal) => {
+      if (statusFilter === 'all') return true
+      if (statusFilter === 'active') return proposal.status !== 'archived'
+      return proposal.status === statusFilter
+    })
+    const filtered =
+      showArchived || statusFilter === 'archived'
+        ? byStatus
+        : byStatus.filter((proposal) => proposal.status !== 'archived')
     return [...filtered].sort(
       (left, right) =>
         (left.status === 'archived' ? 1 : 0) - (right.status === 'archived' ? 1 : 0) ||
         right.updatedAt.localeCompare(left.updatedAt),
     )
-  }, [visibleProposals, showArchived])
+  }, [visibleProposals, showArchived, statusFilter])
 
-  const hiddenArchived = showArchived ? 0 : visibleProposals.filter((proposal) => proposal.status === 'archived').length
+  const hiddenArchived =
+    showArchived || statusFilter === 'archived'
+      ? 0
+      : visibleProposals.filter((proposal) => proposal.status === 'archived').length
 
   const drawerProposal = drawerId === null ? undefined : proposals.find((proposal) => proposal.id === drawerId)
 
@@ -336,6 +348,18 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
             </select>
           </label>
         )}
+        <label className="wm-context-field">
+          <span>状态</span>
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value as 'active' | 'all' | 'reviewing' | 'archived')}
+          >
+            <option value="active">进行中</option>
+            <option value="all">全部</option>
+            <option value="reviewing">评审中</option>
+            <option value="archived">已归档</option>
+          </select>
+        </label>
         {branches?.current !== undefined && branches.current !== '' && (
           <span className="wm-context-meta">当前 ⎇ {branches.current}</span>
         )}

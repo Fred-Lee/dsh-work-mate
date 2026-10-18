@@ -71,11 +71,9 @@ function columnFor(status: string): HTMLElement {
           : status === 'merging' || status === 'archiving'
             ? '待合并'
             : '已归档'
-  const heads = screen.getAllByText(label)
-  const head = heads[0] as HTMLElement
-  const column = head.closest('section')
-  if (column === null) throw new Error('column section not found')
-  return column as HTMLElement
+  const head = screen.getAllByText(label).find((element) => element.closest('section') !== null)
+  if (head === undefined) throw new Error('column section not found')
+  return head.closest('section') as HTMLElement
 }
 
 const renderPanel = (): ReturnType<typeof render> => {
@@ -599,6 +597,30 @@ describe('panel scroll contract (fix-panel-scroll)', () => {
     await screen.findByText('backend-dev')
     expect(screen.getByText(/当前 worker：t1/)).toBeTruthy()
     expect(screen.getByText('team-dispatch t1 dispatched role=backend-dev')).toBeTruthy()
+  })
+
+  it('filters the default list by lifecycle status', async () => {
+    routeMock((url, method) => {
+      if (url === '/workmate/api/proposals' && method === 'GET') {
+        return {
+          proposals: [
+            proposal({ id: 'p1', title: '进行中提案', status: 'reviewing' }),
+            proposal({ id: 'p2', title: '旧提案', status: 'archived' }),
+          ],
+        }
+      }
+      if (url === '/workmate/api/projects') return { projects: [] }
+      if (url === '/workmate/api/isolation') return { occupancy: [], conflicts: [] }
+      return {}
+    })
+
+    render(<ProposalPanel />)
+    await screen.findByText('进行中提案')
+    expect(screen.queryByText('旧提案')).toBeNull()
+
+    fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'archived' } })
+    await screen.findByText('旧提案')
+    expect(screen.queryByText('进行中提案')).toBeNull()
   })
 
 })
