@@ -19,6 +19,8 @@ import {
   type TeamTaskRecord,
   type TeamTaskSpec,
   type TeamTemplate,
+  type InboxKind,
+  type InboxMessage,
 } from './types.ts'
 import { TeamRunStore } from './store.ts'
 
@@ -184,6 +186,70 @@ export class TeamRunner {
 
   async abort(id: string): Promise<TeamRun> {
     return this.store.patch(id, { status: 'aborted' }, this.now)
+  }
+
+  /** Append one persisted inbox message (question/escalation/worker_done) to the Run. */
+  async postMessage(
+    id: string,
+    input: { kind: InboxKind; body: string; taskId?: string },
+  ): Promise<{ message: InboxMessage; run: TeamRun }> {
+    const run = await this.get(id)
+    if (input.body.trim() === '') throw new Error('inbox message body must not be empty')
+    if (input.kind === 'worker_done' && (input.taskId === undefined || input.taskId.trim() === '')) {
+      throw new Error('worker_done requires taskId')
+    }
+    const messages = [...(run.inbox ?? [])]
+    const message: InboxMessage = {
+      id: `msg-${run.id}-${messages.length + 1}`,
+      runId: run.id,
+      kind: input.kind,
+      body: input.body,
+      at: this.now().toISOString(),
+      status: 'open',
+      ...(input.taskId !== undefined ? { taskId: input.taskId } : {}),
+    }
+    const next = await this.store.patch(id, { inbox: [...messages, message] }, this.now)
+    return { message, run: next }
+  }
+
+  /** Answer a persisted question/escalation and requeue its blocked task atomically. */
+  async answerMessage(
+    runId: string,
+    messageId: string,
+    reply: string,
+  ): Promise<{ message: InboxMessage; run: TeamRun }> {
+    if (reply.trim() === '') throw new Error('answer must not be empty')
+    const run = await this.get(runId)
+    const messages = [...(run.inbox ?? [])]
+    const index = messages.findIndex((message) => message.id === messageId)
+    if (index === -1) throw new Error(`inbox message not found: ${messageId}`)
+    const message = messages[index] as InboxMessage
+    if (message.kind !== 'question' && message.kind !== 'escalation') {
+      throw new Error(`message ${messageId} is ${message.kind}, not a question/escalation`)
+    }
+    if (message.status !== 'open') throw new Error(`message ${messageId} is already ${message.status}`)
+    const answered: InboxMessage = {
+      ...message,
+      status: 'answered',
+      reply,
+      replyAt: this.now().toISOString(),
+    }
+    messages[index] = answered
+    const tasks = [...run.tasks]
+    if (message.taskId !== undefined) {
+      const task = tasks.find((entry) => entry.id === message.taskId)
+      if (task !== undefined && (task.status === 'blocked' || task.status === 'failed')) {
+        task.status = 'planned'
+        task.attempts = 0
+        delete task.dispatchId
+      }
+    }
+    const next = await this.store.patch(
+      runId,
+      { inbox: messages, tasks, status: run.status === 'aborted' ? 'aborted' : 'running' },
+      this.now,
+    )
+    return { message: answered, run: next }
   }
 
   /** Requeue one blocked task after a human answer; attempts restart so the worker can try again. */

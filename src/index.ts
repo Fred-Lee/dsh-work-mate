@@ -32,7 +32,6 @@ import { parseTargetsSpec } from './features/proposal/targets.ts'
 import { TeamRunStore } from './features/team/store.ts'
 import { TeamRunner } from './features/team/runner.ts'
 import { autoPlanTeamRun } from './features/team/auto-plan.ts'
-import { TeamInbox } from './features/team/inbox.ts'
 import { registerTeamTools } from './features/team/tools.ts'
 import type { SubagentServiceLike } from './features/team/host-dispatcher.ts'
 import type { WorkspaceRegistryLike } from './features/project/workspace-candidates.ts'
@@ -121,7 +120,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   const proposals = new ProposalServiceImpl(store, undefined, events)
   const registry = new ProjectRegistry({ subdir: resolved.workmateHome })
   const teamRuns = new TeamRunStore({ subdir: resolved.workmateHome })
-  const teamInbox = new TeamInbox()
   const teamRunner = new TeamRunner(teamRuns)
   const worktree = new WorktreeManager({
     subdir: resolved.workmateHome,
@@ -510,7 +508,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     subagents: () => subagentsService,
     lifecycleMainBranch: resolved.lifecycleMainBranch,
     events,
-    inbox: teamInbox,
   })
   // Native guidance surfaces: two runtime skills + one flow section. Lazy, so
   // a composition without those services keeps the plugin ACTIVE.
@@ -578,6 +575,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       events,
       teamRuns,
       teamAutoPlan: autoPlanTeam,
+      teamAnswer: (runId, messageId, reply) => teamRunner.answerMessage(runId, messageId, reply),
       vaultExport: (input) =>
         runVaultExport({
           projectRoot: input.projectRoot,

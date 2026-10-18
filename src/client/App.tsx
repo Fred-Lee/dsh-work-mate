@@ -10,6 +10,7 @@ import { getBands, getMetrics } from './api'
 import type { AggregateMetrics, BandEvaluation, BandsPayload } from './types'
 import {
   advanceProposal,
+  answerTeamQuestion,
   abandonProposal, approvePlan, archiveProposal,
   createProposal,
   getIsolation,
@@ -847,6 +848,18 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
     }
   }
 
+  async function answer(runId: string, messageId: string): Promise<void> {
+    const reply = window.prompt('回答 worker 的提问（会写回 Run 的 inbox）')
+    if (reply === null || reply.trim() === '') return
+    try {
+      await answerTeamQuestion(runId, messageId, reply)
+      await open(runId)
+      await refresh()
+    } catch (cause) {
+      props.onError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
   const shown = detail?.run ?? runs.find((run) => run.id === selected)
 
   return (
@@ -896,6 +909,16 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
           <div className="wm-progress-label">
             {shown.proposalId} · {shown.template} · parallel {shown.budget.maxParallel} · 关键路径 {waveDepth(shown.tasks)} 波
           </div>
+          {(shown.inbox ?? [])
+            .filter((message) => message.status === 'open' && (message.kind === 'question' || message.kind === 'escalation'))
+            .map((message) => (
+              <div className="wm-team-question" key={message.id}>
+                <b>{message.kind}</b> {message.taskId ?? ''}：{message.body}
+                <button className="wm-btn mini" type="button" onClick={() => void answer(shown.id, message.id)}>
+                  回答
+                </button>
+              </div>
+            ))}
           <div className="wm-team-waves">
             {taskWaves(shown.tasks).map((wave, index) => (
               <div className="wm-team-wave" key={index}>

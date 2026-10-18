@@ -16,7 +16,7 @@
 - [x] 2.1 `workmate_team_plan`：从提案 targets 与模板生成 Run + DAG，校验写域冲突与依赖。<!-- writes: src/features/team/**, src/index.ts -->
 - [x] 2.2 `workmate_team_dispatch`：为 Task 创建原生 Session/Subagent，cwd 绑定 target worktree，记录 dispatch 与 sessionId；幂等防重复。<!-- writes: src/features/team/**, src/features/worktree/** -->
 - [x] 2.3 波次调度：拓扑分层、`maxParallel`、同 target 写域冲突串行；先起完整波次再等待。<!-- writes: src/features/team/** -->
-- [ ] 2.4 收件箱与协调循环：`check/reply/ack`、`worker_done` 校验、`escalation/question` 升级、positive proof 才 stop/retry/release。<!-- writes: src/features/team/** -->
+- [x] 2.4 收件箱与协调循环：`check/reply/ack`、`worker_done` 校验、`escalation/question` 升级、positive proof 才 stop/retry/release。<!-- writes: src/features/team/** -->
 - [x] 2.8 宿主服务装配：reactive `ctx.inject(['subagents','sessionController'], scope)`；缺失时团队不可用并提示，不 park fiber。<!-- writes: src/index.ts, src/features/team/** -->
 - [ ] 2.5 自主策略与预算：G2 后自动推进、每 Task 2 次重试、默认并发 3、Run 预算 2h/300k tokens/20 Dispatch、终态枚举；超限暂停并上报。<!-- writes: src/features/team/**, src/config.ts -->
 - [ ] 2.6 G5 拒绝回流：方案问题退回 ready 重走 G1/G2；实现/测试/审查问题退回 implementing 生成修复 Task；写 approval 记录。<!-- writes: src/features/team/**, src/features/archive/** -->

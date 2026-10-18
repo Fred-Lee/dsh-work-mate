@@ -175,3 +175,14 @@ export function listTeamRuns(proposalId?: string): Promise<{ runs: TeamRun[] }> 
 export function getTeamRun(id: string): Promise<{ run: TeamRun; events: TeamRunEvent[] }> {
   return request(`/workmate/api/team/runs/${encodeURIComponent(id)}`)
 }
+
+export function answerTeamQuestion(
+  runId: string,
+  messageId: string,
+  reply: string,
+): Promise<{ message: NonNullable<TeamRun['inbox']>[number]; run: TeamRun }> {
+  return request(`/workmate/api/team/runs/${encodeURIComponent(runId)}/answer`, {
+    method: 'POST',
+    body: JSON.stringify({ messageId, reply }),
+  })
+}

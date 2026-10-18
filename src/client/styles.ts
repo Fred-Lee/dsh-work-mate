@@ -332,4 +332,11 @@ export const PANEL_STYLE = `
 .wm-team-chip.dispatched, .wm-team-chip.running { border-left-color: #3b82f6; }
 .wm-team-chip.failed, .wm-team-chip.blocked { border-left-color: #ef4444; }
 
+.wm-team-question {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 10px; margin: 6px 0; border-radius: 8px;
+  background: rgba(245, 158, 11, .12); border: 1px solid rgba(245, 158, 11, .35);
+  font-size: 12px;
+}
+
 `

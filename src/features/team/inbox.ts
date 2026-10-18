@@ -9,20 +9,9 @@
 import type { SettleInput } from './runner.ts'
 import type { TeamRole, TeamTaskRecord } from './types.ts'
 
-export type InboxKind = 'worker_done' | 'question' | 'escalation' | 'reply' | 'ack'
-export type InboxStatus = 'open' | 'answered' | 'acked' | 'closed'
+import type { InboxKind, InboxMessage } from './types.ts'
 
-export interface InboxMessage {
-  id: string
-  runId: string
-  taskId?: string
-  kind: InboxKind
-  body: string
-  at: string
-  status: InboxStatus
-  reply?: string
-  replyAt?: string
-}
+export type { InboxKind, InboxMessage } from './types.ts'
 
 export interface PostInboxInput {
   runId: string

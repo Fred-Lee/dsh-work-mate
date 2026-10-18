@@ -58,6 +58,21 @@ export interface TeamDispatch {
   filesModified?: string[]
 }
 
+export type InboxKind = 'worker_done' | 'question' | 'escalation' | 'reply' | 'ack'
+export type InboxStatus = 'open' | 'answered' | 'acked' | 'closed'
+
+export interface InboxMessage {
+  id: string
+  runId: string
+  taskId?: string
+  kind: InboxKind
+  body: string
+  at: string
+  status: InboxStatus
+  reply?: string
+  replyAt?: string
+}
+
 export interface TeamBudget {
   maxParallel: number
   maxAttempts: number
@@ -92,6 +107,8 @@ export interface TeamRun {
   coordinatorSessionId?: string
   tasks: TeamTaskRecord[]
   dispatches?: TeamDispatch[]
+  /** Persisted questions/escalations; the inbox survives a host restart. */
+  inbox?: InboxMessage[]
   budget: TeamBudget
   createdAt: string
   updatedAt: string

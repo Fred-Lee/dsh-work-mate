@@ -13,7 +13,6 @@ import type { SettleInput, TeamRunner } from './runner.ts'
 import type { TeamRun, TeamTaskRecord } from './types.ts'
 import type { TeamEventSink } from './events.ts'
 import { validateWorkerDone } from './inbox.ts'
-import type { TeamInbox } from './inbox.ts'
 
 export interface DispatchRequest {
   run: TeamRun
@@ -48,7 +47,6 @@ export class TeamCoordinator {
     private readonly dispatcher: TeamDispatcher,
     private readonly now: () => Date = () => new Date(),
     private readonly events?: TeamEventSink,
-    private readonly inbox?: TeamInbox,
   ) {}
 
   /** Drive a run to a terminal status; returns the final run (never throws for task failures). */
@@ -116,8 +114,8 @@ export class TeamCoordinator {
         const question = outcome.question ?? outcome.escalation
         if (question !== undefined && question.trim() !== '') {
           const kind = outcome.escalation !== undefined ? 'escalation' : 'question'
-          const message = this.inbox?.post({ runId, taskId: entry.task.id, kind, body: question })
-          asked = message
+          const posted = await this.runner.postMessage(runId, { taskId: entry.task.id, kind, body: question })
+          asked = posted.message
           const settled = await this.runner.settle(runId, entry.dispatchId, {
             ...outcome,
             status: 'blocked',

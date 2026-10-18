@@ -21,6 +21,7 @@ const normalize = (run: TeamRun): TeamRun => ({
   ...run,
   tasks: run.tasks ?? [],
   dispatches: run.dispatches ?? [],
+  inbox: run.inbox ?? [],
   budget: { ...DEFAULT_TEAM_BUDGET, ...(run.budget ?? {}) },
 })
 

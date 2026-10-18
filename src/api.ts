@@ -68,6 +68,8 @@ export interface ApiDeps {
   teamRuns?: TeamRunStore
   /** After G2 approval, optionally create a planned team Run (Config.teamAutoPlan). */
   teamAutoPlan?: (proposalId: string) => Promise<unknown>
+  /** Answer a persisted team inbox question and requeue its task. */
+  teamAnswer?: (runId: string, messageId: string, reply: string) => Promise<unknown>
   /** Control-band file; defaults to `<DSH home>/<workmateHome>/bands.json`. */
   bandsFile?: string
   /** States gated on a human approval (`Config.approvalsRequired`). */
@@ -160,6 +162,14 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     const proposalId = r.query.get('proposalId')
     const runs = (await deps.teamRuns?.list()) ?? []
     return { runs: proposalId === null || proposalId === '' ? runs : runs.filter((run) => run.proposalId === proposalId) }
+  })
+
+  router.post('/api/team/runs/:id/answer', async (r) => {
+    if (deps.teamAnswer === undefined) throw new Error('team answer is not wired in this profile')
+    const body = await readJsonBody<{ messageId?: string; reply?: string }>(r.req)
+    if (body.messageId === undefined || body.messageId.trim() === '') throw new Error('messageId is required')
+    if (body.reply === undefined || body.reply.trim() === '') throw new Error('reply is required')
+    return deps.teamAnswer(r.params['id'] ?? '', body.messageId, body.reply)
   })
 
   router.get('/api/team/runs/:id', async (r) => {

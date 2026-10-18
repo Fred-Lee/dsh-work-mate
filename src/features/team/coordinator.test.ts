@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TeamCoordinator, type DispatchHandle, type DispatchRequest, type TeamDispatcher } from './coordinator.ts'
 import { TeamRunner, type SettleInput } from './runner.ts'
 import { TeamRunStore } from './store.ts'
-import { TeamInbox } from './inbox.ts'
 import type { TeamTaskSpec } from './types.ts'
 
 let home: string
@@ -181,20 +180,18 @@ describe('TeamCoordinator', () => {
       tasks: [task('t1')],
       budget: { maxAttempts: 1 },
     })
-    const inbox = new TeamInbox()
     const dispatcher = new FakeDispatcher()
     dispatcher.queue('t1', { status: 'blocked', question: '用哪个分支？' })
 
-    const coordinator = new TeamCoordinator(runner, dispatcher, () => new Date(), undefined, inbox)
+    const coordinator = new TeamCoordinator(runner, dispatcher, () => new Date())
     const result = await coordinator.run('r1')
 
     expect(result.stopped).toContain('等待回答')
     expect(result.questionId).toBeDefined()
     expect(result.run.status).toBe('blocked')
-    expect(inbox.take('r1')?.body).toBe('用哪个分支？')
+    expect(result.run.inbox?.[0]?.body).toBe('用哪个分支？')
 
-    inbox.answer(result.questionId as string, 'feature/p1')
-    await runner.resetTask('r1', 't1')
+    await runner.answerMessage('r1', result.questionId as string, 'feature/p1')
     expect((await runner.nextWave('r1')).map((entry) => entry.id)).toEqual(['t1'])
   })
 
