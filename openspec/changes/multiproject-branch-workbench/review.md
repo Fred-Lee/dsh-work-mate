@@ -83,3 +83,10 @@
 
 - reviewer 独立性：`DispatchHandle.sessionId` → `SettleInput.sessionId` 落 Dispatch；协调器记录每个 session 的角色，reviewer 复用实现者 session 直接 failed（测试覆盖）。TEAM-REVIEW 文件内的 reviewer marker 仍只由人审，未做机检。
 - 仍未修：六工件自动生成默认行为。**still not archivable.**
+
+## 第二轮独立审查（2026-10-19，subagent）
+
+- [x] C2 混排绕过（与团队侧共用 review 门）— 已修。
+- [x] targets 已纳入 planHash；改 targets 会失效 G2。
+- [ ] legacy 无 targets 提案的 G2 校验仍跳过（CRIT-8）。
+- 仍不可归档：团队侧 CRIT-8/CRIT-9 未闭合。

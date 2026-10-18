@@ -88,3 +88,23 @@
 
 - reviewer 独立性：`DispatchHandle.sessionId` → `SettleInput.sessionId` 落 Dispatch；协调器记录每个 session 的角色，reviewer 复用实现者 session 直接 failed（测试覆盖）。TEAM-REVIEW 文件内的 reviewer marker 仍只由人审，未做机检。
 - 仍未修：六工件自动生成默认行为。**still not archivable.**
+
+## 第二轮独立审查（2026-10-19，subagent）
+
+结论：**仍不通过**。上一轮 4 个 P0 已修复并有测试；本轮发现的新问题如下。
+
+已修复：
+- [x] CRIT-4 TEAM-REVIEW/review.md 混排绕过（tagged HIGH + legacy CRITICAL 不计 blocking）— 统一混入 legacy，补混排测试。
+- [x] CRIT-5 多 target 回滚误删已有分支/commit — `branchCreated` 仅在本次新建时删分支，真实 git 重入测试。
+- [x] CRIT-6 maxDispatches 触发死循环 — 无可派发时暂停上报，补测试。
+- [x] CRIT-7 targets 不进 planHash — targets(project/baseBranch) 纳入 hash，改 targets 使 G2 失效，补测试。
+- [x] H-A 部分：targets 快照已进 hash；legacy 无 targets 仍跳过（未修）。
+- [x] H-D 部分：prepare PLAN 目标矩阵从 targets 派生；空 writes 警告。
+- [x] H-F：超时取消/dispose 在跑 worker，清除定时器。
+- [x] H-G 部分：写角色有改动必须 commit 且分支 ahead-of-base；SUMMARY 未跟踪不再阻断 merge。
+
+未修复（阻断归档）：
+- [ ] CRIT-8 legacy 提案无 targets 时 `assertCurrentPlanApproval` 静默跳过；需要在入口拒绝或迁移。
+- [ ] CRIT-9 G5 `rejectMerge(category=plan)` 仍退 implementing，spec 要求退回 ready 重走 G1/G2。
+- [ ] HIGH reviewer 独立性仍不可强机检：host 每次新 childId，marker 只查存在。
+- [ ] HIGH 当前提案记录仍是 reviewing、无 targets/approvals，change 目录缺 6 工件，从未真机跑 Run。
