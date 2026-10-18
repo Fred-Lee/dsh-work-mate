@@ -6,6 +6,7 @@ import type { ProjectRegistry } from '../project/registry.ts'
 import type { ProposalService } from '../proposal/service.ts'
 import { validateProjectRoot } from '../proposal/openspec.ts'
 import { planTeamWaves, parseTeamTasks, teamTasksPath } from './tasks.ts'
+import { checkTeamCompleteness } from './completeness.ts'
 import { TeamCoordinator } from './coordinator.ts'
 import { HostSubagentDispatcher, type SubagentServiceLike } from './host-dispatcher.ts'
 import { effectiveTargets } from '../proposal/targets.ts'
@@ -61,6 +62,15 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
         const root = (args.projectRoot ?? registered?.root ?? deps.projectRoot).trim()
         if (root === '') throw new Error('无可用项目根 — 先注册项目或在参数里给 projectRoot')
         const resolvedRoot = validateProjectRoot(root)
+        const completeness = await checkTeamCompleteness(
+          resolvedRoot,
+          deps.openspecRoot,
+          proposal.openspecChangeId,
+          template as TeamTemplate,
+        )
+        if (!completeness.ok) {
+          throw new Error(`团队工件不完整（G1）— ${completeness.errors.join('；')}`)
+        }
         const tasksPath = teamTasksPath(resolvedRoot, deps.openspecRoot, proposal.openspecChangeId)
         let raw: string
         try {
