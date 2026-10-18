@@ -134,7 +134,7 @@ function findCycle(tasks: readonly TeamTaskSpec[]): string[] | undefined {
   return undefined
 }
 
-const writesConflict = (left: TeamTaskSpec, right: TeamTaskSpec): boolean => {
+export const writesConflict = (left: TeamTaskSpec, right: TeamTaskSpec): boolean => {
   if (left.project !== right.project) return false
   for (const a of left.writes) {
     for (const b of right.writes) if (scopesIntersect(a, b)) return true
