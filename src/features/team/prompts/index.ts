@@ -72,6 +72,7 @@ export interface TaskPromptInput {
   }
   runId?: string
   proposalId?: string
+  dispatchId?: string
 }
 
 /** One self-contained worker prompt; no hidden conversation is required. */
@@ -90,6 +91,7 @@ export function buildTaskPrompt(input: TaskPromptInput): string {
     `- 验收标准：${task.acceptance}`,
     ...(input.runId !== undefined ? [`- Run：${input.runId}`] : []),
     ...(input.proposalId !== undefined ? [`- 提案：${input.proposalId}`] : []),
+    ...(input.dispatchId !== undefined ? [`- Dispatch：${input.dispatchId}`] : []),
     ...(contract.artifacts.length > 0 ? [`- 负责工件：${contract.artifacts.join(', ')}`] : []),
     ...(contract.artifacts.length > 0
       ? [`- 完成时输出 REPORT: ${contract.artifacts[0]}（路径相对当前 worktree）`]

@@ -98,7 +98,7 @@ describe('team evidence gate', () => {
     await writeFile(join(changeDir(), 'TEST.md'), '## 场景\n## 执行命令\n## 结果与证据\n## 覆盖缺口\n', 'utf8')
     await writeFile(
       join(changeDir(), 'TEAM-REVIEW.md'),
-      '<!-- reviewer: session-impl -->\n## 确认项\n## 疑问项\n## 建议补充项\n## CRITICAL 问题\n',
+      '<!-- reviewer: d1 -->\n## 确认项\n## 疑问项\n## 建议补充项\n## CRITICAL 问题\n',
       'utf8',
     )
     await writeFile(join(changeDir(), 'SUMMARY.md'), '## Run\n## 逐任务结果\n## 未解阻塞\n## 终态\n', 'utf8')
@@ -116,7 +116,7 @@ describe('team evidence gate', () => {
       createdAt: '2026-10-19T00:00:00.000Z',
       updatedAt: '2026-10-19T00:00:00.000Z',
     } as TeamRun
-    await expect(lifecycle('block', [run]).transition('p1', 'archiving')).rejects.toThrow(/与实现者会话相同/)
+    await expect(lifecycle('block', [run]).transition('p1', 'archiving')).rejects.toThrow(/与实现者 Dispatch 相同/)
   })
 
   it('blocks archiving when the latest team run is partial', async () => {
@@ -124,7 +124,7 @@ describe('team evidence gate', () => {
     await writeFile(join(changeDir(), 'TEST.md'), '## 场景\n## 执行命令\n## 结果与证据\n## 覆盖缺口\n', 'utf8')
     await writeFile(
       join(changeDir(), 'TEAM-REVIEW.md'),
-      '<!-- reviewer: session-review -->\n## 确认项\n## 疑问项\n## 建议补充项\n## CRITICAL 问题\n',
+      '<!-- reviewer: d2 -->\n## 确认项\n## 疑问项\n## 建议补充项\n## CRITICAL 问题\n',
       'utf8',
     )
     await writeFile(join(changeDir(), 'SUMMARY.md'), '## Run\n## 逐任务结果\n## 未解阻塞\n## 终态\n', 'utf8')

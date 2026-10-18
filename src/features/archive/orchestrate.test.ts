@@ -259,6 +259,47 @@ describe('orchestrateArchive (fake CLIs)', () => {
       await rm(project, { recursive: true, force: true })
     }
   })
+
+  it('does not let a resolved tagged CRIT hide a same-text legacy CRITICAL', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'wm-resolved-'))
+    try {
+      await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+      await writeFile(
+        join(project, 'openspec', 'changes', 'p1', 'review.md'),
+        ['## CRITICAL 问题', '- [x] CRIT-1 缺失回滚方案', '- [ ] 缺失回滚方案'].join('\n'),
+      )
+      await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n')
+      const result = await orchestrateArchive(archivingProposal(), [{ project: 'demo', root: project }], {
+        openspecRoot: 'openspec',
+        gitnexusAnalyzeEnabled: false,
+      })
+      expect(result.ok).toBe(false)
+      expect(result.steps.find((step) => step.step === 'review-gate')?.status).toBe('failed')
+    } finally {
+      await rm(project, { recursive: true, force: true })
+    }
+  })
+
+  it('counts legacy CRITICAL inside TEAM-REVIEW.md mixed with tagged findings', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'wm-team-mixed-'))
+    try {
+      await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+      await writeFile(join(project, 'openspec', 'changes', 'p1', 'review.md'), '## CRITICAL 问题\n- [x] CRIT-1 已处理\n')
+      await writeFile(
+        join(project, 'openspec', 'changes', 'p1', 'TEAM-REVIEW.md'),
+        ['<!-- reviewer: independent -->', '## 疑问项', '- [ ] HIGH-1 提示', '## CRITICAL 问题', '- [ ] 未解决 legacy'].join('\n'),
+      )
+      await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n')
+      const result = await orchestrateArchive(archivingProposal(), [{ project: 'demo', root: project }], {
+        openspecRoot: 'openspec',
+        gitnexusAnalyzeEnabled: false,
+      })
+      expect(result.ok).toBe(false)
+      expect(result.steps.find((step) => step.step === 'team-review')?.status).toBe('failed')
+    } finally {
+      await rm(project, { recursive: true, force: true })
+    }
+  })
   it('blocks the configured severities beyond CRIT', async () => {
     // A fresh project per run: the archive step may move changes/<id>/ away.
     const seed = async (): Promise<string> => {

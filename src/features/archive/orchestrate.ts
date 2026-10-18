@@ -490,7 +490,7 @@ export async function orchestrateArchive(
       const report = parseReviewMd(content)
       if (teamContent !== undefined) {
         const teamReport = parseReviewMd(teamContent)
-        const teamTally = reviewTally(teamReport, options.reviewBlockingSeverities ?? ['CRIT'])
+        const teamTally = reviewTally(withLegacyCriticals(teamReport), options.reviewBlockingSeverities ?? ['CRIT'])
         if (teamTally.blocking > 0) {
           gateFailed = true
           steps.push({
@@ -502,18 +502,7 @@ export async function orchestrateArchive(
           steps.push({ step: 'team-review', status: 'ok', summary: `${label}TEAM-REVIEW.md 无阻断级发现` })
         }
       }
-      // Legacy shape: `## CRITICAL 问题` entries that were not written as tagged
-      // findings must still count even when any tagged finding exists — otherwise
-      // mixing `- [ ] HIGH-1` with a legacy unresolved CRITICAL bypasses the gate.
-      const taggedCriticalTexts = new Set(report.findings.filter((finding) => finding.severity === 'CRIT').map((finding) => finding.text))
-      const legacy = report.criticals
-        .filter((issue) => ![...taggedCriticalTexts].some((text) => text !== '' && issue.text.includes(text)))
-        .map((issue, index) => ({
-          severity: 'CRIT' as const,
-          tag: `LEGACY-${index + 1}`,
-          text: issue.text,
-          resolved: issue.resolved,
-        }))
+      const mergedReport = withLegacyCriticals(report)
       const graded =
         deps.decide === undefined
           ? []
@@ -552,7 +541,7 @@ export async function orchestrateArchive(
         })
       }
       const tally = reviewTally(
-        { ...report, findings: [...legacy, ...report.findings, ...graded] },
+        { ...mergedReport, findings: [...mergedReport.findings, ...graded] },
         options.reviewBlockingSeverities ?? ['CRIT'],
       )
       const counts = formatTally(tally)
@@ -871,6 +860,22 @@ async function findArchivedDir(root: string, openspecRoot: string, changeId: str
   } catch {
     return undefined
   }
+}
+
+/** Fold legacy `## CRITICAL 问题` entries into findings unless an unresolved tagged CRIT already covers them. */
+function withLegacyCriticals(report: ReturnType<typeof parseReviewMd>): ReturnType<typeof parseReviewMd> {
+  const unresolvedTagged = new Set(
+    report.findings.filter((finding) => finding.severity === 'CRIT' && !finding.resolved).map((finding) => finding.text),
+  )
+  const legacy = report.criticals
+    .filter((issue) => ![...unresolvedTagged].some((text) => text !== '' && issue.text.includes(text)))
+    .map((issue, index) => ({
+      severity: 'CRIT' as const,
+      tag: `LEGACY-${index + 1}`,
+      text: issue.text,
+      resolved: issue.resolved,
+    }))
+  return { ...report, findings: [...legacy, ...report.findings] }
 }
 
 /** Best-effort per-project delivery summary (design D4). */

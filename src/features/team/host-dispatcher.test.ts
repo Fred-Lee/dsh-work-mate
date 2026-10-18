@@ -46,7 +46,9 @@ describe('HostSubagentDispatcher', () => {
       cwdForTask: () => '/repo/.workmates/p1',
     })
 
-    const { result } = await dispatcher.start(request)
+    const { result, sessionId, cancel } = await dispatcher.start(request)
+    expect(sessionId).toBe('child-1')
+    expect(typeof cancel).toBe('function')
 
     expect(subagents.specs[0]).toMatchObject({
       provider: 'spawn',

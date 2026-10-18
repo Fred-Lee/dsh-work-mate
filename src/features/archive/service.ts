@@ -846,14 +846,10 @@ export class LifecycleServiceImpl {
     const reviewerError = (() => {
       if (latestRun === undefined || result.reviewer === undefined) return undefined
       const dispatches = latestRun.dispatches ?? []
-      const implementerSessions = new Set(
-        dispatches.filter((dispatch) => dispatch.role !== 'reviewer' && dispatch.sessionId !== undefined).map((dispatch) => dispatch.sessionId),
-      )
-      if (implementerSessions.has(result.reviewer)) return `TEAM-REVIEW reviewer ${result.reviewer} 与实现者会话相同`
-      const reviewerSessions = new Set(
-        dispatches.filter((dispatch) => dispatch.role === 'reviewer' && dispatch.sessionId !== undefined).map((dispatch) => dispatch.sessionId),
-      )
-      if (reviewerSessions.size > 0 && !reviewerSessions.has(result.reviewer)) {
+      const implementerIds = new Set(dispatches.filter((dispatch) => dispatch.role !== 'reviewer').map((dispatch) => dispatch.id))
+      if (implementerIds.has(result.reviewer)) return `TEAM-REVIEW reviewer ${result.reviewer} 与实现者 Dispatch 相同`
+      const reviewerIds = new Set(dispatches.filter((dispatch) => dispatch.role === 'reviewer').map((dispatch) => dispatch.id))
+      if (reviewerIds.size > 0 && !reviewerIds.has(result.reviewer)) {
         return `TEAM-REVIEW reviewer ${result.reviewer} 不在本 Run 的 reviewer dispatch 中`
       }
       return undefined

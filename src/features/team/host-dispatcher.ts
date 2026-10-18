@@ -142,6 +142,8 @@ export class HostSubagentDispatcher implements TeamDispatcher {
       delivery: 'caller',
     })
     return {
+      sessionId: activation.childId,
+      cancel: () => activation.dispose(),
       result: (async (): Promise<SettleInput> => {
         try {
           const result = await activation.result
