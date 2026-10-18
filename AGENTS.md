@@ -263,6 +263,7 @@ fix(store): 修复原子写中断后残留 tmp 文件
 | `docs/DESIGN.md` | 技术设计文档 0.1.0-draft（架构、模块、里程碑） |
 | `docs/DSH-INTEGRATION-NOTES.md` | DSH 宿主集成契约（Origin 围栏、bundle 声明、link 安装、证据等级） |
 | `docs/DSH-FIT-AUDIT.md` | DSH 适配度评估（P0/P1/P2 清单、证据、落地进度） |
+| `docs/TEAM-SETUP.md` | 团队角色 preset、工件准备、首次 Run 与证据门操作手册 |
 | `openspec/specs/` | 已归档能力规格 |
 
 <!-- gitnexus:start -->
