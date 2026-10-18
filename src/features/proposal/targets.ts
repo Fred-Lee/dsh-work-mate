@@ -66,3 +66,25 @@ export function effectiveTargets(proposal: TargetProjection, mainBranch: string)
   if (proposal.portRange !== undefined) target.portRange = [...proposal.portRange]
   return [target]
 }
+
+
+/**
+ * Parse the compact tool/CLI spelling: `project:branch,project2:branch2`.
+ * Empty entries are ignored; a missing project or branch is rejected.
+ */
+export function parseTargetsSpec(spec: string): ProposalTarget[] {
+  const entries = spec
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '')
+  return entries.map((entry) => {
+    const separator = entry.indexOf(':')
+    if (separator <= 0 || separator === entry.length - 1) {
+      throw new Error(`invalid target '${entry}' — expected project:branch`)
+    }
+    return {
+      project: entry.slice(0, separator).trim(),
+      baseBranch: entry.slice(separator + 1).trim(),
+    }
+  })
+}

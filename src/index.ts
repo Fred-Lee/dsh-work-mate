@@ -28,6 +28,7 @@ import { readFile } from 'node:fs/promises'
 import { EventLog } from './features/proposal/events.ts'
 import { runBandsCheck } from './features/metrics/check.ts'
 import { parseSwarmTasks } from './features/swarm/plan.ts'
+import { parseTargetsSpec } from './features/proposal/targets.ts'
 import { AgentProvider, type HostLlmFace } from './features/decision/agent.ts'
 import { RulesProvider } from './features/decision/rules.ts'
 import { DecisionService } from './features/decision/service.ts'
@@ -590,7 +591,16 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         id: { type: 'string', required: true, description: 'Slug id, e.g. "batch-grading-v2".' },
         title: { type: 'string', required: true, description: 'Human-readable title.' },
         projects: { type: 'string', description: 'Comma-separated project identifiers to associate.' },
-        projectRoot: { type: 'string', description: 'Absolute project root; falls back to Config.projectRoot.' },
+        targets: {
+          type: 'string',
+          description:
+            'Per-project carriers as "project:baseBranch,project2:baseBranch2". When set, projects are derived from the targets and the first target owns OpenSpec unless primaryProject is given.',
+        },
+        primaryProject: {
+          type: 'string',
+          description: 'Registered project whose root hosts the OpenSpec change directory; defaults to the first target.',
+        },
+        projectRoot: { type: 'string', description: 'Absolute project root; falls back to the primary target root, then Config.projectRoot.' },
         source: {
           type: 'string',
           description: 'Origin: spec | incident | review-finding | metric-regression | maintenance.',
@@ -602,6 +612,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
       output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
       async execute(args) {
         const projects = args.projects?.split(',').map((p) => p.trim()).filter(Boolean)
+        const targets = args.targets === undefined ? undefined : parseTargetsSpec(args.targets)
         const relatesTo = args.relatesTo?.split(',').map((id) => id.trim()).filter(Boolean)
         const result = await createProposal(
           {
@@ -621,6 +632,8 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
             id: args.id,
             title: args.title,
             ...(projects !== undefined && projects.length > 0 ? { projects } : {}),
+            ...(targets !== undefined ? { targets } : {}),
+            ...(args.primaryProject !== undefined ? { primaryProject: args.primaryProject } : {}),
             ...(args.projectRoot !== undefined ? { projectRoot: args.projectRoot } : {}),
             ...(args.source !== undefined ? { source: args.source as ProposalSource } : {}),
             ...(args.sourceRef !== undefined ? { sourceRef: args.sourceRef } : {}),

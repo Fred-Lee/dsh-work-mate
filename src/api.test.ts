@@ -499,4 +499,86 @@ describe('project registry REST API', () => {
     expect(missing.result.status).toBe(400)
     expect(JSON.stringify(json(missing.result))).toContain('project not found: ghost')
   })
+
+  it('creates a multi-target proposal and seeds openspec in the first target', async () => {
+    const a = join(home, 'a')
+    const b = join(home, 'b')
+    await mkdir(a, { recursive: true })
+    await mkdir(b, { recursive: true })
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    await registry.upsert('a', a)
+    await registry.upsert('b', b)
+    const r = projectRouter(registry)
+
+    const created = stubRes()
+    await r.handle(
+      '/api/proposals',
+      stubReq('POST', '/api/proposals', {
+        id: 'multi',
+        title: 'multi',
+        targets: [
+          { project: 'a', baseBranch: 'main' },
+          { project: 'b', baseBranch: 'master' },
+        ],
+      }),
+      created.res,
+    )
+
+    expect(created.result.status).toBe(200)
+    expect(json(created.result)).toMatchObject({
+      proposal: { id: 'multi', projects: ['a', 'b'], primaryProject: 'a' },
+    })
+    await expect(readFile(join(a, 'openspec/changes/multi/proposal.md'), 'utf8')).resolves.toContain('multi')
+    await expect(readFile(join(b, 'openspec/changes/multi/proposal.md'), 'utf8')).rejects.toThrow()
+  })
+
+  it('honours an explicit primaryProject for the openspec root', async () => {
+    const a = join(home, 'pa')
+    const b = join(home, 'pb')
+    await mkdir(a, { recursive: true })
+    await mkdir(b, { recursive: true })
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    await registry.upsert('pa', a)
+    await registry.upsert('pb', b)
+    const r = projectRouter(registry)
+
+    const created = stubRes()
+    await r.handle(
+      '/api/proposals',
+      stubReq('POST', '/api/proposals', {
+        id: 'multi-primary',
+        title: 'multi primary',
+        targets: [
+          { project: 'pa', baseBranch: 'main' },
+          { project: 'pb', baseBranch: 'master' },
+        ],
+        primaryProject: 'pb',
+      }),
+      created.res,
+    )
+
+    expect(created.result.status).toBe(200)
+    await expect(readFile(join(b, 'openspec/changes/multi-primary/proposal.md'), 'utf8')).resolves.toContain('multi primary')
+    await expect(readFile(join(a, 'openspec/changes/multi-primary/proposal.md'), 'utf8')).rejects.toThrow()
+  })
+
+  it('leaves the proposal on disk when the primary target is not registered', async () => {
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    const r = projectRouter(registry)
+    const created = stubRes()
+    await r.handle(
+      '/api/proposals',
+      stubReq('POST', '/api/proposals', {
+        id: 'multi-unresolved',
+        title: 'unresolved',
+        targets: [{ project: 'ghost', baseBranch: 'main' }],
+      }),
+      created.res,
+    )
+
+    expect(created.result.status).toBe(200)
+    expect(json(created.result)).toMatchObject({ proposal: { id: 'multi-unresolved', projects: ['ghost'] } })
+    expect((json(created.result) as { note?: string }).note).toContain('未注册根')
+  })
+
 })

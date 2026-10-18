@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { effectiveTargets, normalizeTargets } from './targets.ts'
+import { effectiveTargets, normalizeTargets, parseTargetsSpec } from './targets.ts'
 import type { Proposal } from './store.ts'
 
 const legacy = (overrides: Partial<Proposal> = {}): Proposal => ({
@@ -86,5 +86,21 @@ describe('normalizeTargets', () => {
     expect(() => normalizeTargets([{ project: 'a', baseBranch: 'feature branch' }])).toThrow(
       'must not contain whitespace',
     )
+  })
+})
+
+
+describe('parseTargetsSpec', () => {
+  it('parses project:branch pairs, ignoring blanks', () => {
+    expect(parseTargetsSpec('a:main, b:master ,')).toEqual([
+      { project: 'a', baseBranch: 'main' },
+      { project: 'b', baseBranch: 'master' },
+    ])
+  })
+
+  it('rejects a missing project or branch', () => {
+    expect(() => parseTargetsSpec(':main')).toThrow("invalid target ':main'")
+    expect(() => parseTargetsSpec('a:')).toThrow("invalid target 'a:'")
+    expect(() => parseTargetsSpec('a')).toThrow("invalid target 'a'")
   })
 })

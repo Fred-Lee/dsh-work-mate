@@ -59,6 +59,8 @@ export interface UpsertProposalInput {
   projects?: string[]
   /** Per-project carriers; when supplied they define the associated projects. */
   targets?: ProposalTarget[]
+  /** Project that owns the OpenSpec change directory (defaults to the first target). */
+  primaryProject?: string
   /**
    * OpenSpec change directory name; defaults to the proposal id so that
    * `workmate_proposal_create` can seed `openspec/changes/<id>/` (M2).
@@ -144,7 +146,10 @@ export class ProposalServiceImpl implements ProposalService {
         const targets = normalizeTargets(input.targets)
         existing.targets = targets
         if (input.projects === undefined) existing.projects = targets.map((target) => target.project)
+        const first = targets[0]?.project
+        if (existing.primaryProject === undefined && first !== undefined) existing.primaryProject = first
       }
+      if (input.primaryProject !== undefined) existing.primaryProject = input.primaryProject
       if (input.openspecChangeId !== undefined) existing.openspecChangeId = input.openspecChangeId
       // Only explicitly supplied provenance overwrites: a re-run of create must
       // not wipe where the proposal actually came from.
@@ -166,6 +171,11 @@ export class ProposalServiceImpl implements ProposalService {
       commits: [],
       openspecChangeId: input.openspecChangeId ?? id,
       ...(targets !== undefined ? { targets } : {}),
+      ...(input.primaryProject !== undefined
+        ? { primaryProject: input.primaryProject }
+        : targets?.[0] !== undefined
+          ? { primaryProject: targets[0]!.project }
+          : {}),
       ...(input.source !== undefined ? { source: input.source } : {}),
       ...(input.sourceRef !== undefined ? { sourceRef: input.sourceRef } : {}),
       ...(input.relatesTo !== undefined ? { relatesTo: [...input.relatesTo] } : {}),

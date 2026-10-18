@@ -122,6 +122,8 @@ export interface Proposal {
    * legacy single-target proposals; `effectiveTargets` synthesizes one.
    */
   targets?: ProposalTarget[]
+  /** Project that owns the OpenSpec change directory (first target when omitted). */
+  primaryProject?: string
   /** Associated Git commit hashes (tag-proposal association, M2). */
   commits: string[]
   /** OpenSpec change directory name this proposal drives. */

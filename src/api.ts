@@ -20,7 +20,7 @@ import { gitnexusAnalyze, gitnexusStatus, gitnexusWiki } from './features/knowle
 import { ensureSseProxy } from './features/knowledge-bridge/sse-proxy.ts'
 import { prescreenInjection } from './features/decision/injection.ts'
 import { describeGitnexusCredentials } from './features/knowledge-bridge/gitnexus-credentials.ts'
-import type { ProposalSource, Provenance } from './features/proposal/store.ts'
+import type { ProposalSource, ProposalTarget, Provenance } from './features/proposal/store.ts'
 import type { ProposalService } from './features/proposal/service.ts'
 import type { LifecycleServiceImpl } from './features/archive/service.ts'
 import { PROPOSAL_STATES, isProposalState } from './features/proposal/state-machine.ts'
@@ -92,6 +92,10 @@ export interface CreateProposalBody {
   id?: string
   title?: string
   projects?: string[]
+  /** Per-project carriers (project × base branch). */
+  targets?: ProposalTarget[]
+  /** Project that owns the OpenSpec change directory (defaults to the first target). */
+  primaryProject?: string
   projectRoot?: string
   /** Origin of the proposal (change `add-feedback-loop`). */
   source?: ProposalSource
@@ -495,19 +499,30 @@ export async function createProposal(
       .catch(() => undefined)
   }
 
+  const targets = body.targets
+  const primaryProject = body.primaryProject ?? targets?.[0]?.project
   const proposal = await deps.proposals.upsert({
     id,
     title,
     ...(body.projects !== undefined ? { projects: body.projects } : {}),
+    ...(targets !== undefined ? { targets } : {}),
+    ...(primaryProject !== undefined ? { primaryProject } : {}),
     ...(source !== undefined ? { source } : {}),
     ...(body.sourceRef !== undefined ? { sourceRef: body.sourceRef } : {}),
     ...(body.relatesTo !== undefined ? { relatesTo: body.relatesTo } : {}),
     ...(provenance !== undefined ? { provenance } : {}),
   })
 
-  const projectRoot = resolveRoot(deps, body.projectRoot)
+  const explicitRoot = (body.projectRoot ?? '').trim()
+  const registered =
+    explicitRoot === '' && primaryProject !== undefined ? await deps.registry.get(primaryProject) : undefined
+  const projectRoot = explicitRoot !== '' ? explicitRoot : (registered?.root ?? deps.projectRoot)
   if (!projectRoot) {
-    return { proposal, note: 'no projectRoot — openspec directory not generated' }
+    const reason =
+      primaryProject !== undefined
+        ? `primary project '${primaryProject}' 未注册根，且没有可用的默认 projectRoot — openspec directory not generated`
+        : 'no projectRoot — openspec directory not generated'
+    return { proposal, note: reason }
   }
   validateProjectRoot(projectRoot)
   const openspec = await generateChangeDir(projectRoot, deps.openspecRoot, id, title, {
