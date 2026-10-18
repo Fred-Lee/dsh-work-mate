@@ -487,6 +487,7 @@ export class LifecycleServiceImpl {
             featureBranch: result.featureBranch,
             worktreePath: result.worktreePath,
             portRange: result.portRange,
+            ...(result.baseCommit !== undefined ? { baseCommit: result.baseCommit } : {}),
           })
           installed.push(result.install)
           done.push({ projectRoot, project: target.project })

@@ -41,6 +41,8 @@ export interface WorktreeCreateResult {
   copied: string[]
   install: 'installed' | 'skipped' | 'failed'
   installNote?: string
+  /** Tip of the base branch when the worktree was created (drift warnings). */
+  baseCommit?: string
 }
 
 export interface ManagerOptions {
@@ -142,6 +144,8 @@ export class WorktreeManager {
     const worktreePath = this.worktreePath(projectRoot, proposalId)
     const featureBranch = `feature/${proposalId}`
     const portKey = this.portKey(proposalId, input.project)
+    const baseBranch = input.baseBranch ?? input.mainBranch ?? 'main'
+    const baseCommit = await this.readBaseCommit(projectRoot, baseBranch, input.signal)
     const existing = await this.allocator.get(portKey)
 
     try {
@@ -155,6 +159,7 @@ export class WorktreeManager {
         copied: [],
         install: 'skipped',
         installNote: 'worktree already exists',
+        ...(baseCommit !== undefined ? { baseCommit } : {}),
       }
     } catch {
       // not there — proceed with creation
@@ -170,9 +175,8 @@ export class WorktreeManager {
     const allocation = await this.allocator.allocate(portKey)
 
     // 1. create (serialized by the mutex) — branch from the target baseline
-    const mainBranch = input.baseBranch ?? input.mainBranch ?? 'main'
     await gitExec(
-      ['worktree', 'add', '-b', featureBranch, worktreePath, mainBranch],
+      ['worktree', 'add', '-b', featureBranch, worktreePath, baseBranch],
       projectRoot,
       15_000,
       input.signal,
@@ -244,7 +248,30 @@ export class WorktreeManager {
       // best effort
     }
 
-    return { worktreePath, featureBranch, portRange: allocation.ports, copied, install, installNote }
+    return {
+      worktreePath,
+      featureBranch,
+      portRange: allocation.ports,
+      copied,
+      install,
+      installNote,
+      ...(baseCommit !== undefined ? { baseCommit } : {}),
+    }
+  }
+
+  /** Record the baseline tip; a missing branch is reported by `git worktree add` itself. */
+  private async readBaseCommit(
+    projectRoot: string,
+    baseBranch: string,
+    signal?: AbortSignal,
+  ): Promise<string | undefined> {
+    try {
+      const out = await gitExec(['rev-parse', '--verify', `${baseBranch}^{commit}`], projectRoot, 5_000, signal)
+      const commit = out.trim()
+      return commit === '' ? undefined : commit
+    } catch {
+      return undefined
+    }
   }
 
   /**

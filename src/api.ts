@@ -30,6 +30,7 @@ import { listProjectBranches } from './features/project/branches.ts'
 import { listWorkspaceCandidates, type WorkspaceRegistryLike } from './features/project/workspace-candidates.ts'
 import { deriveBranchOccupancy, findBranchConflicts, isOccupying } from './features/proposal/isolation.ts'
 import { findWriteConflicts, readProposalWriteScopes } from './features/proposal/writes.ts'
+import { checkTargetDrift } from './features/proposal/drift.ts'
 import { effectiveTargets } from './features/proposal/targets.ts'
 import { syncProjectAssets } from './features/quality/sync.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
@@ -369,6 +370,20 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     const proposals = await deps.proposals.list()
     const occupancy = deriveBranchOccupancy(proposals, deps.lifecycleMainBranch ?? 'main')
     return { occupancy, conflicts: findBranchConflicts(occupancy) }
+  })
+
+  router.get('/api/isolation/drift', async () => {
+    const drifts = []
+    for (const proposal of await deps.proposals.list()) {
+      if (!isOccupying(proposal)) continue
+      for (const target of effectiveTargets(proposal, deps.lifecycleMainBranch ?? 'main')) {
+        const project = await deps.registry.get(target.project)
+        if (project === undefined) continue
+        const drift = await checkTargetDrift(project.root, target)
+        if (drift !== undefined) drifts.push(drift)
+      }
+    }
+    return { drifts }
   })
 
   router.get('/api/isolation/writes', async () => {

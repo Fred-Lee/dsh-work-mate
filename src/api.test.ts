@@ -654,4 +654,31 @@ describe('project registry REST API', () => {
     })
   })
 
+  it('reports baseline drift for a target whose base branch moved', async () => {
+    const repo = join(home, 'drift-repo')
+    await mkdir(repo, { recursive: true })
+    await git(['init', '-b', 'main'], repo)
+    await git(['config', 'user.email', 'test@example.com'], repo)
+    await git(['config', 'user.name', 'Test'], repo)
+    await git(['commit', '--allow-empty', '-m', 'init'], repo)
+    const baseCommit = (await git(['rev-parse', 'HEAD'], repo)).trim()
+    await git(['commit', '--allow-empty', '-m', 'moved'], repo)
+
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    await registry.upsert('drift-repo', repo)
+    const r = projectRouter(registry)
+    await proposals.upsert({
+      id: 'drift-p1',
+      title: 'drift',
+      targets: [{ project: 'drift-repo', baseBranch: 'main', baseCommit }],
+    })
+    await proposals.setStatus('drift-p1', 'implementing')
+
+    const res = stubRes()
+    await r.handle('/api/isolation/drift', stubReq('GET', '/api/isolation/drift'), res.res)
+    expect(json(res.result)).toMatchObject({
+      drifts: [{ project: 'drift-repo', baseBranch: 'main', baseCommit, drifted: true }],
+    })
+  })
+
 })
