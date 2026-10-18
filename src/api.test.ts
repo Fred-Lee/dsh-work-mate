@@ -581,4 +581,34 @@ describe('project registry REST API', () => {
     expect((json(created.result) as { note?: string }).note).toContain('未注册根')
   })
 
+  it('lists Workspace candidates and reports a missing registry service', async () => {
+    const repo = join(home, 'candidate')
+    await mkdir(join(repo, '.git'), { recursive: true })
+    await mkdir(join(repo, 'openspec'), { recursive: true })
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+
+    const withWorkspace = new Router()
+    registerApiRoutes(withWorkspace, {
+      proposals,
+      archive,
+      openspecRoot: 'openspec',
+      projectRoot: '',
+      registry,
+      workspaceRegistry: () => ({ list: () => [{ path: repo, title: 'Candidate' }] }),
+      qualitySyncEnabled: false,
+      claudeAssetsEnabled: false,
+    })
+    const listed = stubRes()
+    await withWorkspace.handle('/api/projects/candidates', stubReq('GET', '/api/projects/candidates'), listed.res)
+    expect(json(listed.result)).toMatchObject({
+      candidates: [{ path: repo, title: 'Candidate', hasOpenspec: true, registered: false }],
+    })
+
+    const withoutWorkspace = projectRouter(registry)
+    const missing = stubRes()
+    await withoutWorkspace.handle('/api/projects/candidates', stubReq('GET', '/api/projects/candidates'), missing.res)
+    expect(json(missing.result)).toMatchObject({ candidates: [] })
+    expect((json(missing.result) as { note?: string }).note).toContain('workspaceRegistry')
+  })
+
 })

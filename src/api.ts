@@ -27,6 +27,7 @@ import { PROPOSAL_STATES, isProposalState } from './features/proposal/state-mach
 import { linkWikiToProposal } from './features/wiki/links.ts'
 import type { ProjectRegistry } from './features/project/registry.ts'
 import { listProjectBranches } from './features/project/branches.ts'
+import { listWorkspaceCandidates, type WorkspaceRegistryLike } from './features/project/workspace-candidates.ts'
 import { syncProjectAssets } from './features/quality/sync.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
 import { generateChangeDir, readChangeState, validateProjectRoot } from './features/proposal/openspec.ts'
@@ -44,6 +45,8 @@ export interface ApiDeps {
   openspecRoot: string
   /** Config-level default project root; may be empty. */
   projectRoot: string
+  /** Official Workspace registry getter; absent = candidate import hidden. */
+  workspaceRegistry?: () => WorkspaceRegistryLike | undefined
   /** Sync quality assets into the target project on creation. @default true */
   qualitySyncEnabled: boolean
   /** Also distribute the Claude Code asset set (.claude/**). @default true */
@@ -343,6 +346,14 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
       ...(body.workspace !== undefined ? { workspace: body.workspace } : {}),
     })
     return { project: registered }
+  })
+
+  router.get('/api/projects/candidates', async () => {
+    const workspaceRegistry = deps.workspaceRegistry?.()
+    if (workspaceRegistry === undefined) {
+      return { candidates: [], note: '宿主未提供 workspaceRegistry — 手动注册项目' }
+    }
+    return { candidates: await listWorkspaceCandidates(workspaceRegistry, deps.registry) }
   })
 
   router.get('/api/projects/:name/branches', async (r) => {

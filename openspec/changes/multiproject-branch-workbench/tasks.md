@@ -6,7 +6,7 @@
 - [x] 1.2 新增只读分支列举与校验：`GET /workmate/api/projects/:name/branches` 返回 `current/default/local[]/remote[]`；不存在或未注册返回可读错误与候选。<!-- writes: src/api.ts, src/features/project/** -->
 - [ ] 1.3 面板注册项目时可选填默认分支与工作区名；未填走探测。<!-- writes: src/client/App.tsx, src/client/api.ts -->
 
-- [ ] 1.4 DSH Workspace 候选发现：读取 `ctx.workspaceRegistry`，过滤存在/git 仓库/未注册/路径不重复；只读，不自动导入。<!-- writes: src/features/project/**, src/api.ts -->
+- [x] 1.4 DSH Workspace 候选发现：读取 `ctx.workspaceRegistry`，过滤存在/git 仓库/未注册/路径不重复；只读，不自动导入。<!-- writes: src/features/project/**, src/api.ts -->
 - [ ] 1.5 面板「导入项目」：候选列表（标题/路径/当前分支/openspec）+ 一键加入注册表（探测默认分支）；服务不可用时隐藏并说明。<!-- writes: src/client/App.tsx, src/client/api.ts -->
 
 ## 2. 提案目标矩阵

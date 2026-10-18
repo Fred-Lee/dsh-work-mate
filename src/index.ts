@@ -29,6 +29,7 @@ import { EventLog } from './features/proposal/events.ts'
 import { runBandsCheck } from './features/metrics/check.ts'
 import { parseSwarmTasks } from './features/swarm/plan.ts'
 import { parseTargetsSpec } from './features/proposal/targets.ts'
+import type { WorkspaceRegistryLike } from './features/project/workspace-candidates.ts'
 import { AgentProvider, type HostLlmFace } from './features/decision/agent.ts'
 import { RulesProvider } from './features/decision/rules.ts'
 import { DecisionService } from './features/decision/service.ts'
@@ -508,6 +509,12 @@ export function apply(ctx: Context, config: Config = {}): void {
       }),
     configuredLang: resolved.gitnexusWikiLang,
   })
+  // Official Workspace list is an optional candidate source for project import.
+  // A profile without it keeps the manual path; the panel hides the import entry.
+  let workspaceRegistry: WorkspaceRegistryLike | undefined
+  ctx.inject(['workspaceRegistry'], (scope) => {
+    workspaceRegistry = scope.get('workspaceRegistry') as WorkspaceRegistryLike
+  })
   // UI is optional: mounted only once a webServer exists, and torn down with
   // it. In a profile without the web bundle the tools above stay available.
   ctx.inject(['webServer'], (scope) => {
@@ -517,6 +524,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       registry,
       openspecRoot: resolved.openspecRoot,
       projectRoot: resolved.projectRoot,
+      workspaceRegistry: () => workspaceRegistry,
       qualitySyncEnabled: resolved.qualitySyncEnabled,
       claudeAssetsEnabled: resolved.claudeAssetsEnabled,
       approvalsRequired: resolved.approvalsRequired,
