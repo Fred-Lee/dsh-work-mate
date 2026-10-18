@@ -24,7 +24,7 @@ import { checkTeamEvidence } from '../team/evidence.ts'
 import type { TeamRunStore } from '../team/store.ts'
 import type { ProposalService } from '../proposal/service.ts'
 import { WorktreeManager } from '../worktree/manager.ts'
-import { branchExists, isMergedInto } from '../worktree/git.ts'
+import { branchExists, isMergedInto, mergeBranch } from '../worktree/git.ts'
 import {
   checkCoverage,
   readWikiTasks,
@@ -208,6 +208,11 @@ export class LifecycleServiceImpl {
     if (check.direction === 'forward') {
       await this.assertApproval(proposal, to, options)
       try {
+        // G5: one human approval covers merge + archive. Merging here makes the
+        // archiving precondition (each feature merged into its base) true.
+        if (to === 'archiving' && proposal.status === 'merging') {
+          await this.mergeTargets(proposal, options)
+        }
         await this.checkPreconditions(proposal, to)
       } catch (error) {
         await this.recordGateFailure(proposal, to, error, options.actor)
@@ -834,6 +839,28 @@ export class LifecycleServiceImpl {
       throw error
     }
     console.warn(`[workmate] team evidence warning for ${proposal.id}: ${errors.join('；')}`)
+  }
+
+  /** Merge every declared target's feature branch into its base (idempotent). */
+  private async mergeTargets(proposal: Proposal, options: TransitionOptions): Promise<void> {
+    const targets = effectiveTargets(proposal, this.mainBranch)
+    if (targets.length === 0) return
+    const roots = (await this.deps.resolveProjectRoots?.(proposal)) ?? []
+    const rootByProject = new Map(roots.map((entry) => [entry.project, entry.root]))
+    for (const target of targets) {
+      if (target.featureBranch === undefined) continue
+      const root = rootByProject.get(target.project)
+      if (root === undefined) continue
+      if (await isMergedInto(root, target.featureBranch, target.baseBranch)) continue
+      try {
+        await mergeBranch(root, target.featureBranch, target.baseBranch, options.signal)
+      } catch (error) {
+        throw new InvalidTransitionError(
+          `合并 ${target.project}:${target.featureBranch} → ${target.baseBranch} 失败 — ` +
+            `${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+    }
   }
 
   /**

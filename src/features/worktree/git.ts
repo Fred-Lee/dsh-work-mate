@@ -45,3 +45,29 @@ export async function isMergedInto(root: string, branch: string, onto: string): 
 export async function currentBranch(root: string): Promise<string> {
   return (await gitExec(['rev-parse', '--abbrev-ref', 'HEAD'], root, 5_000)).trim()
 }
+
+/**
+ * Merge `branch` into `baseBranch` in the main checkout. The checkout must be
+ * on the base branch and clean; on conflict the merge is aborted so the
+ * proposal can stay in merging and a human can resolve it.
+ */
+export async function mergeBranch(
+  root: string,
+  branch: string,
+  baseBranch: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const current = await currentBranch(root)
+  if (current !== baseBranch) {
+    throw new Error(`项目当前在 ${current}，合并前请切到基线分支 ${baseBranch}`)
+  }
+  const dirty = (await gitExec(['status', '--porcelain'], root, 10_000, signal)).trim()
+  if (dirty !== '') throw new Error(`工作区不干净（${dirty.split('\n').length} 个改动），先提交或清理再合并`)
+  try {
+    await gitExec(['merge', '--no-ff', branch, '-m', `merge: ${branch} into ${baseBranch}`], root, 60_000, signal)
+    return (await gitExec(['rev-parse', 'HEAD'], root, 5_000, signal)).trim()
+  } catch (error) {
+    await gitExec(['merge', '--abort'], root, 15_000).catch(() => undefined)
+    throw error
+  }
+}
