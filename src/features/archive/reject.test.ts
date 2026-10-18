@@ -50,7 +50,7 @@ describe('G5 rejection', () => {
     await lifecycle.rejectMerge('p1', { category: 'plan', rationale: '方案漏了回滚' })
     const approvals = (await proposals.get('p1'))?.approvals ?? []
     expect(approvals.some((approval) => approval.gate === 'ready' && approval.decision === 'reject')).toBe(true)
-    expect((await proposals.get('p1'))?.status).toBe('implementing')
+    expect((await proposals.get('p1'))?.status).toBe('ready')
   })
 
   it('refuses rejection outside merging and without a rationale', async () => {

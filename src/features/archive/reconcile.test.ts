@@ -137,4 +137,11 @@ describe('evidence-driven authoring reconcile', () => {
     await expect(lifecycle.transition('p7', 'implementing')).rejects.toThrow(/G2 方案已变化/)
   })
 
+  it('does not skip G2 for a legacy proposal that has plan artifacts', async () => {
+    await writePlan('p8')
+    await proposals.upsert({ id: 'p8', title: 'p8', projects: ['demo'] })
+    await proposals.setStatus('p8', 'ready', { actor: 'human' })
+    await expect(lifecycle.transition('p8', 'implementing')).rejects.toThrow(/G2 方案已变化/)
+  })
+
 })

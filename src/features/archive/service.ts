@@ -393,6 +393,9 @@ export class LifecycleServiceImpl {
         ) {
           return
         }
+        // A plan rejection deliberately sends the proposal back to ready for a
+        // fresh G1/G2; the next implementing entry still requires a new approve.
+        if (latest?.decision === 'reject' && proposal.status === 'implementing') return
         // Legacy branch merge keeps old proposals advancing.
         if (proposal.proposalBranch !== undefined && (await isMergedInto(root, proposal.proposalBranch, this.mainBranch))) return
         throw new InvalidTransitionError(
@@ -624,11 +627,20 @@ export class LifecycleServiceImpl {
         rationale: `G5 认定方案问题：${options.rationale}`,
       })
     }
-    const outcome = await this.transition(id, 'implementing', {
+    const implementing = await this.transition(id, 'implementing', {
       actor: options.actor ?? 'human',
       rationale: `G5 拒绝（${options.category}）：${options.rationale}`,
     })
-    return { approval, proposal: outcome.proposal }
+    if (options.category === 'plan') {
+      // Spec: a plan-direction rejection goes back to ready, where a fresh
+      // planHash approval is required before implementing again.
+      const ready = await this.transition(id, 'ready', {
+        actor: options.actor ?? 'human',
+        rationale: `G5 方案问题，退回 ready 重走 G1/G2：${options.rationale}`,
+      })
+      return { approval, proposal: ready.proposal }
+    }
+    return { approval, proposal: implementing.proposal }
   }
 
   /**
@@ -869,7 +881,6 @@ export class LifecycleServiceImpl {
    * their historical flow (no targets/approval snapshot).
    */
   private async assertCurrentPlanApproval(proposal: Proposal): Promise<void> {
-    if (proposal.targets === undefined || proposal.targets.length === 0) return
     const root = await this.primaryRoot(proposal)
     if (root === undefined) return
     const fingerprint = await computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId, proposal.targets)
