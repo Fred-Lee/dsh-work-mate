@@ -42,10 +42,16 @@ const STATE_META: Record<Proposal['status'], { label: string; tone: string }> = 
   archiving: { label: '归档中', tone: '#fb923c' },
   archived: { label: '已归档', tone: '#22c55e' },
 }
-/** Three kanban columns aggregate the eight lifecycle states. */
+/**
+ * Pipeline stages, not a generic kanban: the eight internal states collapse to
+ * the five things a human actually acts on (方案 → 待确认 → 执行中 → 待合并 →
+ * 已归档). Human gates are G2 (`待确认`) and G5 (`待合并`).
+ */
 const COLUMNS: Array<{ states: Proposal['status'][]; label: string; tone: string }> = [
-  { states: ['draft', 'proposing', 'reviewing', 'ready'], label: '提案阶段', tone: '#a78bfa' },
-  { states: ['implementing', 'merging', 'archiving'], label: '实现与合并', tone: '#3b82f6' },
+  { states: ['draft', 'proposing'], label: '方案', tone: '#a78bfa' },
+  { states: ['reviewing'], label: '待确认', tone: '#f59e0b' },
+  { states: ['ready', 'implementing'], label: '执行中', tone: '#3b82f6' },
+  { states: ['merging', 'archiving'], label: '待合并', tone: '#818cf8' },
   { states: ['archived'], label: '已归档', tone: '#22c55e' },
 ]
 
@@ -318,7 +324,20 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                       <article
                         className="wm-card"
                         key={proposal.id}
+                        tabIndex={0}
+                        onMouseEnter={() => {
+                          if (details[proposal.id] === undefined) void loadDetail(proposal.id)
+                        }}
+                        onFocus={() => {
+                          if (details[proposal.id] === undefined) void loadDetail(proposal.id)
+                        }}
                         onClick={() => setExpanded((prev) => (prev === proposal.id ? null : proposal.id))}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            setExpanded((prev) => (prev === proposal.id ? null : proposal.id))
+                          }
+                        }}
                       >
                         <span className="wm-card-bar" style={{ background: STATE_META[proposal.status].tone }} />
                         <h3 className="wm-card-title">{proposal.title}</h3>

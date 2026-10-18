@@ -124,7 +124,9 @@ export const PANEL_STYLE = `
 .wm-btn.mini { font-size: 11px; padding: 2px 8px; border-radius: 6px; }
 
 /* ---------- kanban ---------- */
-.wm-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 14px 18px 0; align-items: start; }
+.wm-board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; padding: 14px 18px 0; align-items: start; }
+@media (max-width: 1200px) { .wm-board { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .wm-board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 720px) { .wm-board { grid-template-columns: 1fr; } }
 .wm-col { background: var(--wm-code); border-radius: 12px; padding: 8px; }
 .wm-col-head { display: flex; align-items: center; gap: 6px; padding: 4px 6px 8px; font-weight: 600; font-size: 12px; color: var(--wm-muted); }

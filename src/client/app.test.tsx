@@ -61,7 +61,16 @@ function postedCall(url: string): [string, RequestInit] {
 }
 
 function columnFor(status: string): HTMLElement {
-  const label = status === 'draft' ? '提案阶段' : status === 'executing' ? '实现与合并' : '已归档'
+  const label =
+    status === 'draft' || status === 'proposing'
+      ? '方案'
+      : status === 'reviewing'
+        ? '待确认'
+        : status === 'ready' || status === 'implementing' || status === 'executing'
+          ? '执行中'
+          : status === 'merging' || status === 'archiving'
+            ? '待合并'
+            : '已归档'
   const heads = screen.getAllByText(label)
   const head = heads[0] as HTMLElement
   const column = head.closest('section')
