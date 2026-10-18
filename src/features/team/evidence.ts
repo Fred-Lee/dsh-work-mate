@@ -49,7 +49,7 @@ export async function checkTeamEvidence(
     }
   }
 
-  for (const artifact of ['TEST.md', 'TEAM-REVIEW.md'] as const) {
+  for (const artifact of ['TEST.md', 'TEAM-REVIEW.md', 'SUMMARY.md'] as const) {
     const content = await required(join(dir, artifact), artifact, errors)
     if (content === undefined) continue
     for (const section of REQUIRED_SECTIONS[artifact]) {

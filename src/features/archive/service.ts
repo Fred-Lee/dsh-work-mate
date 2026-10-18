@@ -21,6 +21,7 @@ import { effectiveTargets } from '../proposal/targets.ts'
 import { isOccupying } from '../proposal/isolation.ts'
 import { findWriteConflicts, readProposalWriteScopes, type WriteClaim } from '../proposal/writes.ts'
 import { checkTeamEvidence } from '../team/evidence.ts'
+import type { TeamRunStore } from '../team/store.ts'
 import type { ProposalService } from '../proposal/service.ts'
 import { WorktreeManager } from '../worktree/manager.ts'
 import { branchExists, isMergedInto } from '../worktree/git.ts'
@@ -109,6 +110,8 @@ export interface LifecycleDeps {
   reviewEvidenceGate?: 'off' | 'warn' | 'block'
   /** Team artifacts required for team-managed changes (`Config.teamEvidenceGate`). */
   teamEvidenceGate?: 'off' | 'warn' | 'block'
+  /** Team run store; lets the evidence gate reject partial/blocked runs. */
+  teamRuns?: TeamRunStore
   /** Require an independent verification record per merged swarm task (`Config.swarmReviewRequired`). */
   swarmReviewRequired?: boolean
   /** Extra states a HIGH-risk proposal needs a human approval for (`Config.highRiskExtraGates`). */
@@ -815,13 +818,22 @@ export class LifecycleServiceImpl {
     const gate = this.deps.teamEvidenceGate ?? 'warn'
     if (gate === 'off') return
     const result = await checkTeamEvidence(root, this.openspecRoot, proposal.openspecChangeId)
-    if (!result.managed || result.ok) return
-    const error = new InvalidTransitionError(`团队证据不完整 — ${result.errors.join('；')}`)
+    const runs = (await this.deps.teamRuns?.list()) ?? []
+    const latestRun = runs
+      .filter((run) => run.proposalId === proposal.id)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
+    const runError =
+      latestRun !== undefined && ['partial', 'blocked', 'aborted'].includes(latestRun.status)
+        ? `最近团队 Run ${latestRun.id} 终态为 ${latestRun.status}，不得归档`
+        : undefined
+    if ((!result.managed || result.ok) && runError === undefined) return
+    const errors = [...result.errors, ...(runError !== undefined ? [runError] : [])]
+    const error = new InvalidTransitionError(`团队证据不完整 — ${errors.join('；')}`)
     if (gate === 'block') {
       await this.recordGateFailure(proposal, 'archiving', error, undefined, 'team-evidence')
       throw error
     }
-    console.warn(`[workmate] team evidence warning for ${proposal.id}: ${result.errors.join('；')}`)
+    console.warn(`[workmate] team evidence warning for ${proposal.id}: ${errors.join('；')}`)
   }
 
   /**

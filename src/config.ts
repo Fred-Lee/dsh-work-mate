@@ -104,7 +104,7 @@ export interface Config {
   /**
    * Require team artifacts before archiving a team-managed change (`TASKS.json`
    * present): TEST.md and TEAM-REVIEW.md with their required sections.
-   * `off` | `warn` | `block`. @default 'warn'
+   * `off` | `warn` | `block`. @default 'block'
    */
   teamEvidenceGate?: string
   /**
@@ -117,7 +117,7 @@ export interface Config {
   teamReadonlyPreset?: string
   /** Workspace-write agent preset for developers/tester/coordinator (T3-3.6). */
   teamWorkspacePreset?: string
-  /** Refuse dispatch when a role has no matching preset instead of inheriting parent scope. @default false */
+  /** Refuse dispatch when a role has no matching preset instead of inheriting parent scope. @default true */
   teamRequireRolePresets?: boolean
   /** JSON map of role → {provider?, model?, reasoningEffort?}; empty = inherit session model. */
   teamRoleModels?: string
@@ -248,7 +248,7 @@ export const Config: z<Config> = z.object({
     .description('Machine-check review.md citations: off | warn | block (block fails on a missing file).'),
   teamEvidenceGate: z
     .string()
-    .default('warn')
+    .default('block')
     .description('Require TEST.md/TEAM-REVIEW.md for team-managed changes: off | warn | block.'),
   teamAutoPlan: z
     .boolean()
@@ -264,7 +264,7 @@ export const Config: z<Config> = z.object({
     .description('Agent preset id for workspace-write team roles (dev/test/coordinator).'),
   teamRequireRolePresets: z
     .boolean()
-    .default(false)
+    .default(true)
     .description('Refuse team dispatch when a role has no matching agent preset.'),
   teamRoleModels: z
     .string()
@@ -338,11 +338,11 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   allowAgentForceArchive: false,
   reviewerIndependence: 'warn',
   reviewEvidenceGate: 'warn',
-  teamEvidenceGate: 'warn',
+  teamEvidenceGate: 'block',
   teamAutoPlan: false,
   teamReadonlyPreset: '',
   teamWorkspacePreset: '',
-  teamRequireRolePresets: false,
+  teamRequireRolePresets: true,
   teamRoleModels: '',
   swarmReviewRequired: false,
   lifecycleMainBranch: 'main',

@@ -87,6 +87,7 @@ describe('team evidence gate', () => {
       '## 确认项\n## 疑问项\n## 建议补充项\n## CRITICAL 问题\n',
       'utf8',
     )
+    await writeFile(join(changeDir(), 'SUMMARY.md'), '## Run\n## 逐任务结果\n## 未解阻塞\n## 终态\n', 'utf8')
     await lifecycle('block').transition('p1', 'archiving')
     expect((await proposals.get('p1'))?.status).toBe('archiving')
   })

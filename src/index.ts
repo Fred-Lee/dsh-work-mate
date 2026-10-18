@@ -190,6 +190,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     reviewerIndependence: resolved.reviewerIndependence as 'off' | 'warn' | 'block',
     reviewEvidenceGate: resolved.reviewEvidenceGate as 'off' | 'warn' | 'block',
     teamEvidenceGate: resolved.teamEvidenceGate as 'off' | 'warn' | 'block',
+    teamRuns,
     swarmReviewRequired: resolved.swarmReviewRequired,
     highRiskExtraGates: resolved.highRiskExtraGates,
     riskGateEnabled: resolved.decisionEnabled,

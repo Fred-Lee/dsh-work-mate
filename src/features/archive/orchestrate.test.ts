@@ -223,6 +223,22 @@ describe('orchestrateArchive (fake CLIs)', () => {
     await rm(project, { recursive: true, force: true })
   })
 
+
+  it('blocks an unresolved CRITICAL in TEAM-REVIEW.md', async () => {
+    const project = await seedProject()
+    await writeFile(
+      join(project, 'openspec', 'changes', 'p1', 'TEAM-REVIEW.md'),
+      '## CRITICAL 问题\n\n- [ ] CRIT-1 未解决\n',
+      'utf8',
+    )
+    const result = await orchestrateArchive(archivingProposal(), [{ project: 'demo', root: project }], {
+      openspecRoot: 'openspec',
+      gitnexusAnalyzeEnabled: false,
+    })
+    expect(result.ok).toBe(false)
+    expect(result.steps.find((step) => step.step === 'team-review')?.status).toBe('failed')
+    await rm(project, { recursive: true, force: true })
+  })
   it('blocks the configured severities beyond CRIT', async () => {
     // A fresh project per run: the archive step may move changes/<id>/ away.
     const seed = async (): Promise<string> => {

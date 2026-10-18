@@ -24,6 +24,7 @@ import type { DecisionOutcome, DecisionQuestion } from '../decision/types.ts'
 export interface OrchestrationStep {
   step:
     | 'review-gate'
+    | 'team-review'
     | 'review-independent'
     | 'review-evidence'
     | 'tasks'
@@ -463,11 +464,19 @@ export async function orchestrateArchive(
     let gateFailed = false
     for (const target of targets) {
       const label = targets.length > 1 ? `[${target.project}] ` : ''
-      let content: string
+      let content: string | undefined
+      let teamContent: string | undefined
       try {
         const changeDir = await resolveChangeDir(target.root, options.openspecRoot, proposal.openspecChangeId)
-        content = await readFile(join(changeDir, 'review.md'), 'utf8')
+        content = await readFile(join(changeDir, 'review.md'), 'utf8').catch(() => undefined)
+        // Team changes use a distinct uppercase artifact; macOS is case-insensitive,
+        // so it must not share a name with the planning `review.md` (C2).
+        teamContent = await readFile(join(changeDir, 'TEAM-REVIEW.md'), 'utf8').catch(() => undefined)
+        if (content === undefined && teamContent !== undefined) content = teamContent
       } catch {
+        // unresolved change dir
+      }
+      if (content === undefined) {
         gateFailed = true
         steps.push({
           step: 'review-gate',
@@ -479,6 +488,20 @@ export async function orchestrateArchive(
         continue
       }
       const report = parseReviewMd(content)
+      if (teamContent !== undefined) {
+        const teamReport = parseReviewMd(teamContent)
+        const teamTally = reviewTally(teamReport, options.reviewBlockingSeverities ?? ['CRIT'])
+        if (teamTally.blocking > 0) {
+          gateFailed = true
+          steps.push({
+            step: 'team-review',
+            status: 'failed',
+            summary: `${label}TEAM-REVIEW.md 有 ${teamTally.blocking} 条未解决阻断级发现`,
+          })
+        } else {
+          steps.push({ step: 'team-review', status: 'ok', summary: `${label}TEAM-REVIEW.md 无阻断级发现` })
+        }
+      }
       // Legacy shape: an untagged CRITICAL section has no findings yet, so keep its
       // entries in the mix before adding graded ones (otherwise the tally's legacy
       // fallback would be skipped the moment a single finding exists).

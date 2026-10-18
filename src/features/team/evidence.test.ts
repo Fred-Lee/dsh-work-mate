@@ -68,6 +68,7 @@ describe('checkTeamEvidence', () => {
     expect(missing.errors.join()).toContain('TEAM-REVIEW.md 缺「## CRITICAL 问题」')
 
     await writeArtifact('p1', 'TEAM-REVIEW.md', ['## 确认项', '## 疑问项', '## 建议补充项', '## CRITICAL 问题'])
+    await writeArtifact('p1', 'SUMMARY.md', ['## Run', '## 逐任务结果', '## 未解阻塞', '## 终态'])
     await expect(checkTeamEvidence(root, 'openspec', 'p1')).resolves.toMatchObject({ managed: true, ok: true })
   })
 
