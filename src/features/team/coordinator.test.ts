@@ -247,4 +247,31 @@ describe('TeamCoordinator', () => {
     expect(result.run.status).toBe('aborted')
   }, 5_000)
 
+  it('rejects a reviewer that reuses an implementer session', async () => {
+    await runner.createRun({
+      id: 'r1',
+      proposalId: 'p1',
+      template: 'requirement-full',
+      tasks: [
+        task('impl', { role: 'backend-dev', project: 'demo' }),
+        task('review', { role: 'reviewer', project: 'demo', dependsOn: ['impl'] }),
+      ],
+      budget: { maxAttempts: 1 },
+    })
+    const sameSession: TeamDispatcher = {
+      async start() {
+        return {
+          sessionId: 'session-1',
+          result: Promise.resolve({ status: 'done' as const, outcome: 'ok', reportPath: 'TEAM-REVIEW.md' }),
+        }
+      },
+    }
+    const result = await new TeamCoordinator(runner, sameSession).run('r1')
+    expect(result.run.status).toBe('partial')
+    expect(result.run.tasks.find((entry) => entry.id === 'review')?.status).toBe('failed')
+    expect(result.run.dispatches?.find((dispatch) => dispatch.taskId === 'review')?.outcome).toContain(
+      '不能复用实现者会话',
+    )
+  })
+
 })

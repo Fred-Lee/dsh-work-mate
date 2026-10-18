@@ -44,6 +44,8 @@ export interface SettleInput {
   escalation?: string
   /** Provider-reported total tokens; omitted means "not measured", never zero-faked. */
   tokensUsed?: number
+  /** Host child/session identity for independence checks. */
+  sessionId?: string
 }
 
 export class TeamRunner {
@@ -166,6 +168,7 @@ export class TeamRunner {
       ...dispatch,
       status: input.status,
       endedAt: timestamp,
+      ...(input.sessionId !== undefined ? { sessionId: input.sessionId } : {}),
       ...(input.outcome !== undefined ? { outcome: input.outcome } : {}),
       ...(input.reportPath !== undefined ? { reportPath: input.reportPath } : {}),
       ...(input.filesModified !== undefined ? { filesModified: [...input.filesModified] } : {}),

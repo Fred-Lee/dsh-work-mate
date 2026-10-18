@@ -178,6 +178,7 @@ export class HostSubagentDispatcher implements TeamDispatcher {
             ...(result.usage?.totalTokens !== undefined ? { tokensUsed: result.usage.totalTokens } : {}),
             ...(filesModified !== undefined ? { filesModified } : {}),
             ...(reportPath !== undefined ? { reportPath } : {}),
+            sessionId: activation.childId,
           }
         } finally {
           await activation.dispose().catch(() => undefined)

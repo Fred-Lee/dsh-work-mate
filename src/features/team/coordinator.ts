@@ -21,6 +21,8 @@ export interface DispatchRequest {
 }
 
 export interface DispatchHandle {
+  /** Host child/session identity, when the dispatcher can expose it. */
+  sessionId?: string
   /** Resolves once the worker reached a terminal outcome. */
   result: Promise<SettleInput>
 }
@@ -53,6 +55,7 @@ export class TeamCoordinator {
   async run(runId: string, options: { maxWaves?: number } = {}): Promise<CoordinatorResult> {
     await this.runner.start(runId)
     let waves = 0
+    const workerSessions = new Map<string, string>()
     for (;;) {
       const run = await this.runner.get(runId)
       if (TERMINAL.has(run.status)) {
@@ -93,6 +96,19 @@ export class TeamCoordinator {
           if (current === undefined) continue
           await this.events?.dispatch({ run: dispatched, task: current, dispatchId })
           const handle = await this.dispatcher.start({ run: dispatched, task: current, dispatchId })
+          if (current.role === 'reviewer' && handle.sessionId !== undefined) {
+            const reusedRole = workerSessions.get(handle.sessionId)
+            if (reusedRole !== undefined && reusedRole !== 'reviewer') {
+              await this.runner.settle(runId, dispatchId, {
+                status: 'failed',
+                outcome: 'reviewer 不能复用实现者会话 — 独立审查要求不同身份',
+              })
+              continue
+            }
+          }
+          if (handle.sessionId !== undefined && !workerSessions.has(handle.sessionId)) {
+            workerSessions.set(handle.sessionId, current.role)
+          }
           handles.push({ task: current, dispatchId, handle })
         } catch (error) {
           // A start failure is a failed attempt, not a crash of the whole run.
