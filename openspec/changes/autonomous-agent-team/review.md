@@ -114,3 +114,13 @@
 - reviewer 身份：HostSubagentDispatcher handle 恢复 `sessionId/cancel`；reviewer prompt 注入 `<!-- reviewer: <dispatchId> -->`；证据门改为 marker 必须等于 Run 中 reviewer dispatch id（且不得等于实现者 dispatch id）。补测试。
 - review 混排：新增 `withLegacyCriticals` 统一 review.md 与 TEAM-REVIEW.md；resolved tagged CRIT 不再吞掉同文本 unresolved legacy CRIT；TEAM-REVIEW 的 legacy CRIT 现在参与 tally。补两条测试。
 - 仍不可归档：提案记录/工件/Run/G2/G5 均未就绪；最终独立审查报告未出。
+
+## 第九轮修复（2026-10-19，第三轮审查报告）
+
+- C-1 reviewer marker 不可满足：`buildTaskPrompt` 现在传 `dispatchId`，reviewer 规则要求 `TEAM-REVIEW.md` 首行写 `<!-- reviewer: <dispatchId> -->`；证据门比对 dispatch id。测试断言 prompt 含 Dispatch 与 marker。
+- MEDIUM tally 双计：legacy 合并收进 `reviewTally`，按同文本+同 resolved 去重；当前 review.md 不再 0/18。
+- H-1：团队证据门要求最近 Run 为 `succeeded`，`running/planned` 一律阻断；测试。
+- H-2：存在团队 Run 时即使删掉 TASKS.json 也不能关闭团队证据门；测试。
+- H-3：TEAM-REVIEW.md / TEST.md 的 `file:line` 引用纳入 reviewEvidenceGate（block 生效）。
+- H-4：回滚只删除本次新建的 worktree，复用 worktree 不再 force 删除。
+- 仍未闭：H-5 提案分支未并入 `feat/workmate`、H-6 跨恢复 reviewer session 检查、prepare 的 TASKS 项目矩阵默认主项目。**仍不可归档。**
