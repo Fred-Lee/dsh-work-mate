@@ -105,4 +105,5 @@
 - H-2：存在团队 Run 时即使删掉 TASKS.json 也不能关闭团队证据门；测试。
 - H-3：TEAM-REVIEW.md / TEST.md 的 `file:line` 引用纳入 reviewEvidenceGate（block 生效）。
 - H-4：回滚只删除本次新建的 worktree，复用 worktree 不再 force 删除。
-- 仍未闭：H-5 提案分支未并入 `feat/workmate`、H-6 跨恢复 reviewer session 检查、prepare 的 TASKS 项目矩阵默认主项目。**仍不可归档。**
+- H-5：`feat/workmate` 已快进到当前 HEAD（5ea681d），主干含变更目录与团队代码。
+- 仍未闭：H-6 跨恢复 reviewer session 检查、prepare 的 TASKS 项目矩阵默认主项目。**仍不可归档。**
