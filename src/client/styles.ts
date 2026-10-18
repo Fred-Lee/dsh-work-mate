@@ -241,4 +241,30 @@ export const PANEL_STYLE = `
   border: 1px solid transparent; background: transparent; color: var(--wm-muted-fallback, #656d76);
 }
 .wm-chat-trigger:hover { background: var(--wm-code, rgba(127,127,127,.12)); color: var(--wm-fg, inherit); }
+/* ---------- project context bar (multiproject workbench) ---------- */
+.wm-context {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--wm-border-soft);
+  background: var(--wm-surface);
+}
+.wm-context-field {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--wm-muted);
+}
+.wm-context-field select {
+  font-size: 12px; padding: 4px 8px; border-radius: 8px;
+  border: 1px solid var(--wm-border); background: var(--wm-bg); color: var(--wm-fg);
+}
+.wm-context-meta { font-size: 11px; color: var(--wm-muted); }
+.wm-import-list { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto; margin: 8px 0; }
+.wm-import-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 10px; border: 1px solid var(--wm-border-soft); border-radius: 10px;
+}
+.wm-import-path {
+  font-family: ui-monospace, monospace; font-size: 11px; color: var(--wm-muted);
+  word-break: break-all; margin-top: 2px;
+}
+
 `

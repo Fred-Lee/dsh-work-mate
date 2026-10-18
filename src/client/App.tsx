@@ -10,14 +10,21 @@ import { getBands, getMetrics } from './api'
 import type { AggregateMetrics, BandEvaluation, BandsPayload } from './types'
 import {
   advanceProposal,
-  abandonProposal, archiveProposal,
+  abandonProposal, approvePlan, archiveProposal,
   createProposal,
+  getIsolation,
   getProposal,
+  listProjectBranches,
   listProjects,
   listProposals,
+  listWorkspaceCandidates,
+  reconcileProposal,
   registerProject,
   transitionProposal,
+  type IsolationPayload,
+  type ProjectBranches,
   type RegisteredProject,
+  type WorkspaceCandidate,
 } from './api'
 import type { Proposal, ProposalState, ProposalStatusPayload } from './types'
 import { GraphView } from './GraphView'
@@ -69,6 +76,12 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const [notes, setNotes] = useState<Record<string, string>>({})
   /** Why a proposal's detail could not be loaded (e.g. its project root no longer exists). */
   const [detailErrors, setDetailErrors] = useState<Record<string, string>>({})
+  const [projects, setProjects] = useState<RegisteredProject[]>([])
+  const [selectedProject, setSelectedProject] = useState('')
+  const [branches, setBranches] = useState<ProjectBranches | undefined>(undefined)
+  const [selectedBranch, setSelectedBranch] = useState('')
+  const [isolation, setIsolation] = useState<IsolationPayload>({ occupancy: [], conflicts: [] })
+  const [importOpen, setImportOpen] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -78,13 +91,52 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
+    try {
+      const next = await getIsolation()
+      setIsolation({ occupancy: next.occupancy ?? [], conflicts: next.conflicts ?? [] })
+    } catch {
+      // Occupancy is advisory; a host without the endpoint keeps the old panel.
+    }
+  }, [])
+
+  const refreshProjects = useCallback(async () => {
+    try {
+      const response = await listProjects()
+      setProjects(response.projects ?? [])
+    } catch {
+      setProjects([])
+    }
   }, [])
 
   useEffect(() => {
     void refresh()
+    void refreshProjects()
     const timer = window.setInterval(() => void refresh(), POLL_MS)
     return () => window.clearInterval(timer)
-  }, [refresh])
+  }, [refresh, refreshProjects])
+
+  useEffect(() => {
+    if (selectedProject === '') {
+      setBranches(undefined)
+      setSelectedBranch('')
+      return
+    }
+    let alive = true
+    void listProjectBranches(selectedProject)
+      .then((response) => {
+        if (!alive) return
+        setBranches(response.branches)
+        setSelectedBranch(response.branches.default ?? response.branches.current)
+      })
+      .catch(() => {
+        if (!alive) return
+        setBranches(undefined)
+        setSelectedBranch('')
+      })
+    return () => {
+      alive = false
+    }
+  }, [selectedProject])
 
   const loadDetail = useCallback(
     async (id: string) => {
@@ -106,12 +158,16 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   )
 
   const act = useCallback(
-    async (id: string, action: 'advance' | 'back' | 'archive' | 'abandon', to?: ProposalState, force = false) => {
+    async (id: string, action: 'advance' | 'back' | 'archive' | 'abandon' | 'plan', to?: ProposalState, force = false) => {
       setBusy(true)
       setPending(`${id}:${action}`)
       try {
         let result: unknown
         if (action === 'archive') result = await archiveProposal(id, force)
+        else if (action === 'plan') {
+          await approvePlan(id)
+          result = await reconcileProposal(id)
+        }
         else if (action === 'abandon') {
           const reason = window.prompt('终止原因（必填，写入事件流便于审计）')
           if (reason === null) throw new Error('已取消终止')
@@ -136,7 +192,9 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
               ? `✅ 归档完成${forced ? '（force：已跳过审查门）' : ''}`
               : action === 'abandon'
                 ? '🛑 已终止（记录原因，未跑归档编排）'
-                : '✅ 状态已更新',
+                : action === 'plan'
+                  ? '✅ 方案已确认（planHash 已记录，方案再改会失效）'
+                  : '✅ 状态已更新',
         }))
         await Promise.all([refresh(), loadDetail(id)])
       } catch (cause) {
@@ -151,13 +209,18 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
     [refresh, loadDetail],
   )
 
+  const visibleProposals = useMemo(
+    () => (selectedProject === '' ? proposals : proposals.filter((proposal) => proposal.projects.includes(selectedProject))),
+    [proposals, selectedProject],
+  )
+
   const columns = useMemo(
     () =>
       COLUMNS.map((column) => ({
         ...column,
-        cards: proposals.filter((proposal) => column.states.includes(proposal.status)),
+        cards: visibleProposals.filter((proposal) => column.states.includes(proposal.status)),
       })),
-    [proposals],
+    [visibleProposals],
   )
 
   return (
@@ -187,6 +250,48 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           </button>
         </div>
       </header>
+
+      <div className="wm-context">
+        <label className="wm-context-field">
+          <span>项目</span>
+          <select value={selectedProject} onChange={(event) => setSelectedProject(event.target.value)}>
+            <option value="">全部项目</option>
+            {projects.map((project) => (
+              <option key={project.name} value={project.name}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {selectedProject !== '' && (
+          <label className="wm-context-field">
+            <span>分支</span>
+            <select value={selectedBranch} onChange={(event) => setSelectedBranch(event.target.value)}>
+              {(branches?.local ?? []).map((branch) => (
+                <option key={branch} value={branch}>
+                  {branch}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {branches?.current !== undefined && branches.current !== '' && (
+          <span className="wm-context-meta">当前 ⎇ {branches.current}</span>
+        )}
+        {selectedProject !== '' && (
+          <span className="wm-context-meta">
+            {visibleProposals.length}/{proposals.length} 条
+          </span>
+        )}
+        {isolation.conflicts.length > 0 && (
+          <span className="wm-tier wm-tier-diagnose" title="同项目同名分支被多个活跃提案占用">
+            ⚠ {isolation.conflicts.length} 个分支冲突
+          </span>
+        )}
+        <button className="wm-btn mini" type="button" onClick={() => setImportOpen(true)}>
+          从 Workspace 导入
+        </button>
+      </div>
 
       {error !== '' && <div className="wm-error">{error}</div>}
 
@@ -487,6 +592,17 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                       ‹ 回退到 {STATE_META[detail.lifecycle.prev].label}
                                     </button>
                                   )}
+                                  {proposal.status === 'reviewing' && (
+                                    <button
+                                      className="wm-btn mini primary"
+                                      type="button"
+                                      disabled={busy}
+                                      title="确认当前 planHash；方案工件改动后需重新确认"
+                                      onClick={() => void act(proposal.id, 'plan')}
+                                    >
+                                      {pending === `${proposal.id}:plan` ? '确认中…' : '确认方案'}
+                                    </button>
+                                  )}
                                   {detail.lifecycle?.next !== undefined && detail.lifecycle.next !== 'archived' && (
                                     <button
                                       className="wm-btn mini primary"
@@ -556,6 +672,14 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
         )}
       </div>
 
+      {importOpen && (
+        <ImportProjectsModal
+          onClose={() => setImportOpen(false)}
+          onImported={refreshProjects}
+          onError={setError}
+        />
+      )}
+
       {createOpen && (
         <CreateModal
           projectRoot={projectRootDraft}
@@ -565,6 +689,97 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           onError={setError}
         />
       )}
+    </div>
+  )
+}
+
+function ImportProjectsModal(props: {
+  onClose: () => void
+  onImported: () => Promise<void> | void
+  onError: (message: string) => void
+}): JSX.Element {
+  const [candidates, setCandidates] = useState<WorkspaceCandidate[]>([])
+  const [note, setNote] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState('')
+
+  useEffect(() => {
+    let alive = true
+    void listWorkspaceCandidates()
+      .then((response) => {
+        if (!alive) return
+        setCandidates(response.candidates ?? [])
+        if (response.note !== undefined) setNote(response.note)
+      })
+      .catch((cause: unknown) => {
+        if (alive) props.onError(cause instanceof Error ? cause.message : String(cause))
+      })
+      .finally(() => {
+        if (alive) setLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+    // The modal is mounted per open; candidates are intentionally fetched once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function add(candidate: WorkspaceCandidate): Promise<void> {
+    setBusy(candidate.path)
+    try {
+      await registerProject(candidate.suggestedName, candidate.path, { workspace: candidate.workspace })
+      await props.onImported()
+      setCandidates((prev) => prev.filter((entry) => entry.path !== candidate.path))
+    } catch (cause) {
+      props.onError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  return (
+    <div className="wm-modal" onClick={props.onClose}>
+      <div className="wm-modal-box" onClick={(event) => event.stopPropagation()}>
+        <h3>从 DSH Workspace 导入项目</h3>
+        <p className="wm-progress-label">只列出 git 仓库；导入后仍可在项目树里改默认分支与工作区。</p>
+        {note !== '' && <div className="wm-action-note">{note}</div>}
+        {loading ? (
+          <div className="wm-empty">加载中…</div>
+        ) : candidates.length === 0 ? (
+          <div className="wm-empty">没有可导入的 git 仓库</div>
+        ) : (
+          <div className="wm-import-list">
+            {candidates.map((candidate) => (
+              <div className="wm-import-row" key={candidate.path}>
+                <div>
+                  <b>{candidate.title || candidate.name}</b>
+                  {candidate.hasOpenspec && <span className="wm-context-meta"> · openspec</span>}
+                  <div className="wm-import-path">{candidate.path}</div>
+                </div>
+                <div className="wm-actions">
+                  {candidate.registered ? (
+                    <span className="wm-context-meta">已注册为 {candidate.registeredAs}</span>
+                  ) : (
+                    <button
+                      className="wm-btn mini primary"
+                      type="button"
+                      disabled={busy !== ''}
+                      onClick={() => void add(candidate)}
+                    >
+                      {busy === candidate.path ? '导入中…' : '加入项目'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="wm-modal-foot">
+          <button className="wm-btn" type="button" onClick={props.onClose}>
+            关闭
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -587,7 +802,7 @@ function CreateModal(props: {
 
   useEffect(() => {
     void listProjects()
-      .then(({ projects: list }) => setProjects(list))
+      .then(({ projects: list }) => setProjects(list ?? []))
       .catch(() => setProjects([]))
   }, [])
 

@@ -42,6 +42,24 @@ function ok(body: unknown) {
   return { ok: true, status: 200, json: async () => body }
 }
 
+
+function routeMock(handler: (url: string, method: string, body: unknown) => unknown): void {
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    const method = init?.method ?? 'GET'
+    const body = init?.body !== undefined ? JSON.parse(String(init.body)) : undefined
+    return ok(handler(url, method, body))
+  })
+}
+
+function postedCall(url: string): [string, RequestInit] {
+  const found = fetchMock.mock.calls.find(
+    ([candidate, init]) =>
+      candidate === url && ((init as RequestInit | undefined)?.method ?? 'GET') === 'POST',
+  )
+  if (found === undefined) throw new Error(`no POST ${url}`)
+  return found as unknown as [string, RequestInit]
+}
+
 function columnFor(status: string): HTMLElement {
   const label = status === 'draft' ? '提案阶段' : status === 'executing' ? '实现与合并' : '已归档'
   const heads = screen.getAllByText(label)
@@ -81,85 +99,156 @@ describe('ProposalPanel (kanban)', () => {
   })
 
   it('creates through the ＋ 新提案 modal and refreshes the board', async () => {
-    fetchMock.mockResolvedValueOnce(ok({ proposals: [] }))
-    fetchMock.mockResolvedValueOnce(ok({ projects: [] }))
-    fetchMock.mockResolvedValueOnce(ok({ proposal: proposal() }))
-    fetchMock.mockResolvedValueOnce(ok({ proposals: [proposal()] }))
+    let created = false
+    routeMock((url, method) => {
+      if (url === '/workmate/api/proposals' && method === 'GET') return { proposals: created ? [proposal()] : [] }
+      if (url === '/workmate/api/projects') return { projects: [] }
+      if (url === '/workmate/api/isolation') return { occupancy: [], conflicts: [] }
+      if (url === '/workmate/api/proposals' && method === 'POST') {
+        created = true
+        return { proposal: proposal() }
+      }
+      return {}
+    })
 
     render(<ProposalPanel />)
     await screen.findAllByText('暂无提案')
 
     fireEvent.click(screen.getByText('＋ 新提案'))
-    const modal = screen.getByText('＋ 新提案', { selector: 'h3' })
-    expect(modal).toBeTruthy()
+    expect(screen.getByText('＋ 新提案', { selector: 'h3' })).toBeTruthy()
     fireEvent.change(screen.getByPlaceholderText('批量批改 v2.1'), { target: { value: '新提案标题' } })
     fireEvent.click(screen.getByText('创建提案'))
 
     await waitFor(() => expect(screen.getByText('批量批改 v2.1')).toBeTruthy())
-    const createCall = fetchMock.mock.calls[2] as unknown as [string, RequestInit]
-    expect(createCall[0]).toBe('/workmate/api/proposals')
+    const createCall = postedCall('/workmate/api/proposals')
     expect(JSON.parse(String(createCall[1].body))).toMatchObject({ title: '新提案标题' })
   })
 
+  it('filters by project, loads branches, and imports a Workspace candidate', async () => {
+    routeMock((url, method) => {
+      if (url === '/workmate/api/proposals' && method === 'GET') {
+        return {
+          proposals: [
+            proposal({ id: 'a1', title: 'A 提案', projects: ['a'] }),
+            proposal({ id: 'b1', title: 'B 提案', projects: ['b'] }),
+          ],
+        }
+      }
+      if (url === '/workmate/api/projects' && method === 'GET') {
+        return { projects: [{ name: 'a', root: '/repo/a', defaultBranch: 'main', workspace: 'xkw' }] }
+      }
+      if (url === '/workmate/api/projects/a/branches') {
+        return { project: 'a', branches: { current: 'main', default: 'main', local: ['main', 'dev'], remote: [] } }
+      }
+      if (url === '/workmate/api/projects/candidates') {
+        return {
+          candidates: [
+            {
+              path: '/repo/b',
+              title: 'B',
+              name: 'b',
+              suggestedName: 'b',
+              registered: false,
+              hasOpenspec: true,
+              workspace: 'xkw',
+            },
+          ],
+        }
+      }
+      if (url === '/workmate/api/projects' && method === 'POST') {
+        return { project: { name: 'b', root: '/repo/b' } }
+      }
+      if (url === '/workmate/api/isolation') return { occupancy: [], conflicts: [] }
+      return {}
+    })
+
+    render(<ProposalPanel />)
+    await screen.findByText('A 提案')
+    expect(screen.getByText('B 提案')).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('项目'), { target: { value: 'a' } })
+    await waitFor(() => expect(screen.queryByText('B 提案')).toBeNull())
+    expect(await screen.findByLabelText('分支')).toBeTruthy()
+    expect(screen.getByText('当前 ⎇ main')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('从 Workspace 导入'))
+    await screen.findByText('/repo/b')
+    fireEvent.click(screen.getByText('加入项目'))
+
+    await waitFor(() => {
+      const call = postedCall('/workmate/api/projects')
+      expect(JSON.parse(String(call[1].body))).toMatchObject({ name: 'b', root: '/repo/b', workspace: 'xkw' })
+    })
+  })
+
   it('drives the lifecycle from the expanded card (rollback posts the adjacent target)', async () => {
-    fetchMock.mockResolvedValue(ok({ proposals: [proposal({ status: 'reviewing' })] }))
+    let status: Proposal['status'] = 'reviewing'
+    routeMock((url, method) => {
+      if (url === '/workmate/api/proposals' && method === 'GET') return { proposals: [proposal({ status })] }
+      if (url === '/workmate/api/projects') return { projects: [] }
+      if (url === '/workmate/api/isolation') return { occupancy: [], conflicts: [] }
+      if (url.endsWith('/batch-grading-v2') && method === 'GET') {
+        return {
+          proposal: proposal({ status }),
+          projects: [],
+          lifecycle: { status: 'reviewing', hint: '评审提案分支，完成后合并进 main', prev: 'proposing', next: 'ready' },
+        }
+      }
+      if (url.endsWith('/transition') && method === 'POST') {
+        status = 'proposing'
+        return { proposal: proposal({ status }) }
+      }
+      return {}
+    })
+
     render(<ProposalPanel />)
     await screen.findByText('批量批改 v2.1')
-
     fireEvent.click(screen.getByText('批量批改 v2.1'))
-    fetchMock.mockResolvedValueOnce(
-      ok({
-        proposal: proposal({ status: 'reviewing' }),
-        projects: [],
-        lifecycle: { status: 'reviewing', hint: '评审提案分支，完成后合并进 main', prev: 'proposing', next: 'ready' },
-      }),
-    )
     fireEvent.click(screen.getByText('加载详情'))
 
     await screen.findByText('推进到 待实现 ›')
     expect(screen.getByText('‹ 回退到 提案分支')).toBeTruthy()
     expect(screen.getByText('下一步：评审提案分支，完成后合并进 main')).toBeTruthy()
 
-    fetchMock.mockResolvedValueOnce(ok({ proposal: proposal({ status: 'proposing' }) }))
-    fetchMock.mockResolvedValueOnce(ok({ proposals: [proposal({ status: 'proposing' })] }))
-    fetchMock.mockResolvedValueOnce(ok({ proposal: proposal({ status: 'proposing' }), projects: [] }))
     fireEvent.click(screen.getByText('‹ 回退到 提案分支'))
 
     await waitFor(() => {
-      const call = fetchMock.mock.calls[2] as unknown as [string, RequestInit]
-      expect(call[0]).toBe('/workmate/api/proposals/batch-grading-v2/transition')
+      const call = postedCall('/workmate/api/proposals/batch-grading-v2/transition')
       expect(JSON.parse(String(call[1].body))).toEqual({ to: 'proposing' })
     })
   })
 
   it('offers force-archive while archiving and never advances to the terminal state', async () => {
-    fetchMock.mockResolvedValue(ok({ proposals: [proposal({ status: 'archiving' })] }))
+    routeMock((url, method) => {
+      if (url === '/workmate/api/proposals' && method === 'GET') return { proposals: [proposal({ status: 'archiving' })] }
+      if (url === '/workmate/api/projects') return { projects: [] }
+      if (url === '/workmate/api/isolation') return { occupancy: [], conflicts: [] }
+      if (url.endsWith('/batch-grading-v2') && method === 'GET') {
+        return {
+          proposal: proposal({ status: 'archiving' }),
+          projects: [],
+          lifecycle: { status: 'archiving', hint: '推进后运行归档编排', prev: 'merging', next: 'archived' },
+        }
+      }
+      if (url.endsWith('/archive') && method === 'POST') {
+        return { proposal: proposal({ status: 'archiving' }), orchestration: { ok: false, steps: [] } }
+      }
+      return {}
+    })
+
     render(<ProposalPanel />)
     await screen.findByText('批量批改 v2.1')
-
     fireEvent.click(screen.getByText('批量批改 v2.1'))
-    fetchMock.mockResolvedValueOnce(
-      ok({
-        proposal: proposal({ status: 'archiving' }),
-        projects: [],
-        lifecycle: { status: 'archiving', hint: '推进后运行归档编排', prev: 'merging', next: 'archived' },
-      }),
-    )
     fireEvent.click(screen.getByText('加载详情'))
 
     await screen.findByText('完成归档')
     expect(screen.getByText('强制归档（跳过审查门）')).toBeTruthy()
-    // `archived` is reached by the orchestration, never by an advance call
     expect(screen.queryByText(/^推进到/)).toBeNull()
 
-    fetchMock.mockResolvedValueOnce(ok({ proposal: proposal({ status: 'archiving' }), orchestration: { ok: false, steps: [] } }))
-    fetchMock.mockResolvedValueOnce(ok({ proposals: [proposal({ status: 'archiving' })] }))
-    fetchMock.mockResolvedValueOnce(ok({ proposal: proposal({ status: 'archiving' }), projects: [] }))
     fireEvent.click(screen.getByText('强制归档（跳过审查门）'))
 
     await waitFor(() => {
-      const call = fetchMock.mock.calls[2] as unknown as [string, RequestInit]
-      expect(call[0]).toBe('/workmate/api/proposals/batch-grading-v2/archive')
+      const call = postedCall('/workmate/api/proposals/batch-grading-v2/archive')
       expect(JSON.parse(String(call[1].body))).toEqual({ force: true })
     })
   })
