@@ -11,8 +11,10 @@ import {
   type Proposal,
   type ApprovalRecord,
   type ProposalSource,
+  type ProposalTarget,
   type Provenance,
 } from './store.ts'
+import { normalizeTargets } from './targets.ts'
 import { EventLog, type EventActor, type ProposalEvent } from './events.ts'
 import type { ProposalState } from './state-machine.ts'
 
@@ -42,6 +44,7 @@ const PATCHABLE = new Set([
   'portRange',
   'proposalBranch',
   'featureBranch',
+  'targets',
   'wikiLinks',
   'archiveManifest',
   'swarmTasks',
@@ -54,6 +57,8 @@ export interface UpsertProposalInput {
   id: string
   title: string
   projects?: string[]
+  /** Per-project carriers; when supplied they define the associated projects. */
+  targets?: ProposalTarget[]
   /**
    * OpenSpec change directory name; defaults to the proposal id so that
    * `workmate_proposal_create` can seed `openspec/changes/<id>/` (M2).
@@ -135,6 +140,11 @@ export class ProposalServiceImpl implements ProposalService {
     if (existing) {
       existing.title = input.title
       if (input.projects !== undefined) existing.projects = [...input.projects]
+      if (input.targets !== undefined) {
+        const targets = normalizeTargets(input.targets)
+        existing.targets = targets
+        if (input.projects === undefined) existing.projects = targets.map((target) => target.project)
+      }
       if (input.openspecChangeId !== undefined) existing.openspecChangeId = input.openspecChangeId
       // Only explicitly supplied provenance overwrites: a re-run of create must
       // not wipe where the proposal actually came from.
@@ -147,13 +157,15 @@ export class ProposalServiceImpl implements ProposalService {
       return existing
     }
 
+    const targets = input.targets === undefined ? undefined : normalizeTargets(input.targets)
     const created: Proposal = {
       id,
       title: input.title,
       status: 'draft',
-      projects: input.projects ? [...input.projects] : [],
+      projects: input.projects ? [...input.projects] : (targets?.map((target) => target.project) ?? []),
       commits: [],
       openspecChangeId: input.openspecChangeId ?? id,
+      ...(targets !== undefined ? { targets } : {}),
       ...(input.source !== undefined ? { source: input.source } : {}),
       ...(input.sourceRef !== undefined ? { sourceRef: input.sourceRef } : {}),
       ...(input.relatesTo !== undefined ? { relatesTo: [...input.relatesTo] } : {}),
@@ -239,7 +251,8 @@ export class ProposalServiceImpl implements ProposalService {
     const proposals = await this.store.load()
     const existing = proposals.find((proposal) => proposal.id === id)
     if (!existing) throw new Error(`proposal not found: ${id}`)
-    for (const [key, value] of Object.entries(patch)) {
+    const normalized = patch.targets === undefined ? patch : { ...patch, targets: normalizeTargets(patch.targets) }
+    for (const [key, value] of Object.entries(normalized)) {
       if (!PATCHABLE.has(key)) throw new Error(`field '${key}' is not patchable`)
       ;(existing as unknown as Record<string, unknown>)[key] = value
     }

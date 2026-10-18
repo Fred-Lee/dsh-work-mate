@@ -64,4 +64,45 @@ describe('ProjectRegistry', () => {
     await writeFile(file, '{"demo":"/srv/demo"}', 'utf8')
     await expect(registry.list()).rejects.toBeInstanceOf(StoreCorruptError)
   })
+
+  it('stores defaultBranch and workspace and keeps them on re-root', async () => {
+    await registry.upsert('demo', home, { defaultBranch: 'main', workspace: 'xkw' })
+    await registry.upsert('demo', join(home, 'nested'))
+
+    await expect(registry.get('demo')).resolves.toEqual({
+      name: 'demo',
+      root: join(home, 'nested'),
+      defaultBranch: 'main',
+      workspace: 'xkw',
+    })
+
+    await registry.upsert('demo', join(home, 'nested'), { defaultBranch: 'master' })
+    await expect(registry.get('demo')).resolves.toMatchObject({
+      defaultBranch: 'master',
+      workspace: 'xkw',
+    })
+  })
+
+  it('clears an optional field with an empty string', async () => {
+    await registry.upsert('demo', home, { defaultBranch: 'main', workspace: 'xkw' })
+    await registry.upsert('demo', home, { defaultBranch: '', workspace: '' })
+
+    const project = await registry.get('demo')
+    expect(project?.defaultBranch).toBeUndefined()
+    expect(project?.workspace).toBeUndefined()
+  })
+
+  it('rejects whitespace inside optional tokens', async () => {
+    await expect(registry.upsert('demo', home, { defaultBranch: 'feature branch' })).rejects.toThrow(
+      'defaultBranch must be a single token',
+    )
+  })
+
+  it('reads a legacy two-field record without inventing optional values', async () => {
+    const { file } = registry.paths()
+    await mkdir(join(home, 'workmate'), { recursive: true })
+    await writeFile(file, JSON.stringify([{ name: 'legacy', root: home }]), 'utf8')
+
+    await expect(registry.list()).resolves.toEqual([{ name: 'legacy', root: home }])
+  })
 })
