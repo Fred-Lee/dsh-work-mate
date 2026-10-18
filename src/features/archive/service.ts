@@ -20,6 +20,7 @@ import { computePlanFingerprint, type PlanFingerprint } from '../proposal/plan.t
 import { effectiveTargets } from '../proposal/targets.ts'
 import { isOccupying } from '../proposal/isolation.ts'
 import { findWriteConflicts, readProposalWriteScopes, type WriteClaim } from '../proposal/writes.ts'
+import { checkTeamEvidence } from '../team/evidence.ts'
 import type { ProposalService } from '../proposal/service.ts'
 import { WorktreeManager } from '../worktree/manager.ts'
 import { branchExists, isMergedInto } from '../worktree/git.ts'
@@ -106,6 +107,8 @@ export interface LifecycleDeps {
   reviewerIndependence?: 'off' | 'warn' | 'block'
   /** Citation-probe mode for the archive gate (`Config.reviewEvidenceGate`). */
   reviewEvidenceGate?: 'off' | 'warn' | 'block'
+  /** Team artifacts required for team-managed changes (`Config.teamEvidenceGate`). */
+  teamEvidenceGate?: 'off' | 'warn' | 'block'
   /** Require an independent verification record per merged swarm task (`Config.swarmReviewRequired`). */
   swarmReviewRequired?: boolean
   /** Extra states a HIGH-risk proposal needs a human approval for (`Config.highRiskExtraGates`). */
@@ -403,6 +406,7 @@ export class LifecycleServiceImpl {
         return
       }
       case 'archiving': {
+        await this.assertTeamEvidence(root, proposal)
         // Legacy single-target proposals keep the original one-branch check.
         if (proposal.targets === undefined || proposal.targets.length === 0) {
           if (proposal.featureBranch === undefined) return
@@ -746,6 +750,20 @@ export class LifecycleServiceImpl {
     const proposal = await this.deps.proposals.get(id)
     if (!proposal) throw new Error(`proposal not found: ${id}`)
     return proposal
+  }
+
+  /** TEST.md/REVIEW.md are required only when the change opted into a team run. */
+  private async assertTeamEvidence(root: string, proposal: Proposal): Promise<void> {
+    const gate = this.deps.teamEvidenceGate ?? 'warn'
+    if (gate === 'off') return
+    const result = await checkTeamEvidence(root, this.openspecRoot, proposal.openspecChangeId)
+    if (!result.managed || result.ok) return
+    const error = new InvalidTransitionError(`团队证据不完整 — ${result.errors.join('；')}`)
+    if (gate === 'block') {
+      await this.recordGateFailure(proposal, 'archiving', error, undefined, 'team-evidence')
+      throw error
+    }
+    console.warn(`[workmate] team evidence warning for ${proposal.id}: ${result.errors.join('；')}`)
   }
 
   /**

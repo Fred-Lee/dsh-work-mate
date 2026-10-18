@@ -187,6 +187,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     allowAgentForceArchive: resolved.allowAgentForceArchive,
     reviewerIndependence: resolved.reviewerIndependence as 'off' | 'warn' | 'block',
     reviewEvidenceGate: resolved.reviewEvidenceGate as 'off' | 'warn' | 'block',
+    teamEvidenceGate: resolved.teamEvidenceGate as 'off' | 'warn' | 'block',
     swarmReviewRequired: resolved.swarmReviewRequired,
     highRiskExtraGates: resolved.highRiskExtraGates,
     riskGateEnabled: resolved.decisionEnabled,

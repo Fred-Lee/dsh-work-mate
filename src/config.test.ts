@@ -22,6 +22,7 @@ describe('resolveConfig', () => {
       allowAgentForceArchive: false,
       reviewerIndependence: 'warn',
       reviewEvidenceGate: 'warn',
+    teamEvidenceGate: 'warn',
       swarmReviewRequired: false,
       lifecycleMainBranch: 'main',
       decisionEnabled: false,

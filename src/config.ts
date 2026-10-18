@@ -102,6 +102,12 @@ export interface Config {
    */
   reviewEvidenceGate?: string
   /**
+   * Require team artifacts before archiving a team-managed change (`TASKS.json`
+   * present): TEST.md and REVIEW.md with their required sections.
+   * `off` | `warn` | `block`. @default 'warn'
+   */
+  teamEvidenceGate?: string
+  /**
    * Require every merged swarm task to carry an independent verification record
    * before archiving (change `wire-swarm-independent-review`). @default false
    */
@@ -226,6 +232,10 @@ export const Config: z<Config> = z.object({
     .string()
     .default('warn')
     .description('Machine-check review.md citations: off | warn | block (block fails on a missing file).'),
+  teamEvidenceGate: z
+    .string()
+    .default('warn')
+    .description('Require TEST.md/REVIEW.md for team-managed changes: off | warn | block.'),
   swarmReviewRequired: z
     .boolean()
     .default(false)
@@ -294,6 +304,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   allowAgentForceArchive: false,
   reviewerIndependence: 'warn',
   reviewEvidenceGate: 'warn',
+  teamEvidenceGate: 'warn',
   swarmReviewRequired: false,
   lifecycleMainBranch: 'main',
   decisionEnabled: false,
