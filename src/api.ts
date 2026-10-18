@@ -29,6 +29,7 @@ import { PROPOSAL_STATES, isProposalState } from './features/proposal/state-mach
 import { linkWikiToProposal } from './features/wiki/links.ts'
 import type { ProjectRegistry } from './features/project/registry.ts'
 import { listProjectBranches } from './features/project/branches.ts'
+import { getProjectGitStatus } from './features/project/status.ts'
 import { listWorkspaceCandidates, type WorkspaceRegistryLike } from './features/project/workspace-candidates.ts'
 import { deriveBranchOccupancy, findBranchConflicts, isOccupying } from './features/proposal/isolation.ts'
 import { findWriteConflicts, readProposalWriteScopes } from './features/proposal/writes.ts'
@@ -475,6 +476,14 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
       return { candidates: [], note: '宿主未提供 workspaceRegistry — 手动注册项目' }
     }
     return { candidates: await listWorkspaceCandidates(workspaceRegistry, deps.registry) }
+  })
+
+  router.get('/api/projects/:name/status', async (r) => {
+    const name = r.params['name'] ?? ''
+    const project = await deps.registry.get(name)
+    if (project === undefined) throw new Error(`project not found: ${name}`)
+    const status = await getProjectGitStatus(project.root)
+    return { project: name, ...(status !== undefined ? { status } : {}) }
   })
 
   router.get('/api/projects/:name/branches', async (r) => {

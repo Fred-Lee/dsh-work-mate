@@ -197,3 +197,14 @@ export function rejectMerge(
     body: JSON.stringify({ category, rationale }),
   })
 }
+
+export interface ProjectGitStatus {
+  branch: string
+  headShort: string
+  dirtyCount: number
+  isWorktree: boolean
+}
+
+export function getProjectStatus(name: string): Promise<{ project: string; status?: ProjectGitStatus }> {
+  return request(`/workmate/api/projects/${encodeURIComponent(name)}/status`)
+}

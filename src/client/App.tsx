@@ -15,6 +15,7 @@ import {
   createProposal,
   getIsolation,
   getProposal,
+  getProjectStatus,
   getTeamRun,
   listProjectBranches,
   listProjects,
@@ -1263,6 +1264,30 @@ function ProjectTreeModal(props: {
   onSelect: (name: string) => void
 }): JSX.Element {
   useEscape(props.onClose)
+  const [statuses, setStatuses] = useState<Record<string, { branch: string; dirtyCount: number }>>({})
+  useEffect(() => {
+    let alive = true
+    void Promise.all(
+      props.projects.map(async (project) => {
+        try {
+          const response = await getProjectStatus(project.name)
+          return [project.name, response.status] as const
+        } catch {
+          return [project.name, undefined] as const
+        }
+      }),
+    ).then((entries) => {
+      if (!alive) return
+      const next: Record<string, { branch: string; dirtyCount: number }> = {}
+      for (const [name, status] of entries) {
+        if (status !== undefined) next[name] = { branch: status.branch, dirtyCount: status.dirtyCount }
+      }
+      setStatuses(next)
+    })
+    return () => {
+      alive = false
+    }
+  }, [props.projects])
   const groups = new Map<string, RegisteredProject[]>()
   for (const project of props.projects) {
     const workspace = project.workspace ?? '未分组'
@@ -1295,7 +1320,8 @@ function ProjectTreeModal(props: {
                         <div className="wm-progress-label">{project.root}</div>
                       </div>
                       <div className="wm-meta">
-                        <span>⎇ {project.defaultBranch ?? 'main'}</span>
+                        <span>⎇ {statuses[project.name]?.branch ?? project.defaultBranch ?? 'main'}</span>
+                        <span>脏 {statuses[project.name]?.dirtyCount ?? '—'}</span>
                         <span>进行中 {active.length}</span>
                         <span>worktree {worktrees.length}</span>
                       </div>
