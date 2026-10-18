@@ -347,4 +347,11 @@ export const PANEL_STYLE = `
 .wm-team-role.active { border-color: #3b82f6; color: #3b82f6; background: rgba(59, 130, 246, .10); }
 .wm-team-current { font-size: 12px; color: #3b82f6; margin-bottom: 6px; }
 
+.wm-drawer-section { margin: 10px 0 4px; font-size: 12px; color: var(--wm-muted); border-top: 1px solid var(--wm-border-soft); padding-top: 8px; }
+.wm-drawer-actions {
+  position: sticky; bottom: 0; margin-top: auto; padding: 10px 0 4px;
+  display: flex; flex-wrap: wrap; gap: 6px;
+  background: var(--wm-surface); border-top: 1px solid var(--wm-border);
+}
+
 `

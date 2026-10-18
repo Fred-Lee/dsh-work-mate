@@ -223,6 +223,9 @@ describe('ProposalPanel (kanban)', () => {
 
     expect(await screen.findByText('关闭')).toBeTruthy()
     expect(screen.getByText('下一步：确认方案后进入执行')).toBeTruthy()
+    expect(screen.getByText('目标矩阵')).toBeTruthy()
+    expect(screen.getByText('任务')).toBeTruthy()
+    expect(screen.getByText('审查')).toBeTruthy()
     expect(screen.getByText('确认方案')).toBeTruthy()
   })
 

@@ -95,11 +95,23 @@ export interface ApprovalRecord {
   commit?: string
 }
 
+export interface ProposalTarget {
+  project: string
+  baseBranch: string
+  baseCommit?: string
+  proposalBranch?: string
+  featureBranch?: string
+  worktreePath?: string
+  portRange?: number[]
+}
+
 export interface Proposal {
   id: string
   title: string
   status: ProposalState
   projects: string[]
+  targets?: ProposalTarget[]
+  primaryProject?: string
   commits: string[]
   openspecChangeId: string
   decisions?: DecisionEntry[]

@@ -1048,19 +1048,12 @@ function ProposalDrawer(props: {
           </div>
         ) : (
           <>
+            <h4 className="wm-drawer-section">概览</h4>
             {detail.lifecycle !== undefined && (
               <div className="wm-action-note">下一步：{detail.lifecycle.hint}</div>
             )}
             {detail.pendingApproval !== undefined && (
               <div className="wm-tier wm-tier-diagnose">⏳ {detail.pendingApproval.reason}</div>
-            )}
-            {tasks !== undefined && tasks.total > 0 && (
-              <div>
-                <div className="wm-progress-track">
-                  <div className="wm-progress-fill" style={{ width: `${Math.round((tasks.done / tasks.total) * 100)}%` }} />
-                </div>
-                <div className="wm-progress-label">tasks {tasks.done}/{tasks.total}</div>
-              </div>
             )}
             {(detail.projects ?? []).map((project) => (
               <div className="wm-section" key={project.project}>
@@ -1072,57 +1065,108 @@ function ProposalDrawer(props: {
                 <div className="wm-progress-label">{project.root ?? project.note ?? '未注册项目根'}</div>
               </div>
             ))}
-            <div className="wm-actions">
-              {proposal.status === 'reviewing' && (
-                <button
-                  className="wm-btn mini primary"
-                  type="button"
-                  disabled={props.busy}
-                  onClick={() => props.onAction('plan')}
-                >
-                  {props.pending === `${proposal.id}:plan` ? '确认中…' : '确认方案'}
-                </button>
-              )}
-              {proposal.status === 'merging' && (
-                <button className="wm-btn mini" type="button" disabled={props.busy} onClick={() => props.onAction('reject')}>
-                  G5 退回
-                </button>
-              )}
-              {detail.lifecycle?.prev !== undefined && (
-                <button className="wm-btn mini" type="button" disabled={props.busy} onClick={() => props.onAction('back', detail.lifecycle?.prev)}>
-                  ‹ 回退到 {STATE_META[detail.lifecycle.prev].label}
-                </button>
-              )}
-              {detail.lifecycle?.next !== undefined && detail.lifecycle.next !== 'archived' && (
-                <button
-                  className="wm-btn mini primary"
-                  type="button"
-                  disabled={props.busy}
-                  onClick={() => props.onAction('advance')}
-                >
-                  {props.pending === `${proposal.id}:advance`
-                    ? '推进中…'
-                    : `推进到 ${STATE_META[detail.lifecycle.next].label} ›`}
-                </button>
-              )}
-              {proposal.status === 'archiving' && (
-                <>
-                  <button className="wm-btn mini primary" type="button" disabled={props.busy} onClick={() => props.onAction('archive')}>
-                    {props.pending === `${proposal.id}:archive` ? '归档中…' : '完成归档'}
-                  </button>
-                  <button className="wm-btn mini" type="button" disabled={props.busy} onClick={() => props.onAction('archive', undefined, true)}>
-                    强制归档
-                  </button>
-                </>
-              )}
-              {proposal.status !== 'archived' && (
-                <button className="wm-btn mini" type="button" disabled={props.busy} onClick={() => props.onAction('abandon')}>
-                  终止
-                </button>
-              )}
-            </div>
+
+            <h4 className="wm-drawer-section">目标矩阵</h4>
+            {(proposal.targets ?? []).length > 0 ? (
+              (proposal.targets ?? []).map((target) => (
+                <div className="wm-section" key={target.project}>
+                  <b>{target.project}</b> @ {target.baseBranch}
+                  {target.featureBranch !== undefined && <code style={{ marginLeft: 6 }}>⎇ {target.featureBranch}</code>}
+                  {target.baseCommit !== undefined && (
+                    <span className="wm-progress-label"> · base {target.baseCommit.slice(0, 8)}</span>
+                  )}
+                  <div className="wm-progress-label">
+                    {target.worktreePath ?? '未创建 worktree'}
+                    {target.portRange !== undefined ? ` · ports ${target.portRange.join('/')}` : ''}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="wm-progress-label">
+                {proposal.featureBranch !== undefined ? `⎇ ${proposal.featureBranch}` : '未声明 targets（旧提案）'}
+                {proposal.worktreePath !== undefined ? ` · ${proposal.worktreePath}` : ''}
+              </div>
+            )}
+
+            <h4 className="wm-drawer-section">任务</h4>
+            {tasks !== undefined && tasks.total > 0 ? (
+              <div>
+                <div className="wm-progress-track">
+                  <div className="wm-progress-fill" style={{ width: `${Math.round((tasks.done / tasks.total) * 100)}%` }} />
+                </div>
+                <div className="wm-progress-label">tasks {tasks.done}/{tasks.total}</div>
+              </div>
+            ) : (
+              <div className="wm-progress-label">暂无任务进度</div>
+            )}
+
+            <h4 className="wm-drawer-section">审查</h4>
+            {(detail.projects ?? []).filter((project) => project.reviewTally !== undefined || project.reviewReport !== undefined).length === 0 ? (
+              <div className="wm-progress-label">暂无审查记录</div>
+            ) : (
+              (detail.projects ?? []).map((project) =>
+                project.reviewTally === undefined && project.reviewReport === undefined ? null : (
+                  <div className="wm-section" key={`review-${project.project}`}>
+                    <b>{project.project}</b>
+                    {project.reviewTally !== undefined && (
+                      <span className="wm-progress-label">
+                        {' '}发现 {project.reviewTally.findings} · 未解 {project.reviewTally.open} · 阻断{' '}
+                        {project.reviewTally.blocking}
+                      </span>
+                    )}
+                    {(project.reviewReport?.criticals ?? []).map((issue, index) => (
+                      <div key={index} className="wm-progress-label">
+                        {issue.resolved ? '✓' : '✖'} CRITICAL: {issue.text}
+                      </div>
+                    ))}
+                  </div>
+                ),
+              )
+            )}
             {props.note !== undefined && <div className="wm-action-note">{props.note}</div>}
           </>
+        )}
+
+        {detail !== undefined && (
+          <div className="wm-drawer-actions">
+            {proposal.status === 'reviewing' && (
+              <button className="wm-btn mini primary" type="button" disabled={props.busy} onClick={() => props.onAction('plan')}>
+                {props.pending === `${proposal.id}:plan` ? '确认中…' : '确认方案'}
+              </button>
+            )}
+            {proposal.status === 'merging' && (
+              <button className="wm-btn mini" type="button" disabled={props.busy} onClick={() => props.onAction('reject')}>
+                G5 退回
+              </button>
+            )}
+            {detail.lifecycle?.prev !== undefined && (
+              <button className="wm-btn mini" type="button" disabled={props.busy} onClick={() => props.onAction('back', detail.lifecycle?.prev)}>
+                ‹ 回退到 {STATE_META[detail.lifecycle.prev].label}
+              </button>
+            )}
+            {detail.lifecycle?.next !== undefined && detail.lifecycle.next !== 'archived' && (
+              <button className="wm-btn mini primary" type="button" disabled={props.busy} onClick={() => props.onAction('advance')}>
+                {props.pending === `${proposal.id}:advance`
+                  ? '推进中…'
+                  : `推进到 ${STATE_META[detail.lifecycle.next].label} ›`}
+              </button>
+            )}
+            {proposal.status === 'archiving' && (
+              <>
+                <button className="wm-btn mini primary" type="button" disabled={props.busy} onClick={() => props.onAction('archive')}>
+                  {props.pending === `${proposal.id}:archive` ? '归档中…' : '完成归档'}
+                </button>
+                <button className="wm-btn mini" type="button" disabled={props.busy} onClick={() => props.onAction('archive', undefined, true)}>
+                  强制归档
+                </button>
+              </>
+            )}
+            {proposal.status !== 'archived' && (
+              <button className="wm-btn mini" type="button" disabled={props.busy} onClick={() => props.onAction('abandon')}>
+                终止
+              </button>
+            )}
+          </div>
         )}
       </aside>
     </div>
