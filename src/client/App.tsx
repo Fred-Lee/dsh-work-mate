@@ -929,7 +929,7 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
             {shown.id} · {shown.status}
           </h4>
           <div className="wm-progress-label">
-            {shown.proposalId} · {shown.template} · parallel {shown.budget.maxParallel} · 关键路径 {waveDepth(shown.tasks)} 波
+            {shown.proposalId} · {shown.template} · parallel {shown.budget.maxParallel} · 关键路径 {waveDepth(shown.tasks)} 波 · token {shown.tokensUsed !== undefined ? `${shown.tokensUsed}/${shown.budget.maxTokens}` : '未计量'}
           </div>
           {(shown.inbox ?? [])
             .filter((message) => message.status === 'open' && (message.kind === 'question' || message.kind === 'escalation'))

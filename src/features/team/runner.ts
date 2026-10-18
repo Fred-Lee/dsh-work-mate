@@ -42,6 +42,8 @@ export interface SettleInput {
   question?: string
   /** Worker is blocked by a scope/decision it cannot take alone. */
   escalation?: string
+  /** Provider-reported total tokens; omitted means "not measured", never zero-faked. */
+  tokensUsed?: number
 }
 
 export class TeamRunner {
@@ -177,9 +179,16 @@ export class TeamRunner {
       task.status = task.attempts >= run.budget.maxAttempts ? 'failed' : 'planned'
       if (task.status === 'planned') delete task.dispatchId
     }
+    const tokensUsed =
+      input.tokensUsed === undefined ? run.tokensUsed : (run.tokensUsed ?? 0) + input.tokensUsed
     return this.store.patch(
       id,
-      { tasks: [...run.tasks], dispatches, status: deriveRunStatus(run.tasks) },
+      {
+        tasks: [...run.tasks],
+        dispatches,
+        status: deriveRunStatus(run.tasks),
+        ...(tokensUsed !== undefined ? { tokensUsed } : {}),
+      },
       this.now,
     )
   }

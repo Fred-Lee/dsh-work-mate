@@ -109,6 +109,8 @@ export interface TeamRun {
   dispatches?: TeamDispatch[]
   /** Persisted questions/escalations; the inbox survives a host restart. */
   inbox?: InboxMessage[]
+  /** Only accumulated when the host reports usage; undefined means unmeasured. */
+  tokensUsed?: number
   budget: TeamBudget
   createdAt: string
   updatedAt: string

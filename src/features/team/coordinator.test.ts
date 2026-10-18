@@ -212,4 +212,21 @@ describe('TeamCoordinator', () => {
     expect((await runner.nextWave('r1')).map((entry) => entry.id)).toEqual(['t2'])
   })
 
+  it('aborts when measured tokens exceed the budget', async () => {
+    await runner.createRun({
+      id: 'r1',
+      proposalId: 'p1',
+      template: 'bug-fix',
+      tasks: [task('t1'), task('t2', { dependsOn: ['t1'] })],
+      budget: { maxTokens: 50 },
+    })
+    const dispatcher = new FakeDispatcher()
+    dispatcher.queue('t1', { status: 'done', outcome: 'ok', tokensUsed: 60 })
+
+    const result = await new TeamCoordinator(runner, dispatcher).run('r1')
+    expect(result.stopped).toContain('token 预算')
+    expect(result.run.status).toBe('aborted')
+    expect(result.run.tokensUsed).toBe(60)
+  })
+
 })

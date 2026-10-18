@@ -16,6 +16,8 @@ export interface SubagentResultLike {
   readonly stopReason?: string
   readonly diagnostic?: string
   readonly output?: readonly unknown[]
+  /** Host usage when exposed; omitted means the seam cannot measure tokens. */
+  readonly usage?: { totalTokens?: number }
 }
 
 export interface SubagentActivationLike {
@@ -131,6 +133,7 @@ export class HostSubagentDispatcher implements TeamDispatcher {
             ...(completed
               ? { outcome: `child ${activation.childId} completed` }
               : { outcome: result.diagnostic ?? `child ${activation.childId} stopped: ${String(result.stopReason)}` }),
+            ...(result.usage?.totalTokens !== undefined ? { tokensUsed: result.usage.totalTokens } : {}),
           }
         } finally {
           await activation.dispose().catch(() => undefined)

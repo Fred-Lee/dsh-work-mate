@@ -21,7 +21,7 @@ const request: DispatchRequest = { run, task, dispatchId: 'd1' }
 class FakeSubagents implements SubagentServiceLike {
   readonly specs: SubagentStartSpecLike[] = []
   disposed = 0
-  constructor(private readonly result: { stopReason?: string; diagnostic?: string; output?: unknown[] }) {}
+  constructor(private readonly result: { stopReason?: string; diagnostic?: string; output?: unknown[]; usage?: { totalTokens?: number } }) {}
   async startActivation(spec: SubagentStartSpecLike) {
     this.specs.push(spec)
     return {
@@ -116,6 +116,17 @@ describe('HostSubagentDispatcher', () => {
     })
     await dispatcher.start(request)
     expect(subagents.specs[0]?.request.agentOptions).toEqual({ model: 'deepseek-v4.1-flash' })
+  })
+
+  it('passes measured token usage through, and omits it when absent', async () => {
+    const measured = new FakeSubagents({ stopReason: 'completed', usage: { totalTokens: 321 } })
+    const dispatcher = new HostSubagentDispatcher(measured, { parent: {}, cwdForTask: () => '/wt' })
+    await expect((await dispatcher.start(request)).result).resolves.toMatchObject({ tokensUsed: 321 })
+
+    const unmeasured = new FakeSubagents({ stopReason: 'completed' })
+    const plain = new HostSubagentDispatcher(unmeasured, { parent: {}, cwdForTask: () => '/wt' })
+    const outcome = await (await plain.start(request)).result
+    expect(outcome.tokensUsed).toBeUndefined()
   })
 
 })

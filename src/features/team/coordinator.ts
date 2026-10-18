@@ -65,6 +65,16 @@ export class TeamCoordinator {
         await this.events?.run({ run: aborted, detail: stopped })
         return { run: aborted, waves, stopped }
       }
+      if (
+        run.tokensUsed !== undefined &&
+        run.budget.maxTokens > 0 &&
+        run.tokensUsed >= run.budget.maxTokens
+      ) {
+        const aborted = await this.runner.abort(runId)
+        const stopped = `超过 token 预算 ${run.budget.maxTokens}（已用 ${run.tokensUsed}）`
+        await this.events?.run({ run: aborted, detail: stopped })
+        return { run: aborted, waves, stopped }
+      }
 
       const wave = await this.runner.nextWave(runId)
       if (wave.length === 0) {

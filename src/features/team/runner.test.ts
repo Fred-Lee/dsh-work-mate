@@ -129,4 +129,20 @@ describe('TeamRunner', () => {
     expect((await runner.nextWave('r1')).map((entry) => entry.id)).toEqual(['t1'])
   })
 
+  it('accumulates provider-reported tokens and leaves them unmeasured otherwise', async () => {
+    await runner.createRun({ id: 'r1', proposalId: 'p1', template: 'bug-fix', tasks: [task('t1')] })
+    await runner.dispatch('r1', 't1', 'd1')
+    await runner.settle('r1', 'd1', { status: 'failed', tokensUsed: 120 })
+    expect((await runner.get('r1')).tokensUsed).toBe(120)
+
+    await runner.dispatch('r1', 't1', 'd2')
+    await runner.settle('r1', 'd2', { status: 'blocked' })
+    expect((await runner.get('r1')).tokensUsed).toBe(120)
+
+    await runner.createRun({ id: 'r2', proposalId: 'p2', template: 'bug-fix', tasks: [task('t1')] })
+    await runner.dispatch('r2', 't1', 'd3')
+    await runner.settle('r2', 'd3', { status: 'failed' })
+    expect((await runner.get('r2')).tokensUsed).toBeUndefined()
+  })
+
 })
