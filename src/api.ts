@@ -13,6 +13,7 @@ import { Router, readJsonBody } from './http.ts'
 import { aggregateMetrics, proposalMetrics } from './features/proposal/metrics.ts'
 import type { EventLog } from './features/proposal/events.ts'
 import type { TeamRunStore } from './features/team/store.ts'
+import { assessReadiness } from './features/proposal/readiness.ts'
 import { evaluateBands, loadBands } from './features/metrics/bands.ts'
 import { runBandsCheck } from './features/metrics/check.ts'
 import { CONFIG_DEFAULTS } from './config.ts'
@@ -184,6 +185,24 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
   router.get('/api/proposals', async () => {
     const proposals = await deps.proposals.list()
     return { proposals }
+  })
+
+  router.get('/api/proposals/:id/readiness', async (r) => {
+    const id = r.params['id'] ?? ''
+    const proposal = await deps.proposals.get(id)
+    if (proposal === undefined) throw new Error(`proposal not found: ${id}`)
+    const primary = proposal.primaryProject ?? proposal.projects[0]
+    const registered = primary === undefined ? undefined : await deps.registry.get(primary)
+    const root = (registered?.root ?? deps.projectRoot).trim() || undefined
+    const runs = (await deps.teamRuns?.list()) ?? []
+    const teamRun = runs
+      .filter((run) => run.proposalId === id)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
+    return assessReadiness(proposal, {
+      ...(root !== undefined ? { projectRoot: root } : {}),
+      openspecRoot: deps.openspecRoot,
+      ...(teamRun !== undefined ? { teamRun } : {}),
+    })
   })
 
   router.post('/api/proposals', async (r) => {

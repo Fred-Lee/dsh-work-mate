@@ -53,7 +53,7 @@
 
 ## 8. 证据派生与自动推进
 
-- [ ] 8.1 `ProposalReadiness` 评估器：工件完整性、OpenSpec validate、`planHash`、审批、团队 run/Task、target 合并状态。<!-- writes: src/features/proposal/**, src/features/quality/** -->
+- [x] 8.1 `ProposalReadiness` 评估器：工件完整性、OpenSpec validate、`planHash`、审批、团队 run/Task、target 合并状态。<!-- writes: src/features/proposal/**, src/features/quality/** -->
 - [x] 8.2 `reconcile(proposalId)`：幂等推进非人工门；不跨 G2/G5；自动转移写 `auto:'evidence'` 与证据快照。<!-- writes: src/features/proposal/**, src/features/proposal/events.ts -->
 - [x] 8.3 G2 `planHash`：`REQ+PLAN+TASKS` 规范化哈希；批准记录绑定哈希；工件变化自动退回 reviewing。<!-- writes: src/features/proposal/**, src/features/archive/** -->
 - [x] 8.4 G5 合并/归档合并为一次人工批准（默认），配置可恢复两道；批准后协调器合并 target 分支并跑归档编排。<!-- writes: src/features/archive/**, src/config.ts -->

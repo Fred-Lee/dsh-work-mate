@@ -721,4 +721,19 @@ describe('project registry REST API', () => {
     expect(json(oneRes.result)).toMatchObject({ run: { id: 'r1' }, events: [] })
   })
 
+  it('returns a proposal readiness assessment', async () => {
+    const repo = join(home, 'readiness-repo')
+    await mkdir(repo, { recursive: true })
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    await registry.upsert('demo', repo)
+    await proposals.upsert({ id: 'ready-p1', title: 'ready', projects: ['demo'] })
+    const r = projectRouter(registry)
+    const res = stubRes()
+    await r.handle('/api/proposals/ready-p1/readiness', stubReq('GET', '/api/proposals/ready-p1/readiness'), res.res)
+    expect(json(res.result)).toMatchObject({
+      ready: false,
+      checks: expect.arrayContaining([expect.objectContaining({ id: 'artifacts' })]),
+    })
+  })
+
 })
