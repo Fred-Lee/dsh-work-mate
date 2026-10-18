@@ -12,6 +12,7 @@ import type { SettleInput } from './runner.ts'
 import { buildTaskPrompt as buildTaskPromptFromRole } from './prompts/index.ts'
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import { gitExec } from '../worktree/git.ts'
 import type { TeamRole, TeamTaskRecord } from './types.ts'
 
 export interface SubagentResultLike {
@@ -62,6 +63,10 @@ export interface HostDispatcherOptions {
   changedFilesForTask?: (task: TeamTaskRecord) => Promise<string[] | undefined>
   /** Require REPORT paths to exist under cwd before accepting done. */
   verifyReportPath?: boolean
+  /** Write roles must commit their changes to the worktree branch. */
+  requireCommit?: boolean
+  /** Baseline ref used to check the feature branch is ahead of base. */
+  baseForTask?: (task: TeamTaskRecord) => string | undefined
 }
 
 const textOf = (output: readonly unknown[] | undefined): string =>
@@ -159,6 +164,19 @@ export class HostSubagentDispatcher implements TeamDispatcher {
               ? [...new Set([...(measured ?? []), ...(markerFiles ?? [])])]
               : undefined
           const reportPath = markerReport
+          if (this.options.requireCommit === true && (filesModified?.length ?? 0) > 0) {
+            const dirty = (await gitExec(['status', '--porcelain'], cwd, 10_000).catch(() => '')).trim()
+            if (dirty !== '') {
+              return { status: 'failed', outcome: '有未提交改动 — 先把改动 commit 到 feature 分支' }
+            }
+            const base = this.options.baseForTask?.(request.task)
+            if (base !== undefined) {
+              const ahead = (await gitExec(['rev-list', '--count', `${base}..HEAD`], cwd, 10_000).catch(() => '0')).trim()
+              if (ahead === '0') {
+                return { status: 'failed', outcome: `feature 分支未 ahead of ${base.slice(0, 8)} — 提交后再结算` }
+              }
+            }
+          }
           if (reportPath !== undefined && this.options.verifyReportPath === true) {
             try {
               await stat(join(cwd, reportPath))

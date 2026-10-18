@@ -72,4 +72,16 @@ describe('computePlanFingerprint', () => {
     expect(result.files).toEqual(['design.md', 'proposal.md', 'tasks.md'])
     expect(result.hash).toBeDefined()
   })
+  it('includes the target matrix in the hash', async () => {
+    await write('proposal.md', '# p\n')
+    await write('design.md', '# d\n')
+    await write('tasks.md', '- [ ] t\n')
+    const one = await computePlanFingerprint(root, 'openspec', 'p1', [{ project: 'a', baseBranch: 'main' }])
+    const two = await computePlanFingerprint(root, 'openspec', 'p1', [
+      { project: 'a', baseBranch: 'main' },
+      { project: 'b', baseBranch: 'master' },
+    ])
+    expect(one.hash).not.toBe(two.hash)
+  })
+
 })

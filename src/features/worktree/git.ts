@@ -61,8 +61,16 @@ export async function mergeBranch(
   if (current !== baseBranch) {
     throw new Error(`项目当前在 ${current}，合并前请切到基线分支 ${baseBranch}`)
   }
-  const dirty = (await gitExec(['status', '--porcelain'], root, 10_000, signal)).trim()
-  if (dirty !== '') throw new Error(`工作区不干净（${dirty.split('\n').length} 个改动），先提交或清理再合并`)
+  const dirtyLines = (await gitExec(['status', '--porcelain'], root, 10_000, signal))
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+    // Team SUMMARY.md is generated evidence, not implementation: it may be
+    // untracked in the main checkout without blocking the G5 merge.
+    .filter((line) => !/^\?\? .*\/SUMMARY\.md$/.test(line))
+  if (dirtyLines.length > 0) {
+    throw new Error(`工作区不干净（${dirtyLines.length} 个改动），先提交或清理再合并`)
+  }
   try {
     await gitExec(['merge', '--no-ff', branch, '-m', `merge: ${branch} into ${baseBranch}`], root, 60_000, signal)
     return (await gitExec(['rev-parse', 'HEAD'], root, 5_000, signal)).trim()

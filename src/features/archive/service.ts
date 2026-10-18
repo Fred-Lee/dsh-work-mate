@@ -371,7 +371,7 @@ export class LifecycleServiceImpl {
         return
       }
       case 'reviewing': {
-        const fingerprint = await computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId)
+        const fingerprint = await computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId, proposal.targets)
         if (fingerprint.hash !== undefined) return
         // Legacy proposal-branch flow remains valid but is no longer required.
         const branch = proposal.proposalBranch
@@ -381,7 +381,7 @@ export class LifecycleServiceImpl {
         )
       }
       case 'ready': {
-        const fingerprint = await computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId)
+        const fingerprint = await computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId, proposal.targets)
         // The latest G2 decision is authoritative: a later reject (G5 plan issue)
         // invalidates an earlier approve even when the plan hash is unchanged.
         const approvals = (proposal.approvals ?? []).filter((approval) => approval.gate === 'ready')
@@ -490,7 +490,7 @@ export class LifecycleServiceImpl {
 
       const created: ProposalTarget[] = []
       const installed: string[] = []
-      const done: Array<{ projectRoot: string; project: string }> = []
+      const done: Array<{ projectRoot: string; project: string; branchCreated: boolean }> = []
       try {
         for (const target of targets) {
           const projectRoot = rootByProject.get(target.project) as string
@@ -509,7 +509,7 @@ export class LifecycleServiceImpl {
             ...(result.baseCommit !== undefined ? { baseCommit: result.baseCommit } : {}),
           })
           installed.push(result.install)
-          done.push({ projectRoot, project: target.project })
+          done.push({ projectRoot, project: target.project, branchCreated: result.branchCreated === true })
         }
       } catch (error) {
         for (const entry of done.reverse()) {
@@ -519,7 +519,7 @@ export class LifecycleServiceImpl {
               project: entry.project,
               proposalId: proposal.id,
               force: true,
-              deleteBranch: true,
+              deleteBranch: entry.branchCreated,
             })
           } catch {
             // best effort: the original failure is the one worth reporting
@@ -572,7 +572,7 @@ export class LifecycleServiceImpl {
     const proposal = await this.mustGet(id)
     const root = await this.primaryRoot(proposal)
     if (root === undefined) throw new InvalidTransitionError('无关联项目根 — 无法计算 planHash')
-    return computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId)
+    return computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId, proposal.targets)
   }
 
   /** Human G2 approval of one exact plan revision. */
@@ -645,7 +645,7 @@ export class LifecycleServiceImpl {
       if (proposal.status === 'ready') {
         const root = await this.primaryRoot(proposal)
         const fingerprint =
-          root === undefined ? { hash: undefined } : await computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId)
+          root === undefined ? { hash: undefined } : await computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId, proposal.targets)
         const approvals = (proposal.approvals ?? []).filter((approval) => approval.gate === 'ready')
         const latest = approvals[approvals.length - 1]
         if (fingerprint.hash !== undefined && latest?.planHash !== fingerprint.hash) {
@@ -820,7 +820,7 @@ export class LifecycleServiceImpl {
 
   /** TEST.md/TEAM-REVIEW.md are required only when the change opted into a team run. */
   private async assertTeamEvidence(root: string, proposal: Proposal): Promise<void> {
-    const gate = this.deps.teamEvidenceGate ?? 'warn'
+    const gate = this.deps.teamEvidenceGate ?? 'block'
     if (gate === 'off') return
     const result = await checkTeamEvidence(root, this.openspecRoot, proposal.openspecChangeId)
     const runs = (await this.deps.teamRuns?.list()) ?? []
@@ -872,7 +872,7 @@ export class LifecycleServiceImpl {
     if (proposal.targets === undefined || proposal.targets.length === 0) return
     const root = await this.primaryRoot(proposal)
     if (root === undefined) return
-    const fingerprint = await computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId)
+    const fingerprint = await computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId, proposal.targets)
     // Headless/legacy target fixtures may have no plan artifacts; G2 is enforced
     // where a plan exists (reviewing/ready). Never fabricate a hash.
     if (fingerprint.hash === undefined) return

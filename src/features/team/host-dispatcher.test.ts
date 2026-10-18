@@ -1,3 +1,7 @@
+import { execFile } from 'node:child_process'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { buildTaskPrompt, HostSubagentDispatcher, type SubagentStartSpecLike, type SubagentServiceLike } from './host-dispatcher.ts'
 import type { DispatchRequest } from './coordinator.ts'
@@ -174,6 +178,45 @@ describe('HostSubagentDispatcher', () => {
       status: 'failed',
       outcome: expect.stringContaining('REPORT 路径不存在'),
     })
+  })
+
+  it('rejects a done claim with uncommitted changes when requireCommit is on', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'wm-commit-'))
+    const git = (args: string[]): Promise<string> =>
+      new Promise((resolvePromise, reject) => {
+        execFile('git', args, { cwd: root }, (error, stdout) =>
+          error ? reject(error) : resolvePromise(stdout.trim()),
+        )
+      })
+    try {
+      await git(['init', '-b', 'main'])
+      await git(['config', 'user.email', 't@t'])
+      await git(['config', 'user.name', 't'])
+      await writeFile(join(root, 'base.txt'), 'base\n', 'utf8')
+      await git(['add', '-A'])
+      await git(['commit', '-m', 'init'])
+      const base = await git(['rev-parse', 'HEAD'])
+
+      await writeFile(join(root, 'a.ts'), 'dirty\n', 'utf8')
+      const subagents = new FakeSubagents({ stopReason: 'completed' })
+      const dispatcher = new HostSubagentDispatcher(subagents, {
+        parent: {},
+        cwdForTask: () => root,
+        changedFilesForTask: async () => ['a.ts'],
+        requireCommit: true,
+        baseForTask: () => base,
+      })
+      await expect((await dispatcher.start(request)).result).resolves.toMatchObject({
+        status: 'failed',
+        outcome: expect.stringContaining('未提交'),
+      })
+
+      await git(['add', '-A'])
+      await git(['commit', '-m', 'work'])
+      await expect((await dispatcher.start(request)).result).resolves.toMatchObject({ status: 'done' })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
 })

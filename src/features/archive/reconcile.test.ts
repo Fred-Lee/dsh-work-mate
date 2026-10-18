@@ -122,4 +122,19 @@ describe('evidence-driven authoring reconcile', () => {
     expect(after.hash).toBe(before.hash)
   })
 
+  it('invalidates G2 when the target matrix changes', async () => {
+    await writePlan('p7')
+    await proposals.upsert({ id: 'p7', title: 'p7', targets: [{ project: 'demo', baseBranch: 'main' }] })
+    await lifecycle.reconcile('p7')
+    await lifecycle.approvePlan('p7')
+    await lifecycle.reconcile('p7')
+    await proposals.patchFields('p7', {
+      targets: [
+        { project: 'demo', baseBranch: 'main' },
+        { project: 'other', baseBranch: 'main' },
+      ],
+    })
+    await expect(lifecycle.transition('p7', 'implementing')).rejects.toThrow(/G2 方案已变化/)
+  })
+
 })

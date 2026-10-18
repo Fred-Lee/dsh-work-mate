@@ -10,12 +10,14 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parseTeamTasks } from './tasks.ts'
+import type { ProposalTarget } from '../proposal/store.ts'
 
 export interface PrepareInput {
   projectRoot: string
   openspecRoot: string
   changeId: string
   primaryProject: string
+  targets?: readonly ProposalTarget[]
 }
 
 export interface PrepareResult {
@@ -54,6 +56,7 @@ const deriveTasks = (tasksMd: string | undefined, project: string, warnings: str
       .split(',')
       .map((entry) => entry.trim())
       .filter((entry) => entry !== '')
+    if (writes.length === 0) warnings.push(`t${index} 未声明 writes — worker 改动会被判“未声明写域”`)
     const dependsOn = (meta('depends') ?? '')
       .split(',')
       .map((entry) => entry.trim())
@@ -123,7 +126,9 @@ export async function prepareTeamArtifacts(input: PrepareInput): Promise<Prepare
       section(design, '## 方案', design ?? '_待评估_'),
       '',
       '## 目标矩阵',
-      `- ${input.primaryProject} @ main`,
+      ...(input.targets !== undefined && input.targets.length > 0
+        ? input.targets.map((target) => `- ${target.project} @ ${target.baseBranch}`)
+        : [`- ${input.primaryProject} @ main`]),
       '',
       '## 依赖与波次',
       '_待评估_',

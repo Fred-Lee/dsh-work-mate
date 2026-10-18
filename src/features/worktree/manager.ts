@@ -43,6 +43,8 @@ export interface WorktreeCreateResult {
   installNote?: string
   /** Tip of the base branch when the worktree was created (drift warnings). */
   baseCommit?: string
+  /** False when an existing worktree/branch was reused (rollback must not delete it). */
+  branchCreated?: boolean
 }
 
 export interface ManagerOptions {
@@ -159,6 +161,7 @@ export class WorktreeManager {
         copied: [],
         install: 'skipped',
         installNote: 'worktree already exists',
+        branchCreated: false,
         ...(baseCommit !== undefined ? { baseCommit } : {}),
       }
     } catch {
@@ -262,6 +265,7 @@ export class WorktreeManager {
       copied,
       install,
       installNote,
+      branchCreated: true,
       ...(baseCommit !== undefined ? { baseCommit } : {}),
     }
   }

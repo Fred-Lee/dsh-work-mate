@@ -92,6 +92,8 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
       agentPresetForRole: (role) => presetForRole(role, deps.rolePresetConfig),
       agentOptionsForRole: (role) => roleModels.models[role],
       verifyReportPath: true,
+      requireCommit: true,
+      baseForTask: (task) => targets.find((entry) => entry.project === task.project)?.baseCommit,
       changedFilesForTask: async (task) => {
         const target = targets.find((entry) => entry.project === task.project)
         if (target?.worktreePath === undefined || target.baseCommit === undefined) return undefined
@@ -203,6 +205,7 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
             openspecRoot: deps.openspecRoot,
             changeId: proposal.openspecChangeId,
             primaryProject: primary ?? proposal.projects[0] ?? '',
+            ...(proposal.targets !== undefined ? { targets: proposal.targets } : {}),
           }),
         )
       },

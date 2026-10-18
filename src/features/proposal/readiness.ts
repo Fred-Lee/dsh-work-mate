@@ -34,7 +34,7 @@ export async function assessReadiness(proposal: Proposal, input: ReadinessInput)
   if (input.projectRoot === undefined) {
     checks.push({ id: 'artifacts', status: 'warn', detail: '未关联项目根，无法读取工件' })
   } else {
-    const fingerprint = await computePlanFingerprint(input.projectRoot, input.openspecRoot, proposal.openspecChangeId)
+    const fingerprint = await computePlanFingerprint(input.projectRoot, input.openspecRoot, proposal.openspecChangeId, proposal.targets)
     checks.push(
       fingerprint.hash === undefined
         ? { id: 'artifacts', status: 'fail', detail: `工件不完整：缺 ${fingerprint.missing.join(', ')}` }

@@ -31,9 +31,15 @@ describe('prepareTeamArtifacts', () => {
       openspecRoot: 'openspec',
       changeId: 'p1',
       primaryProject: 'demo',
+      targets: [
+        { project: 'demo', baseBranch: 'main' },
+        { project: 'other', baseBranch: 'master' },
+      ],
     })
     expect(first.written).toEqual(['REQ.md', 'PLAN.md', 'TASKS.json'])
     expect(await readFile(join(dir(), 'REQ.md'), 'utf8')).toContain('因为订单流程太长')
+    const plan = await readFile(join(dir(), 'PLAN.md'), 'utf8')
+    expect(plan).toContain('other @ master')
     const tasks = parseTeamTasks(await readFile(join(dir(), 'TASKS.json'), 'utf8'))
     expect(tasks.map((task) => task.role)).toEqual(['backend-dev', 'integration-tester'])
 

@@ -137,7 +137,10 @@ describe('WorktreeManager (real git)', () => {
 
   it('rollback removal deletes the unmerged feature branch and releases its ports', async () => {
     const manager = makeManager()
-    await manager.create({ projectRoot: project, proposalId: 'rollback-p1' })
+    const created = await manager.create({ projectRoot: project, proposalId: 'rollback-p1' })
+    expect(created.branchCreated).toBe(true)
+    const reused = await manager.create({ projectRoot: project, proposalId: 'rollback-p1' })
+    expect(reused.branchCreated).toBe(false)
     const removed = await manager.remove({
       projectRoot: project,
       proposalId: 'rollback-p1',

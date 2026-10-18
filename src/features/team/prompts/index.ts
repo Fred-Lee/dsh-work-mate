@@ -101,6 +101,7 @@ export function buildTaskPrompt(input: TaskPromptInput): string {
     '## 规则',
     ...role.rules.map((line) => `- ${line}`),
     ...contract.forbidden.map((line) => `- ${line}`),
+    '完成前把改动 commit 到当前 feature 分支；未提交不算 done。',
     '- 不要启动子代理。',
     '- 不要伪造成功；没有证据的结论标为未验证。',
     '- 结束时用一句话说明结果与证据（命令/测试/文件）；失败就说失败。',

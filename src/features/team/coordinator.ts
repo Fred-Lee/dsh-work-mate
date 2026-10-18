@@ -25,6 +25,8 @@ export interface DispatchHandle {
   sessionId?: string
   /** Resolves once the worker reached a terminal outcome. */
   result: Promise<SettleInput>
+  /** Best-effort cancel/dispose when the wave times out. */
+  cancel?: () => Promise<void>
 }
 
 export interface TeamDispatcher {
@@ -122,9 +124,19 @@ export class TeamCoordinator {
       }
       if (handles.length === 0) {
         const final = await this.runner.get(runId)
-        if (TERMINAL.has(final.status) || (await this.runner.nextWave(runId)).length > 0) continue
-        return { run: final, waves, stopped: '本波次没有成功派发的任务' }
+        if (TERMINAL.has(final.status)) return { run: final, waves }
+        // A Dispatch-limit/start failure must pause and report; looping here used
+        // to spin until the 2h budget because nextWave still had planned tasks.
+        return {
+          run: final,
+          waves,
+          stopped: '本波次没有成功派发的任务（Dispatch 限额或 dispatcher 启动失败）— 暂停并上报',
+        }
       }
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const timeout = new Promise<'wave-timeout'>((resolvePromise) => {
+        timer = setTimeout(() => resolvePromise('wave-timeout'), Math.max(1, run.budget.maxWaveMs))
+      })
       const outcomes = await Promise.race([
         Promise.all(
           handles.map((entry) =>
@@ -134,11 +146,11 @@ export class TeamCoordinator {
             })),
           ),
         ),
-        new Promise<'wave-timeout'>((resolvePromise) =>
-          setTimeout(() => resolvePromise('wave-timeout'), Math.max(1, run.budget.maxWaveMs)),
-        ),
+        timeout,
       ])
+      if (timer !== undefined) clearTimeout(timer)
       if (outcomes === 'wave-timeout') {
+        await Promise.all(handles.map((entry) => entry.handle.cancel?.().catch(() => undefined)))
         const aborted = await this.runner.abort(runId)
         const stopped = `单波超时 ${run.budget.maxWaveMs}ms（worker 未在预算内结束）`
         await this.events?.run({ run: aborted, detail: stopped })

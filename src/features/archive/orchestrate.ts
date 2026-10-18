@@ -502,18 +502,18 @@ export async function orchestrateArchive(
           steps.push({ step: 'team-review', status: 'ok', summary: `${label}TEAM-REVIEW.md 无阻断级发现` })
         }
       }
-      // Legacy shape: an untagged CRITICAL section has no findings yet, so keep its
-      // entries in the mix before adding graded ones (otherwise the tally's legacy
-      // fallback would be skipped the moment a single finding exists).
-      const legacy =
-        report.findings.length === 0
-          ? report.criticals.map((issue, index) => ({
-              severity: 'CRIT' as const,
-              tag: `CRIT-${index + 1}`,
-              text: issue.text,
-              resolved: issue.resolved,
-            }))
-          : []
+      // Legacy shape: `## CRITICAL 问题` entries that were not written as tagged
+      // findings must still count even when any tagged finding exists — otherwise
+      // mixing `- [ ] HIGH-1` with a legacy unresolved CRITICAL bypasses the gate.
+      const taggedCriticalTexts = new Set(report.findings.filter((finding) => finding.severity === 'CRIT').map((finding) => finding.text))
+      const legacy = report.criticals
+        .filter((issue) => ![...taggedCriticalTexts].some((text) => text !== '' && issue.text.includes(text)))
+        .map((issue, index) => ({
+          severity: 'CRIT' as const,
+          tag: `LEGACY-${index + 1}`,
+          text: issue.text,
+          resolved: issue.resolved,
+        }))
       const graded =
         deps.decide === undefined
           ? []

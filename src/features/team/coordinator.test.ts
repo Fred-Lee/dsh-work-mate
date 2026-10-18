@@ -274,4 +274,17 @@ describe('TeamCoordinator', () => {
     )
   })
 
+  it('pauses instead of spinning when the Dispatch limit blocks a task', async () => {
+    await runner.createRun({
+      id: 'r1',
+      proposalId: 'p1',
+      template: 'bug-fix',
+      tasks: [task('t1'), task('t2')],
+      budget: { maxDispatches: 1 },
+    })
+    const result = await new TeamCoordinator(runner, new FakeDispatcher()).run('r1')
+    expect(result.stopped).toContain('Dispatch 限额')
+    expect(result.run.status).not.toBe('aborted')
+  }, 5_000)
+
 })

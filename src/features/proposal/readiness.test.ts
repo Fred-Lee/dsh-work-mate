@@ -55,7 +55,7 @@ describe('assessReadiness', () => {
 
     // Recompute the full hash through the same path, then approve it.
     const { computePlanFingerprint } = await import('./plan.ts')
-    const fingerprint = await computePlanFingerprint(root, 'openspec', 'p1')
+    const fingerprint = await computePlanFingerprint(root, 'openspec', 'p1', proposal().targets)
     const approved = proposal({
       approvals: [
         {

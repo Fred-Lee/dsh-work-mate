@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import { validateProjectRoot } from './openspec.ts'
+import type { ProposalTarget } from './store.ts'
 
 export const REQUIRED_PLAN_FILES = ['proposal.md', 'design.md', 'tasks.md'] as const
 
@@ -61,6 +62,7 @@ export async function computePlanFingerprint(
   projectRoot: string,
   openspecRoot: string,
   changeId: string,
+  targets?: readonly ProposalTarget[],
 ): Promise<PlanFingerprint> {
   const root = validateProjectRoot(projectRoot)
   const changeDir = join(root, openspecRoot, 'changes', changeId)
@@ -79,6 +81,10 @@ export async function computePlanFingerprint(
   if (missing.length > 0) return { files, missing }
   if (files.length === 0) return { files, missing }
   const hash = createHash('sha256')
+  if (targets !== undefined) {
+    hash.update(JSON.stringify(targets.map((target) => ({ project: target.project, baseBranch: target.baseBranch }))))
+    hash.update('\u0000')
+  }
   for (const file of files) {
     const content = await readFile(join(changeDir, file), 'utf8')
     hash.update(file)

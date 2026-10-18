@@ -239,6 +239,26 @@ describe('orchestrateArchive (fake CLIs)', () => {
     expect(result.steps.find((step) => step.step === 'team-review')?.status).toBe('failed')
     await rm(project, { recursive: true, force: true })
   })
+
+  it('does not let a tagged finding hide an unresolved legacy CRITICAL', async () => {
+    const project = await mkdtemp(join(tmpdir(), 'wm-mixed-'))
+    try {
+      await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
+      await writeFile(
+        join(project, 'openspec', 'changes', 'p1', 'review.md'),
+        ['## 疑问项', '- [ ] HIGH-1 只是一个提示', '', '## CRITICAL 问题', '- [ ] 未解决的 legacy CRIT'].join('\n'),
+      )
+      await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n')
+      const result = await orchestrateArchive(archivingProposal(), [{ project: 'demo', root: project }], {
+        openspecRoot: 'openspec',
+        gitnexusAnalyzeEnabled: false,
+      })
+      expect(result.ok).toBe(false)
+      expect(result.steps.find((step) => step.step === 'review-gate')?.status).toBe('failed')
+    } finally {
+      await rm(project, { recursive: true, force: true })
+    }
+  })
   it('blocks the configured severities beyond CRIT', async () => {
     // A fresh project per run: the archive step may move changes/<id>/ away.
     const seed = async (): Promise<string> => {
