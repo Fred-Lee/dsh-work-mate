@@ -15,6 +15,8 @@ export interface TeamEvidenceResult {
   managed: boolean
   ok: boolean
   errors: string[]
+  /** `<!-- reviewer: <id> -->` from TEAM-REVIEW.md, when present. */
+  reviewer?: string
 }
 
 const required = async (path: string, label: string, errors: string[]): Promise<string | undefined> => {
@@ -39,6 +41,7 @@ export async function checkTeamEvidence(
   }
 
   const errors: string[] = []
+  let reviewer: string | undefined
   const tasksRaw = await required(join(dir, 'TASKS.json'), 'TASKS.json', errors)
   if (tasksRaw !== undefined) {
     try {
@@ -55,10 +58,15 @@ export async function checkTeamEvidence(
     for (const section of REQUIRED_SECTIONS[artifact]) {
       if (!content.includes(section)) errors.push(`${artifact} 缺「${section}」`)
     }
-    if (artifact === 'TEAM-REVIEW.md' && !/<!--\s*reviewer:\s*\S+/.test(content)) {
-      errors.push('TEAM-REVIEW.md 缺 reviewer 身份标记（<!-- reviewer: <id> -->）')
+    if (artifact === 'TEAM-REVIEW.md') {
+      const marker = /<!--\s*reviewer:\s*(\S+)/.exec(content)
+      if (marker?.[1] === undefined) {
+        errors.push('TEAM-REVIEW.md 缺 reviewer 身份标记（<!-- reviewer: <id> -->）')
+      } else {
+        reviewer = marker[1]
+      }
     }
   }
 
-  return { managed: true, ok: errors.length === 0, errors }
+  return { managed: true, ok: errors.length === 0, errors, ...(reviewer !== undefined ? { reviewer } : {}) }
 }

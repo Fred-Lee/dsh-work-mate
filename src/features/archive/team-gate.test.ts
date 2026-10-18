@@ -6,12 +6,13 @@ import { LifecycleServiceImpl } from './service.ts'
 import { ProposalServiceImpl } from '../proposal/service.ts'
 import { ProposalStore } from '../proposal/store.ts'
 import { WorktreeManager } from '../worktree/manager.ts'
+import { DEFAULT_TEAM_BUDGET, type TeamRun } from '../team/types.ts'
 
 let home: string
 let project: string
 let proposals: ProposalServiceImpl
 
-const lifecycle = (teamEvidenceGate: 'off' | 'warn' | 'block'): LifecycleServiceImpl =>
+const lifecycle = (teamEvidenceGate: 'off' | 'warn' | 'block', teamRuns?: TeamRun[]): LifecycleServiceImpl =>
   new LifecycleServiceImpl({
     proposals,
     worktree: new WorktreeManager({
@@ -27,6 +28,7 @@ const lifecycle = (teamEvidenceGate: 'off' | 'warn' | 'block'): LifecycleService
     approvalsRequired: [],
     resolveProjectRoots: async () => [{ project: 'demo', root: project }],
     teamEvidenceGate,
+    ...(teamRuns !== undefined ? { teamRuns: { list: async () => teamRuns } as never } : {}),
     orchestrate: async () => ({ ok: true, steps: [] }),
   })
 
@@ -91,4 +93,30 @@ describe('team evidence gate', () => {
     await lifecycle('block').transition('p1', 'archiving')
     expect((await proposals.get('p1'))?.status).toBe('archiving')
   })
+  it('rejects a TEAM-REVIEW reviewer marker that matches an implementer session', async () => {
+    await writeTasks()
+    await writeFile(join(changeDir(), 'TEST.md'), '## 场景\n## 执行命令\n## 结果与证据\n## 覆盖缺口\n', 'utf8')
+    await writeFile(
+      join(changeDir(), 'TEAM-REVIEW.md'),
+      '<!-- reviewer: session-impl -->\n## 确认项\n## 疑问项\n## 建议补充项\n## CRITICAL 问题\n',
+      'utf8',
+    )
+    await writeFile(join(changeDir(), 'SUMMARY.md'), '## Run\n## 逐任务结果\n## 未解阻塞\n## 终态\n', 'utf8')
+    const run = {
+      id: 'r1',
+      proposalId: 'p1',
+      template: 'bug-fix',
+      status: 'succeeded',
+      tasks: [],
+      dispatches: [
+        { id: 'd1', taskId: 'impl', role: 'backend-dev', sessionId: 'session-impl', status: 'done' },
+        { id: 'd2', taskId: 'review', role: 'reviewer', sessionId: 'session-review', status: 'done' },
+      ],
+      budget: DEFAULT_TEAM_BUDGET,
+      createdAt: '2026-10-19T00:00:00.000Z',
+      updatedAt: '2026-10-19T00:00:00.000Z',
+    } as TeamRun
+    await expect(lifecycle('block', [run]).transition('p1', 'archiving')).rejects.toThrow(/与实现者会话相同/)
+  })
+
 })

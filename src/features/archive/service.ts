@@ -843,8 +843,27 @@ export class LifecycleServiceImpl {
       latestRun !== undefined && ['partial', 'blocked', 'aborted'].includes(latestRun.status)
         ? `最近团队 Run ${latestRun.id} 终态为 ${latestRun.status}，不得归档`
         : undefined
-    if ((!result.managed || result.ok) && runError === undefined) return
-    const errors = [...result.errors, ...(runError !== undefined ? [runError] : [])]
+    const reviewerError = (() => {
+      if (latestRun === undefined || result.reviewer === undefined) return undefined
+      const dispatches = latestRun.dispatches ?? []
+      const implementerSessions = new Set(
+        dispatches.filter((dispatch) => dispatch.role !== 'reviewer' && dispatch.sessionId !== undefined).map((dispatch) => dispatch.sessionId),
+      )
+      if (implementerSessions.has(result.reviewer)) return `TEAM-REVIEW reviewer ${result.reviewer} 与实现者会话相同`
+      const reviewerSessions = new Set(
+        dispatches.filter((dispatch) => dispatch.role === 'reviewer' && dispatch.sessionId !== undefined).map((dispatch) => dispatch.sessionId),
+      )
+      if (reviewerSessions.size > 0 && !reviewerSessions.has(result.reviewer)) {
+        return `TEAM-REVIEW reviewer ${result.reviewer} 不在本 Run 的 reviewer dispatch 中`
+      }
+      return undefined
+    })()
+    if ((!result.managed || result.ok) && runError === undefined && reviewerError === undefined) return
+    const errors = [
+      ...result.errors,
+      ...(runError !== undefined ? [runError] : []),
+      ...(reviewerError !== undefined ? [reviewerError] : []),
+    ]
     const error = new InvalidTransitionError(`团队证据不完整 — ${errors.join('；')}`)
     if (gate === 'block') {
       await this.recordGateFailure(proposal, 'archiving', error, undefined, 'team-evidence')
