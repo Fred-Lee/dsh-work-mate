@@ -16,6 +16,7 @@ import { TeamEventLog } from './events.ts'
 import { writeTeamSummary } from './summary.ts'
 import type { EventLog } from '../proposal/events.ts'
 import { assertRolePresets, presetForRole, type RolePresetConfig } from './presets.ts'
+import { parseRoleModels } from './models.ts'
 
 export interface TeamToolDeps {
   proposals: ProposalService
@@ -33,6 +34,8 @@ export interface TeamToolDeps {
   /** Role→agentPreset mapping (T3-3.6). */
   rolePresetConfig: RolePresetConfig
   requireRolePresets: boolean
+  /** Raw JSON role→model map (Config.teamRoleModels). */
+  roleModels: string
 }
 
 const json = (value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }]
@@ -128,6 +131,10 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
           }
           return target.worktreePath
         }
+        const roleModels = parseRoleModels(deps.roleModels)
+        if (roleModels.errors.length > 0) {
+          throw new Error(`teamRoleModels 配置非法 — ${roleModels.errors.join('；')}`)
+        }
         const missingPresets = assertRolePresets({
           tasks: run.tasks,
           config: deps.rolePresetConfig,
@@ -140,6 +147,7 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
           parent: agent,
           cwdForTask,
           agentPresetForRole: (role) => presetForRole(role, deps.rolePresetConfig),
+          agentOptionsForRole: (role) => roleModels.models[role],
           ...(args.provider !== undefined ? { provider: args.provider } : {}),
           signal: (exec as { signal?: AbortSignal }).signal ?? new AbortController().signal,
         })

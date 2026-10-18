@@ -29,7 +29,7 @@
 - [x] 3.4 集成测试角色：跨仓契约/E2E/回归，产出 `TEST.md`；允许改测试脚本但不改业务代码。<!-- writes: src/features/team/prompts/**, assets/** -->
 - [x] 3.5 独立审查角色：只读评审，产出 `REVIEW.md`；与实现者身份不同。<!-- writes: src/features/team/prompts/**, assets/** -->
 - [x] 3.6 权限预设：评估/审查只读，开发/测试/协调器 workspace 写；不默认 full access；启动时固定。<!-- writes: src/features/team/**, src/config.ts -->
-- [ ] 3.7 模型配置：默认继承会话模型，支持角色级覆盖；本版本不要求逐角色配置。<!-- writes: src/features/team/**, src/config.ts -->
+- [x] 3.7 模型配置：默认继承会话模型，支持角色级覆盖；本版本不要求逐角色配置。<!-- writes: src/features/team/**, src/config.ts -->
 
 ## 4. 证据与门禁（T4）
 

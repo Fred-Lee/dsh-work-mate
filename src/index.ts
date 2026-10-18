@@ -513,6 +513,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       workspacePreset: resolved.teamWorkspacePreset,
     },
     requireRolePresets: resolved.teamRequireRolePresets,
+    roleModels: resolved.teamRoleModels,
   })
   // Native guidance surfaces: two runtime skills + one flow section. Lazy, so
   // a composition without those services keeps the plugin ACTIVE.

@@ -119,6 +119,8 @@ export interface Config {
   teamWorkspacePreset?: string
   /** Refuse dispatch when a role has no matching preset instead of inheriting parent scope. @default false */
   teamRequireRolePresets?: boolean
+  /** JSON map of role → {provider?, model?, reasoningEffort?}; empty = inherit session model. */
+  teamRoleModels?: string
   /**
    * Require every merged swarm task to carry an independent verification record
    * before archiving (change `wire-swarm-independent-review`). @default false
@@ -264,6 +266,10 @@ export const Config: z<Config> = z.object({
     .boolean()
     .default(false)
     .description('Refuse team dispatch when a role has no matching agent preset.'),
+  teamRoleModels: z
+    .string()
+    .default('')
+    .description('JSON map of role to provider/model overrides; empty inherits the session model.'),
   swarmReviewRequired: z
     .boolean()
     .default(false)
@@ -337,6 +343,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   teamReadonlyPreset: '',
   teamWorkspacePreset: '',
   teamRequireRolePresets: false,
+  teamRoleModels: '',
   swarmReviewRequired: false,
   lifecycleMainBranch: 'main',
   decisionEnabled: false,

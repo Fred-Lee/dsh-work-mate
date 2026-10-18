@@ -27,6 +27,7 @@ describe('resolveConfig', () => {
     teamReadonlyPreset: '',
     teamWorkspacePreset: '',
     teamRequireRolePresets: false,
+    teamRoleModels: '',
       swarmReviewRequired: false,
       lifecycleMainBranch: 'main',
       decisionEnabled: false,

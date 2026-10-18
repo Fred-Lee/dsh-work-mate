@@ -107,4 +107,15 @@ describe('HostSubagentDispatcher', () => {
     await expect(result).resolves.toMatchObject({ status: 'blocked', question: '用哪个分支？' })
   })
 
+  it('passes role-level model options', async () => {
+    const subagents = new FakeSubagents({ stopReason: 'completed' })
+    const dispatcher = new HostSubagentDispatcher(subagents, {
+      parent: {},
+      cwdForTask: () => '/wt',
+      agentOptionsForRole: (role) => (role === 'backend-dev' ? { model: 'deepseek-v4.1-flash' } : undefined),
+    })
+    await dispatcher.start(request)
+    expect(subagents.specs[0]?.request.agentOptions).toEqual({ model: 'deepseek-v4.1-flash' })
+  })
+
 })

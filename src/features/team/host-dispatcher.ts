@@ -33,6 +33,7 @@ export interface SubagentStartSpecLike {
     cwd?: string
     maxDepth?: number
     agentPreset?: string
+    agentOptions?: { provider?: string; model?: string; reasoningEffort?: string }
   }
   signal: AbortSignal
   delivery: 'caller'
@@ -51,6 +52,8 @@ export interface HostDispatcherOptions {
   signal?: AbortSignal
   /** Optional role→agent preset id; the host enforces the preset's composition. */
   agentPresetForRole?: (role: TeamRole) => string | undefined
+  /** Optional role→model overrides; omitted inherits the parent session model. */
+  agentOptionsForRole?: (role: TeamRole) => { provider?: string; model?: string; reasoningEffort?: string } | undefined
 }
 
 const textOf = (output: readonly unknown[] | undefined): string =>
@@ -93,6 +96,7 @@ export class HostSubagentDispatcher implements TeamDispatcher {
     const cwd = this.options.cwdForTask(request.task)
     const signal = this.options.signal ?? new AbortController().signal
     const preset = this.options.agentPresetForRole?.(request.task.role)
+    const agentOptions = this.options.agentOptionsForRole?.(request.task.role)
     const activation = await this.subagents.startActivation({
       provider: this.options.provider ?? 'spawn',
       label: `team:${request.task.role}:${request.task.id}`,
@@ -101,6 +105,7 @@ export class HostSubagentDispatcher implements TeamDispatcher {
         prompt: [{ type: 'text', text: buildTaskPrompt(request) }],
         cwd,
         ...(preset !== undefined ? { agentPreset: preset } : {}),
+        ...(agentOptions !== undefined ? { agentOptions } : {}),
       },
       signal,
       delivery: 'caller',
