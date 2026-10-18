@@ -321,4 +321,15 @@ export const PANEL_STYLE = `
 .wm-team-table th { color: var(--wm-muted); font-weight: 500; }
 .wm-team-events { margin-top: 8px; max-height: 180px; overflow-y: auto; }
 
+.wm-team-waves { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0; }
+.wm-team-wave { min-width: 150px; border: 1px dashed var(--wm-border); border-radius: 10px; padding: 8px; }
+.wm-team-wave-head { font-size: 11px; color: var(--wm-muted); margin-bottom: 6px; }
+.wm-team-chip {
+  font-size: 11px; padding: 4px 6px; margin-bottom: 4px; border-radius: 6px;
+  background: var(--wm-code, rgba(127,127,127,.10)); border-left: 3px solid var(--wm-muted);
+}
+.wm-team-chip.done { border-left-color: #22c55e; }
+.wm-team-chip.dispatched, .wm-team-chip.running { border-left-color: #3b82f6; }
+.wm-team-chip.failed, .wm-team-chip.blocked { border-left-color: #ef4444; }
+
 `

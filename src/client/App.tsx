@@ -32,6 +32,7 @@ import {
 import type { Proposal, ProposalState, ProposalStatusPayload } from './types'
 import type { TeamRun } from '../features/team/types.ts'
 import { GraphView } from './GraphView'
+import { taskWaves, waveDepth } from './team-waves'
 import { PANEL_STYLE } from './styles'
 
 const POLL_MS = 5_000
@@ -893,7 +894,19 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
             {shown.id} · {shown.status}
           </h4>
           <div className="wm-progress-label">
-            {shown.proposalId} · {shown.template} · parallel {shown.budget.maxParallel}
+            {shown.proposalId} · {shown.template} · parallel {shown.budget.maxParallel} · 关键路径 {waveDepth(shown.tasks)} 波
+          </div>
+          <div className="wm-team-waves">
+            {taskWaves(shown.tasks).map((wave, index) => (
+              <div className="wm-team-wave" key={index}>
+                <div className="wm-team-wave-head">波次 {index + 1}</div>
+                {wave.map((task) => (
+                  <div className={`wm-team-chip ${task.status}`} key={task.id}>
+                    {task.id} · {task.role} · {task.status}
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
           <table className="wm-team-table">
             <thead>
