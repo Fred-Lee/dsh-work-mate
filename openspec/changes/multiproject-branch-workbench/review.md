@@ -89,4 +89,4 @@
 - [x] C2 混排绕过（与团队侧共用 review 门）— 已修。
 - [x] targets 已纳入 planHash；改 targets 会失效 G2。
 - [x] legacy 无 targets 提案的 G2 校验已启用（plan 工件存在时）。
-- 仍不可归档：团队侧 CRIT-8/CRIT-9 未闭合。
+- 团队侧 CRIT-8/CRIT-9 与 reviewer 独立性已闭合；仍不可归档：提案记录未迁移/未生成团队工件/未跑 Run。

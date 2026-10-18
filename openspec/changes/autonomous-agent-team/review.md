@@ -106,5 +106,5 @@
 未修复（阻断归档）：
 - [x] CRIT-8 legacy 提案无 targets 时 G2 静默跳过 — 已改为只要 plan 工件存在就校验 G2；补 legacy 测试。
 - [x] CRIT-9 G5 plan 拒绝退回 ready — 已改为 merging→implementing→ready，并保留 G2 reject；再次 implementing 需要新 approvePlan；plan 测试更新。
-- [ ] HIGH reviewer 独立性仍不可强机检：host 每次新 childId，marker 只查存在。
+- [x] HIGH reviewer 独立性：TEAM-REVIEW marker 必须对应 Run 中 reviewer dispatch，且不得等于实现者 session；补测试。
 - [ ] HIGH 当前提案记录仍是 reviewing、无 targets/approvals，change 目录缺 6 工件，从未真机跑 Run。
