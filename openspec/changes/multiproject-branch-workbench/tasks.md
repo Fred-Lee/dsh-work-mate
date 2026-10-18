@@ -2,8 +2,8 @@
 
 ## 1. 注册表与项目维度
 
-- [ ] 1.1 `ProjectRegistry` 记录扩展为 `{name, root, defaultBranch?, workspace?}`：读取兼容旧两项，写入保留未知字段；`defaultBranch` 缺失时按 `main` → `master` 探测并回填，探测不到不写。<!-- writes: src/features/project/**, src/features/proposal/store.ts -->
-- [ ] 1.2 新增只读分支列举与校验：`GET /workmate/api/projects/:name/branches` 返回 `current/default/local[]/remote[]`；不存在或未注册返回可读错误与候选。<!-- writes: src/api.ts, src/features/project/** -->
+- [x] 1.1 `ProjectRegistry` 记录扩展为 `{name, root, defaultBranch?, workspace?}`：读取兼容旧两项，写入保留未知字段；`defaultBranch` 缺失时按 `main` → `master` 探测并回填，探测不到不写。<!-- writes: src/features/project/**, src/features/proposal/store.ts -->
+- [x] 1.2 新增只读分支列举与校验：`GET /workmate/api/projects/:name/branches` 返回 `current/default/local[]/remote[]`；不存在或未注册返回可读错误与候选。<!-- writes: src/api.ts, src/features/project/** -->
 - [ ] 1.3 面板注册项目时可选填默认分支与工作区名；未填走探测。<!-- writes: src/client/App.tsx, src/client/api.ts -->
 
 - [ ] 1.4 DSH Workspace 候选发现：读取 `ctx.workspaceRegistry`，过滤存在/git 仓库/未注册/路径不重复；只读，不自动导入。<!-- writes: src/features/project/**, src/api.ts -->
@@ -11,14 +11,14 @@
 
 ## 2. 提案目标矩阵
 
-- [ ] 2.1 `ProposalTarget` 类型与 `targets` 持久化；`effectiveTargets(proposal)` 兼容层（旧标量合成单目标），单目标继续回写标量。<!-- writes: src/features/proposal/** -->
-- [ ] 2.2 创建入口接受 `targets`（`"project:branch,project:branch"` 或结构化）与 `primaryProject`；工具与 REST 共用同一校验；`generateChangeDir` 按 `openspecTargets`（primary|all）落主/副项目。<!-- writes: src/api.ts, src/index.ts, src/config.ts -->
+- [x] 2.1 `ProposalTarget` 类型与 `targets` 持久化；`effectiveTargets(proposal)` 兼容层（旧标量合成单目标），单目标继续回写标量。<!-- writes: src/features/proposal/** -->
+- [x] 2.2 创建入口接受 `targets`（`"project:branch,project:branch"` 或结构化）与 `primaryProject`；工具与 REST 共用同一校验；`generateChangeDir` 按 `openspecTargets`（primary|all）落主/副项目。<!-- writes: src/api.ts, src/index.ts, src/config.ts -->
 
 ## 3. 多目标 worktree
 
-- [ ] 3.1 `WorktreeManager` 按 `(proposalId, project)` 创建：路径 `<root>/.workmates/<id>`、分支 `feature/<id>`、端口键 `${id}--${project}`、`.env` 注入与安装策略保持。<!-- writes: src/features/worktree/** -->
-- [ ] 3.2 `ready→implementing`：对全部 target 预检（项目/根/基线分支/路径/可写），逐个创建；任一步失败按逆序回滚已建 worktree 与端口，状态不变并返回失败 target。<!-- writes: src/features/archive/service.ts -->
-- [ ] 3.3 `merging/archiving` 按 target 的 `baseBranch` 校验合并；`archived` 清理全部 target worktree；单目标旧数据路径不变。<!-- writes: src/features/archive/** -->
+- [x] 3.1 `WorktreeManager` 按 `(proposalId, project)` 创建：路径 `<root>/.workmates/<id>`、分支 `feature/<id>`、端口键 `${id}--${project}`、`.env` 注入与安装策略保持。<!-- writes: src/features/worktree/** -->
+- [x] 3.2 `ready→implementing`：对全部 target 预检（项目/根/基线分支/路径/可写），逐个创建；任一步失败按逆序回滚已建 worktree 与端口，状态不变并返回失败 target。<!-- writes: src/features/archive/service.ts -->
+- [x] 3.3 `merging/archiving` 按 target 的 `baseBranch` 校验合并；`archived` 清理全部 target worktree；单目标旧数据路径不变。<!-- writes: src/features/archive/** -->
 
 ## 4. 并行隔离
 
