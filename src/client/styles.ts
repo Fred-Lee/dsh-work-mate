@@ -302,4 +302,23 @@ export const PANEL_STYLE = `
 .wm-drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .wm-drawer-head h3 { margin: 0; font-size: 15px; }
 
+/* ---------- team console ---------- */
+.wm-team { padding: 14px 18px 0; display: flex; flex-direction: column; gap: 12px; }
+.wm-team-head { display: flex; align-items: center; justify-content: space-between; }
+.wm-team-head h3 { margin: 0; font-size: 14px; }
+.wm-team-list { display: flex; flex-direction: column; gap: 6px; }
+.wm-team-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; text-align: left; cursor: pointer; padding: 9px 12px;
+  border: 1px solid var(--wm-border); border-radius: 10px;
+  background: var(--wm-card); color: var(--wm-fg);
+}
+.wm-team-row.active { border-color: var(--wm-accent, #3b82f6); box-shadow: var(--wm-shadow-lift); }
+.wm-team-detail { border-top: 1px solid var(--wm-border-soft); padding-top: 12px; }
+.wm-team-detail h4 { margin: 0 0 4px; font-size: 13px; }
+.wm-team-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+.wm-team-table th, .wm-team-table td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--wm-border-soft); }
+.wm-team-table th { color: var(--wm-muted); font-weight: 500; }
+.wm-team-events { margin-top: 8px; max-height: 180px; overflow-y: auto; }
+
 `

@@ -118,7 +118,8 @@ export function apply(ctx: Context, config: Config = {}): void {
   const events = new EventLog({ subdir: resolved.workmateHome })
   const proposals = new ProposalServiceImpl(store, undefined, events)
   const registry = new ProjectRegistry({ subdir: resolved.workmateHome })
-  const teamRunner = new TeamRunner(new TeamRunStore({ subdir: resolved.workmateHome }))
+  const teamRuns = new TeamRunStore({ subdir: resolved.workmateHome })
+  const teamRunner = new TeamRunner(teamRuns)
   const worktree = new WorktreeManager({
     subdir: resolved.workmateHome,
     basePort: resolved.basePort,
@@ -553,6 +554,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       reviewBlockingSeverities: resolved.reviewBlockingSeverities,
       decision,
       events,
+      teamRuns,
       vaultExport: (input) =>
         runVaultExport({
           projectRoot: input.projectRoot,

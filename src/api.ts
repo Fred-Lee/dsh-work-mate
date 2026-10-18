@@ -12,6 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Router, readJsonBody } from './http.ts'
 import { aggregateMetrics, proposalMetrics } from './features/proposal/metrics.ts'
 import type { EventLog } from './features/proposal/events.ts'
+import type { TeamRunStore } from './features/team/store.ts'
 import { evaluateBands, loadBands } from './features/metrics/bands.ts'
 import { runBandsCheck } from './features/metrics/check.ts'
 import { CONFIG_DEFAULTS } from './config.ts'
@@ -63,6 +64,8 @@ export interface ApiDeps {
   wikiSearch?: (input: { query: string; project?: string; limit?: number; semantic?: boolean }) => Promise<unknown>
   /** Proposal event log; omitted in tests that do not measure. */
   events?: EventLog
+  /** Team run store; omitted = the team console shows an empty list. */
+  teamRuns?: TeamRunStore
   /** Control-band file; defaults to `<DSH home>/<workmateHome>/bands.json`. */
   bandsFile?: string
   /** States gated on a human approval (`Config.approvalsRequired`). */
@@ -150,6 +153,21 @@ export function mountWorkmateApi(webServer: WebServerLike, deps: ApiDeps): void 
 }
 
 export function registerApiRoutes(router: Router, deps: ApiDeps): void {
+
+  router.get('/api/team/runs', async (r) => {
+    const proposalId = r.query.get('proposalId')
+    const runs = (await deps.teamRuns?.list()) ?? []
+    return { runs: proposalId === null || proposalId === '' ? runs : runs.filter((run) => run.proposalId === proposalId) }
+  })
+
+  router.get('/api/team/runs/:id', async (r) => {
+    const id = r.params['id'] ?? ''
+    const run = await deps.teamRuns?.get(id)
+    if (run === undefined) throw new Error(`team run not found: ${id}`)
+    const read = deps.events === undefined ? { events: [] } : await deps.events.read()
+    const events = read.events.filter((event) => event.runId === id && event.kind.startsWith('team-'))
+    return { run, events }
+  })
 
   router.get('/api/proposals', async () => {
     const proposals = await deps.proposals.list()

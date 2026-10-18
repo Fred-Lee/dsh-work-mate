@@ -543,4 +543,51 @@ describe('panel scroll contract (fix-panel-scroll)', () => {
     expect(body).toMatch(/min-height:\s*0/)
     expect(body).toMatch(/overflow-y:\s*auto/)
   })
+  it('shows team runs and their task/event detail', async () => {
+    const run = {
+      id: 'r1',
+      proposalId: 'p1',
+      template: 'bug-fix',
+      status: 'running',
+      tasks: [
+        {
+          id: 't1',
+          title: 't1',
+          role: 'backend-dev',
+          project: 'repo',
+          writes: [],
+          dependsOn: [],
+          acceptance: 'ok',
+          status: 'dispatched',
+          attempts: 1,
+        },
+      ],
+      dispatches: [],
+      budget: { maxParallel: 3, maxAttempts: 2, maxDurationMs: 1000, maxTokens: 100, maxDispatches: 5 },
+      createdAt: '2026-10-19T00:00:00.000Z',
+      updatedAt: '2026-10-19T00:00:00.000Z',
+    }
+    routeMock((url, method) => {
+      if (url === '/workmate/api/proposals' && method === 'GET') return { proposals: [] }
+      if (url === '/workmate/api/projects') return { projects: [] }
+      if (url === '/workmate/api/isolation') return { occupancy: [], conflicts: [] }
+      if (url === '/workmate/api/team/runs' && method === 'GET') return { runs: [run] }
+      if (url === '/workmate/api/team/runs/r1') {
+        return {
+          run,
+          events: [{ at: '2026-10-19T00:00:00.000Z', kind: 'team-dispatch', taskId: 't1', status: 'dispatched', detail: 'role=backend-dev' }],
+        }
+      }
+      return {}
+    })
+
+    render(<ProposalPanel />)
+    fireEvent.click(screen.getByText('团队'))
+    await screen.findByText('r1')
+    fireEvent.click(screen.getByText('r1'))
+
+    await screen.findByText('backend-dev')
+    expect(screen.getByText('team-dispatch t1 dispatched role=backend-dev')).toBeTruthy()
+  })
+
 })

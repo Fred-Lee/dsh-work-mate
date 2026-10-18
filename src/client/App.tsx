@@ -14,9 +14,11 @@ import {
   createProposal,
   getIsolation,
   getProposal,
+  getTeamRun,
   listProjectBranches,
   listProjects,
   listProposals,
+  listTeamRuns,
   listWorkspaceCandidates,
   reconcileProposal,
   registerProject,
@@ -24,9 +26,11 @@ import {
   type IsolationPayload,
   type ProjectBranches,
   type RegisteredProject,
+  type TeamRunEvent,
   type WorkspaceCandidate,
 } from './api'
 import type { Proposal, ProposalState, ProposalStatusPayload } from './types'
+import type { TeamRun } from '../features/team/types.ts'
 import { GraphView } from './GraphView'
 import { PANEL_STYLE } from './styles'
 
@@ -68,7 +72,7 @@ function relativeTime(iso: string): string {
 
 export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const { projectRoot } = props
-  const [view, setView] = useState<'board' | 'list' | 'graph' | 'console'>(() => initialView())
+  const [view, setView] = useState<'board' | 'list' | 'graph' | 'console' | 'team'>(() => initialView())
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [details, setDetails] = useState<Record<string, ProposalStatusPayload>>({})
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -279,6 +283,9 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
             <button className={`wm-pill${view === 'list' ? ' active' : ''}`} type="button" onClick={() => setView('list')}>
               列表
             </button>
+            <button className={`wm-pill${view === 'team' ? ' active' : ''}`} type="button" onClick={() => setView('team')}>
+              团队
+            </button>
             <button className={`wm-pill${view === 'console' ? ' active' : ''}`} type="button" onClick={() => setView('console')}>
               控制台
             </button>
@@ -348,6 +355,8 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
       <div className="wm-body">
         {view === 'graph' ? (
           <GraphView projectRoot={projectRootDraft || undefined} />
+        ) : view === 'team' ? (
+          <TeamView onError={setError} />
         ) : view === 'console' ? (
           <ConsoleView onError={setError} />
         ) : view === 'list' ? (
@@ -804,6 +813,123 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   )
 }
 
+function TeamView(props: { onError: (message: string) => void }): JSX.Element {
+  const [runs, setRuns] = useState<TeamRun[]>([])
+  const [selected, setSelected] = useState<string | null>(null)
+  const [detail, setDetail] = useState<{ run: TeamRun; events: TeamRunEvent[] } | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      const response = await listTeamRuns()
+      setRuns(response.runs ?? [])
+    } catch (cause) {
+      props.onError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setLoading(false)
+    }
+    // The error callback is stable enough for this read-only view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  async function open(id: string): Promise<void> {
+    setSelected(id)
+    try {
+      setDetail(await getTeamRun(id))
+    } catch (cause) {
+      props.onError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const shown = detail?.run ?? runs.find((run) => run.id === selected)
+
+  return (
+    <div className="wm-team">
+      <div className="wm-team-head">
+        <h3>团队 Run</h3>
+        <button className="wm-btn mini" type="button" onClick={() => void refresh()}>
+          刷新
+        </button>
+      </div>
+      {loading ? (
+        <div className="wm-empty">加载中…</div>
+      ) : runs.length === 0 ? (
+        <div className="wm-empty">还没有团队 Run — 用 workmate_team_plan 从 TASKS.json 创建</div>
+      ) : (
+        <div className="wm-team-list">
+          {runs.map((run) => {
+            const done = run.tasks.filter((task) => task.status === 'done').length
+            return (
+              <button
+                className={`wm-team-row${selected === run.id ? ' active' : ''}`}
+                key={run.id}
+                type="button"
+                onClick={() => void open(run.id)}
+              >
+                <div>
+                  <b>{run.id}</b>
+                  <div className="wm-card-id">
+                    {run.proposalId} · {run.template}
+                  </div>
+                </div>
+                <span className="wm-tier">{run.status}</span>
+                <span className="wm-progress-label">
+                  {done}/{run.tasks.length} tasks
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {shown !== undefined && (
+        <div className="wm-team-detail">
+          <h4>
+            {shown.id} · {shown.status}
+          </h4>
+          <div className="wm-progress-label">
+            {shown.proposalId} · {shown.template} · parallel {shown.budget.maxParallel}
+          </div>
+          <table className="wm-team-table">
+            <thead>
+              <tr>
+                <th>Task</th>
+                <th>角色</th>
+                <th>状态</th>
+                <th>尝试</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.tasks.map((task) => (
+                <tr key={task.id}>
+                  <td>{task.id}</td>
+                  <td>{task.role}</td>
+                  <td>{task.status}</td>
+                  <td>{task.attempts}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {detail !== null && detail.events.length > 0 && (
+            <div className="wm-team-events">
+              {detail.events.map((event, index) => (
+                <div key={`${event.at}-${index}`} className="wm-action-note">
+                  {event.kind} {event.taskId ?? ''} {event.status ?? ''} {event.detail ?? ''}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ProposalDrawer(props: {
   proposal: Proposal
   detail: ProposalStatusPayload | undefined
@@ -1146,10 +1272,12 @@ function CreateModal(props: {
  * ignores the query, the standalone page honours it, screenshots and docs links
  * stay reproducible.
  */
-function initialView(): 'board' | 'list' | 'graph' | 'console' {
+function initialView(): 'board' | 'list' | 'graph' | 'console' | 'team' {
   if (typeof window === 'undefined') return 'board'
   const requested = new URLSearchParams(window.location.search).get('view')
-  return requested === 'console' || requested === 'graph' || requested === 'list' ? requested : 'board'
+  return requested === 'console' || requested === 'graph' || requested === 'list' || requested === 'team'
+    ? requested
+    : 'board'
 }
 
 /** Human-readable dwell/cycle duration; unknown (0) stays unknown, never faked. */

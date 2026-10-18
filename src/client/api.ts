@@ -3,6 +3,8 @@
  * standalone page (/workmate/) and inside the DSH shell (better-sidebar tab).
  */
 import type { AggregateMetrics, BandsPayload, CreateProposalBody, Proposal, ProposalState, ProposalStatusPayload } from './types'
+import type { ProposalEvent } from '../features/proposal/events.ts'
+import type { TeamRun } from '../features/team/types.ts'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -160,4 +162,16 @@ export function reconcileProposal(id: string): Promise<{
     method: 'POST',
     body: JSON.stringify({}),
   })
+}
+
+
+export type TeamRunEvent = Pick<ProposalEvent, 'at' | 'kind' | 'taskId' | 'dispatchId' | 'status' | 'detail'>
+
+export function listTeamRuns(proposalId?: string): Promise<{ runs: TeamRun[] }> {
+  const query = proposalId !== undefined && proposalId !== '' ? `?proposalId=${encodeURIComponent(proposalId)}` : ''
+  return request(`/workmate/api/team/runs${query}`)
+}
+
+export function getTeamRun(id: string): Promise<{ run: TeamRun; events: TeamRunEvent[] }> {
+  return request(`/workmate/api/team/runs/${encodeURIComponent(id)}`)
 }
