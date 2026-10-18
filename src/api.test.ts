@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process'
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,6 +10,7 @@ import { LifecycleServiceImpl } from './features/archive/service.ts'
 import { WorktreeManager } from './features/worktree/manager.ts'
 import { Router, readJsonBody } from './http.ts'
 import { registerApiRoutes } from './api.ts'
+import { ProjectRegistry } from './features/project/registry.ts'
 import { EventLog } from './features/proposal/events.ts'
 import { DecisionService } from './features/decision/service.ts'
 
@@ -433,4 +435,250 @@ describe('injection judgement wiring (decision-node-tool-path)', () => {
     expect(events.some((event) => event['kind'] === 'decision' && event['node'] === 'injection-risk')).toBe(true)
     expect(JSON.stringify(upserted[0])).toContain('untrusted')
   })
+})
+
+describe('project registry REST API', () => {
+  const git = (args: string[], cwd: string): Promise<string> =>
+    new Promise((resolvePromise, reject) => {
+      execFile('git', args, { cwd }, (error, stdout, stderr) => {
+        if (error) reject(new Error(stderr.trim() || error.message))
+        else resolvePromise(stdout)
+      })
+    })
+
+  const projectRouter = (registry: ProjectRegistry): Router => {
+    const r = new Router()
+    registerApiRoutes(r, {
+      proposals,
+      archive,
+      openspecRoot: 'openspec',
+      projectRoot: '',
+      registry,
+      qualitySyncEnabled: false,
+      claudeAssetsEnabled: false,
+    })
+    return r
+  }
+
+  it('stores defaultBranch/workspace and lists branches for a real repo', async () => {
+    const repo = join(home, 'repo')
+    await mkdir(repo, { recursive: true })
+    await git(['init', '-b', 'main'], repo)
+    await git(['config', 'user.email', 'test@example.com'], repo)
+    await git(['config', 'user.name', 'Test'], repo)
+    await git(['commit', '--allow-empty', '-m', 'init'], repo)
+    await git(['branch', 'test'], repo)
+
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    const r = projectRouter(registry)
+
+    const created = stubRes()
+    await r.handle(
+      '/api/projects',
+      stubReq('POST', '/api/projects', { name: 'demo', root: repo, defaultBranch: 'test', workspace: 'xkw' }),
+      created.res,
+    )
+    expect(json(created.result)).toMatchObject({
+      project: { name: 'demo', root: repo, defaultBranch: 'test', workspace: 'xkw' },
+    })
+
+    const listed = stubRes()
+    await r.handle('/api/projects/demo/branches', stubReq('GET', '/api/projects/demo/branches'), listed.res)
+    expect(json(listed.result)).toMatchObject({
+      project: 'demo',
+      branches: { current: 'main', default: 'test', local: ['main', 'test'] },
+    })
+  })
+
+  it('rejects branches for an unregistered project with candidates', async () => {
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    const r = projectRouter(registry)
+    const missing = stubRes()
+    await r.handle('/api/projects/ghost/branches', stubReq('GET', '/api/projects/ghost/branches'), missing.res)
+
+    expect(missing.result.status).toBe(400)
+    expect(JSON.stringify(json(missing.result))).toContain('project not found: ghost')
+  })
+
+  it('creates a multi-target proposal and seeds openspec in the first target', async () => {
+    const a = join(home, 'a')
+    const b = join(home, 'b')
+    await mkdir(a, { recursive: true })
+    await mkdir(b, { recursive: true })
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    await registry.upsert('a', a)
+    await registry.upsert('b', b)
+    const r = projectRouter(registry)
+
+    const created = stubRes()
+    await r.handle(
+      '/api/proposals',
+      stubReq('POST', '/api/proposals', {
+        id: 'multi',
+        title: 'multi',
+        targets: [
+          { project: 'a', baseBranch: 'main' },
+          { project: 'b', baseBranch: 'master' },
+        ],
+      }),
+      created.res,
+    )
+
+    expect(created.result.status).toBe(200)
+    expect(json(created.result)).toMatchObject({
+      proposal: { id: 'multi', projects: ['a', 'b'], primaryProject: 'a' },
+    })
+    await expect(readFile(join(a, 'openspec/changes/multi/proposal.md'), 'utf8')).resolves.toContain('multi')
+    await expect(readFile(join(b, 'openspec/changes/multi/proposal.md'), 'utf8')).rejects.toThrow()
+  })
+
+  it('honours an explicit primaryProject for the openspec root', async () => {
+    const a = join(home, 'pa')
+    const b = join(home, 'pb')
+    await mkdir(a, { recursive: true })
+    await mkdir(b, { recursive: true })
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    await registry.upsert('pa', a)
+    await registry.upsert('pb', b)
+    const r = projectRouter(registry)
+
+    const created = stubRes()
+    await r.handle(
+      '/api/proposals',
+      stubReq('POST', '/api/proposals', {
+        id: 'multi-primary',
+        title: 'multi primary',
+        targets: [
+          { project: 'pa', baseBranch: 'main' },
+          { project: 'pb', baseBranch: 'master' },
+        ],
+        primaryProject: 'pb',
+      }),
+      created.res,
+    )
+
+    expect(created.result.status).toBe(200)
+    await expect(readFile(join(b, 'openspec/changes/multi-primary/proposal.md'), 'utf8')).resolves.toContain('multi primary')
+    await expect(readFile(join(a, 'openspec/changes/multi-primary/proposal.md'), 'utf8')).rejects.toThrow()
+  })
+
+  it('leaves the proposal on disk when the primary target is not registered', async () => {
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    const r = projectRouter(registry)
+    const created = stubRes()
+    await r.handle(
+      '/api/proposals',
+      stubReq('POST', '/api/proposals', {
+        id: 'multi-unresolved',
+        title: 'unresolved',
+        targets: [{ project: 'ghost', baseBranch: 'main' }],
+      }),
+      created.res,
+    )
+
+    expect(created.result.status).toBe(200)
+    expect(json(created.result)).toMatchObject({ proposal: { id: 'multi-unresolved', projects: ['ghost'] } })
+    expect((json(created.result) as { note?: string }).note).toContain('未注册根')
+  })
+
+  it('lists Workspace candidates and reports a missing registry service', async () => {
+    const repo = join(home, 'candidate')
+    await mkdir(join(repo, '.git'), { recursive: true })
+    await mkdir(join(repo, 'openspec'), { recursive: true })
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+
+    const withWorkspace = new Router()
+    registerApiRoutes(withWorkspace, {
+      proposals,
+      archive,
+      openspecRoot: 'openspec',
+      projectRoot: '',
+      registry,
+      workspaceRegistry: () => ({ list: () => [{ path: repo, title: 'Candidate' }] }),
+      qualitySyncEnabled: false,
+      claudeAssetsEnabled: false,
+    })
+    const listed = stubRes()
+    await withWorkspace.handle('/api/projects/candidates', stubReq('GET', '/api/projects/candidates'), listed.res)
+    expect(json(listed.result)).toMatchObject({
+      candidates: [{ path: repo, title: 'Candidate', hasOpenspec: true, registered: false }],
+    })
+
+    const withoutWorkspace = projectRouter(registry)
+    const missing = stubRes()
+    await withoutWorkspace.handle('/api/projects/candidates', stubReq('GET', '/api/projects/candidates'), missing.res)
+    expect(json(missing.result)).toMatchObject({ candidates: [] })
+    expect((json(missing.result) as { note?: string }).note).toContain('workspaceRegistry')
+  })
+
+  it('reports branch occupancy conflicts for active proposals', async () => {
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    const r = projectRouter(registry)
+    for (const id of ['iso-a', 'iso-b']) {
+      await proposals.upsert({
+        id,
+        title: id,
+        targets: [{ project: 'repo', baseBranch: 'main', featureBranch: 'feature/shared' }],
+      })
+      await proposals.setStatus(id, 'implementing')
+    }
+
+    const res = stubRes()
+    await r.handle('/api/isolation', stubReq('GET', '/api/isolation'), res.res)
+
+    expect(json(res.result)).toMatchObject({
+      conflicts: [{ project: 'repo', branch: 'feature/shared', proposalIds: ['iso-a', 'iso-b'] }],
+    })
+  })
+
+  it('reports write-scope conflicts for active proposals', async () => {
+    const repo = join(home, 'ws')
+    await mkdir(join(repo, 'openspec', 'changes', 'wa'), { recursive: true })
+    await mkdir(join(repo, 'openspec', 'changes', 'wb'), { recursive: true })
+    await writeFile(join(repo, 'openspec', 'changes', 'wa', 'tasks.md'), '- [ ] 1 <!-- writes: src/order/** -->\n', 'utf8')
+    await writeFile(join(repo, 'openspec', 'changes', 'wb', 'tasks.md'), '- [ ] 1 <!-- writes: src/order/detail/** -->\n', 'utf8')
+
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    await registry.upsert('repo', repo)
+    const r = projectRouter(registry)
+    for (const id of ['wa', 'wb']) {
+      await proposals.upsert({ id, title: id, targets: [{ project: 'repo', baseBranch: 'main' }] })
+      await proposals.setStatus(id, 'implementing')
+    }
+
+    const res = stubRes()
+    await r.handle('/api/isolation/writes', stubReq('GET', '/api/isolation/writes'), res.res)
+
+    expect(json(res.result)).toMatchObject({
+      conflicts: [{ project: 'repo', proposalIds: ['wa', 'wb'], scopes: ['src/order/**'] }],
+    })
+  })
+
+  it('reports baseline drift for a target whose base branch moved', async () => {
+    const repo = join(home, 'drift-repo')
+    await mkdir(repo, { recursive: true })
+    await git(['init', '-b', 'main'], repo)
+    await git(['config', 'user.email', 'test@example.com'], repo)
+    await git(['config', 'user.name', 'Test'], repo)
+    await git(['commit', '--allow-empty', '-m', 'init'], repo)
+    const baseCommit = (await git(['rev-parse', 'HEAD'], repo)).trim()
+    await git(['commit', '--allow-empty', '-m', 'moved'], repo)
+
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    await registry.upsert('drift-repo', repo)
+    const r = projectRouter(registry)
+    await proposals.upsert({
+      id: 'drift-p1',
+      title: 'drift',
+      targets: [{ project: 'drift-repo', baseBranch: 'main', baseCommit }],
+    })
+    await proposals.setStatus('drift-p1', 'implementing')
+
+    const res = stubRes()
+    await r.handle('/api/isolation/drift', stubReq('GET', '/api/isolation/drift'), res.res)
+    expect(json(res.result)).toMatchObject({
+      drifts: [{ project: 'drift-repo', baseBranch: 'main', baseCommit, drifted: true }],
+    })
+  })
+
 })

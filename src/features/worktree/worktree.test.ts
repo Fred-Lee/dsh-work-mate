@@ -134,4 +134,48 @@ describe('WorktreeManager (real git)', () => {
     expect(list).not.toContain('.workmates')
     await expect(manager.ports().get('p1')).resolves.toBeUndefined()
   }, 30_000)
+  it('creates one target worktree per project with disjoint ports', async () => {
+    const other = await mkdtemp(join(tmpdir(), 'wm-wt-other-'))
+    try {
+      await git(['init', '-b', 'main'], other)
+      await git(['config', 'user.email', 't@t'], other)
+      await git(['config', 'user.name', 't'], other)
+      await git(['commit', '--allow-empty', '-m', 'init', '-q'], other)
+
+      const manager = makeManager()
+      const a = await manager.createTarget({
+        projectRoot: project,
+        project: 'a',
+        proposalId: 'p1',
+        baseBranch: 'main',
+      })
+      const b = await manager.createTarget({
+        projectRoot: other,
+        project: 'b',
+        proposalId: 'p1',
+        baseBranch: 'main',
+      })
+
+      expect(a.worktreePath).toBe(join(project, '.workmates', 'p1'))
+      expect(b.worktreePath).toBe(join(other, '.workmates', 'p1'))
+      expect([a.portRange[0], b.portRange[0]]).toEqual([3000, 3010])
+      await expect(manager.ports().get('p1--a')).resolves.toMatchObject({ base: 3000 })
+      await expect(manager.ports().get('p1--b')).resolves.toMatchObject({ base: 3010 })
+      await expect(manager.ports().get('p1')).resolves.toBeUndefined()
+      await expect(manager.allocationFor('p1', 'a')).resolves.toEqual(a.portRange)
+      await expect(readFile(join(a.worktreePath, '.env'), 'utf8')).resolves.toContain('WORKMATE_PROJECT=a')
+
+      // idempotent re-entry keeps the same allocation
+      const again = await manager.createTarget({
+        projectRoot: project,
+        project: 'a',
+        proposalId: 'p1',
+        baseBranch: 'main',
+      })
+      expect(again.portRange).toEqual(a.portRange)
+    } finally {
+      await rm(other, { recursive: true, force: true })
+    }
+  }, 30_000)
+
 })

@@ -68,6 +68,8 @@ export interface ApprovalRecord {
   at: string
   /** Implementation-branch HEAD the approval covers, when git was available. */
   commit?: string
+  /** Plan fingerprint this approval covers (G2); absent for legacy approvals. */
+  planHash?: string
   /**
    * Gates this approval waived via `force` (change `harden-archive-gates`).
    * Absent for an ordinary state approval; the optional field needs no migration.
@@ -77,6 +79,24 @@ export interface ApprovalRecord {
 
 import type { ArchiveManifest } from '../archive/manifest.ts'
 import type { SwarmTaskRecord } from '../swarm/manager.ts'
+
+/** One project × base-branch carrier of a proposal (change `multiproject-branch-workbench`). */
+export interface ProposalTarget {
+  /** Registered project name this target lives in. */
+  project: string
+  /** Branch the target's feature branch is cut from (defaults to main/master). */
+  baseBranch: string
+  /** `git rev-parse <baseBranch>` captured at creation time, for drift warnings. */
+  baseCommit?: string
+  /** Review branch in this project; optional traceability field. */
+  proposalBranch?: string
+  /** Implementation branch created inside the target worktree. */
+  featureBranch?: string
+  /** Target worktree path (`<root>/.workmates/<proposalId>`). */
+  worktreePath?: string
+  /** Port segment allocated for this target. */
+  portRange?: number[]
+}
 
 export interface Proposal {
   /** Slug-style identifier, e.g. "batch-grading-v2". */
@@ -99,6 +119,13 @@ export interface Proposal {
   wikiLinks?: WikiLink[]
   /** Associated project identifiers. */
   projects: string[]
+  /**
+   * Per-project carriers (change `multiproject-branch-workbench`). Absent for
+   * legacy single-target proposals; `effectiveTargets` synthesizes one.
+   */
+  targets?: ProposalTarget[]
+  /** Project that owns the OpenSpec change directory (first target when omitted). */
+  primaryProject?: string
   /** Associated Git commit hashes (tag-proposal association, M2). */
   commits: string[]
   /** OpenSpec change directory name this proposal drives. */

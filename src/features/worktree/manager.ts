@@ -41,6 +41,8 @@ export interface WorktreeCreateResult {
   copied: string[]
   install: 'installed' | 'skipped' | 'failed'
   installNote?: string
+  /** Tip of the base branch when the worktree was created (drift warnings). */
+  baseCommit?: string
 }
 
 export interface ManagerOptions {
@@ -58,6 +60,17 @@ export interface CreateInput {
   proposalId: string
   mainBranch?: string
   /** Caller cancellation: forwarded to `git worktree add` and the install. */
+  signal?: AbortSignal
+}
+
+/** One target of a multi-project proposal (change `multiproject-branch-workbench`). */
+export interface CreateTargetInput {
+  projectRoot: string
+  /** Registered project name; also the port-allocation key suffix. */
+  project: string
+  proposalId: string
+  /** Branch the feature branch is cut from (project main/master or explicit). */
+  baseBranch: string
   signal?: AbortSignal
 }
 
@@ -107,16 +120,38 @@ export class WorktreeManager {
     return this.enqueue(() => this.createSerialized(input))
   }
 
-  private async createSerialized(input: CreateInput): Promise<WorktreeCreateResult> {
+  /** Create one target worktree; ports are keyed by `${proposalId}--${project}`. */
+  async createTarget(input: CreateTargetInput): Promise<WorktreeCreateResult> {
+    return this.enqueue(() =>
+      this.createSerialized({
+        projectRoot: input.projectRoot,
+        proposalId: input.proposalId,
+        project: input.project,
+        baseBranch: input.baseBranch,
+        ...(input.signal !== undefined ? { signal: input.signal } : {}),
+      }),
+    )
+  }
+
+  private portKey(proposalId: string, project?: string): string {
+    return project === undefined ? proposalId : `${proposalId}--${project}`
+  }
+
+  private async createSerialized(
+    input: CreateInput & { project?: string; baseBranch?: string },
+  ): Promise<WorktreeCreateResult> {
     const { projectRoot, proposalId } = input
     const worktreePath = this.worktreePath(projectRoot, proposalId)
     const featureBranch = `feature/${proposalId}`
-    const existing = await this.allocator.get(proposalId)
+    const portKey = this.portKey(proposalId, input.project)
+    const baseBranch = input.baseBranch ?? input.mainBranch ?? 'main'
+    const baseCommit = await this.readBaseCommit(projectRoot, baseBranch, input.signal)
+    const existing = await this.allocator.get(portKey)
 
     try {
       await stat(join(worktreePath, '.git'))
       // idempotent re-entry: worktree already on disk — reuse its allocation
-      const allocation = existing ?? (await this.allocator.allocate(proposalId))
+      const allocation = existing ?? (await this.allocator.allocate(portKey))
       return {
         worktreePath,
         featureBranch,
@@ -124,6 +159,7 @@ export class WorktreeManager {
         copied: [],
         install: 'skipped',
         installNote: 'worktree already exists',
+        ...(baseCommit !== undefined ? { baseCommit } : {}),
       }
     } catch {
       // not there — proceed with creation
@@ -136,12 +172,11 @@ export class WorktreeManager {
     // by every worktree — the right place, and nothing user-visible changes.
     await ensureExcludes(projectRoot, ['.env', ...this.options.copyFiles, `${WORKMATES_DIR}/`])
 
-    const allocation = await this.allocator.allocate(proposalId)
+    const allocation = await this.allocator.allocate(portKey)
 
-    // 1. create (serialized by the mutex) — branch from main
-    const mainBranch = input.mainBranch ?? 'main'
+    // 1. create (serialized by the mutex) — branch from the target baseline
     await gitExec(
-      ['worktree', 'add', '-b', featureBranch, worktreePath, mainBranch],
+      ['worktree', 'add', '-b', featureBranch, worktreePath, baseBranch],
       projectRoot,
       15_000,
       input.signal,
@@ -169,6 +204,7 @@ export class WorktreeManager {
       '',
       `# WorkMate (proposal ${proposalId}) — auto-generated, safe to delete with the worktree`,
       `WORKMATE_PROPOSAL=${proposalId}`,
+      ...(input.project !== undefined ? [`WORKMATE_PROJECT=${input.project}`] : []),
       `WORKMATE_PORTS=${allocation.ports.join(',')}`,
       `WORKMATE_PORT=${allocation.base}`,
       '',
@@ -212,7 +248,30 @@ export class WorktreeManager {
       // best effort
     }
 
-    return { worktreePath, featureBranch, portRange: allocation.ports, copied, install, installNote }
+    return {
+      worktreePath,
+      featureBranch,
+      portRange: allocation.ports,
+      copied,
+      install,
+      installNote,
+      ...(baseCommit !== undefined ? { baseCommit } : {}),
+    }
+  }
+
+  /** Record the baseline tip; a missing branch is reported by `git worktree add` itself. */
+  private async readBaseCommit(
+    projectRoot: string,
+    baseBranch: string,
+    signal?: AbortSignal,
+  ): Promise<string | undefined> {
+    try {
+      const out = await gitExec(['rev-parse', '--verify', `${baseBranch}^{commit}`], projectRoot, 5_000, signal)
+      const commit = out.trim()
+      return commit === '' ? undefined : commit
+    } catch {
+      return undefined
+    }
   }
 
   /**
@@ -223,12 +282,14 @@ export class WorktreeManager {
   async remove(input: {
     projectRoot: string
     proposalId: string
+    project?: string
     mainBranch?: string
+    baseBranch?: string
     force?: boolean
     signal?: AbortSignal
   }): Promise<{ removed: boolean; summary: string }> {
     const { projectRoot, proposalId } = input
-    const mainBranch = input.mainBranch ?? 'main'
+    const mainBranch = input.baseBranch ?? input.mainBranch ?? 'main'
     const featureBranch = `feature/${proposalId}`
     const worktreePath = this.worktreePath(projectRoot, proposalId)
 
@@ -239,7 +300,7 @@ export class WorktreeManager {
       }
     }
 
-    await this.allocator.release(proposalId)
+    await this.allocator.release(this.portKey(proposalId, input.project))
     try {
       await gitExec(['worktree', 'remove', '--force', worktreePath], projectRoot, 15_000, input.signal)
       return { removed: true, summary: `worktree ${worktreePath} removed and ports released` }
@@ -255,8 +316,8 @@ export class WorktreeManager {
   }
 
   /** Read back the allocation for panel display. */
-  async allocationFor(proposalId: string): Promise<number[] | undefined> {
-    return (await this.allocator.get(proposalId))?.ports
+  async allocationFor(proposalId: string, project?: string): Promise<number[] | undefined> {
+    return (await this.allocator.get(this.portKey(proposalId, project)))?.ports
   }
 }
 

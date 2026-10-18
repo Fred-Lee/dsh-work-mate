@@ -87,15 +87,77 @@ export function abandonProposal(id: string, reason: string): Promise<{ proposal:
 export interface RegisteredProject {
   name: string
   root: string
+  defaultBranch?: string
+  workspace?: string
 }
 
 export function listProjects(): Promise<{ projects: RegisteredProject[] }> {
   return request('/workmate/api/projects')
 }
 
-export function registerProject(name: string, root: string): Promise<{ project: RegisteredProject }> {
+export function registerProject(
+  name: string,
+  root: string,
+  options: { defaultBranch?: string; workspace?: string } = {},
+): Promise<{ project: RegisteredProject }> {
   return request('/workmate/api/projects', {
     method: 'POST',
-    body: JSON.stringify({ name, root }),
+    body: JSON.stringify({ name, root, ...options }),
+  })
+}
+
+export interface ProjectBranches {
+  current: string
+  default?: string
+  local: string[]
+  remote: string[]
+}
+
+export function listProjectBranches(name: string): Promise<{ project: string; branches: ProjectBranches }> {
+  return request(`/workmate/api/projects/${encodeURIComponent(name)}/branches`)
+}
+
+export interface WorkspaceCandidate {
+  path: string
+  title: string
+  name: string
+  suggestedName: string
+  registered: boolean
+  registeredAs?: string
+  hasOpenspec: boolean
+  workspace: string
+}
+
+export function listWorkspaceCandidates(): Promise<{
+  candidates: WorkspaceCandidate[]
+  note?: string
+}> {
+  return request('/workmate/api/projects/candidates')
+}
+
+export interface IsolationPayload {
+  occupancy: Array<{ project: string; branch: string; proposalId: string; kind: 'proposal' | 'feature' }>
+  conflicts: Array<{ project: string; branch: string; proposalIds: string[] }>
+}
+
+export function getIsolation(): Promise<IsolationPayload> {
+  return request('/workmate/api/isolation')
+}
+
+export function approvePlan(id: string, rationale?: string): Promise<{ fingerprint: { hash?: string } }> {
+  return request(`/workmate/api/proposals/${encodeURIComponent(id)}/plan-approve`, {
+    method: 'POST',
+    body: JSON.stringify(rationale !== undefined && rationale !== '' ? { rationale } : {}),
+  })
+}
+
+export function reconcileProposal(id: string): Promise<{
+  proposal: Proposal
+  transitions: Array<{ from: ProposalState; to: ProposalState }>
+  blocked?: string
+}> {
+  return request(`/workmate/api/proposals/${encodeURIComponent(id)}/reconcile`, {
+    method: 'POST',
+    body: JSON.stringify({}),
   })
 }

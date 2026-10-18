@@ -15,7 +15,11 @@ import {
   STATE_HINTS,
   type ProposalState,
 } from '../proposal/state-machine.ts'
-import type { Proposal } from '../proposal/store.ts'
+import type { ApprovalRecord, Proposal, ProposalTarget } from '../proposal/store.ts'
+import { computePlanFingerprint, type PlanFingerprint } from '../proposal/plan.ts'
+import { effectiveTargets } from '../proposal/targets.ts'
+import { isOccupying } from '../proposal/isolation.ts'
+import { findWriteConflicts, readProposalWriteScopes, type WriteClaim } from '../proposal/writes.ts'
 import type { ProposalService } from '../proposal/service.ts'
 import { WorktreeManager } from '../worktree/manager.ts'
 import { branchExists, isMergedInto } from '../worktree/git.ts'
@@ -147,7 +151,7 @@ export interface ArchiveOptions extends TransitionOptions {
 export interface TransitionOutcome {
   proposal: Proposal
   /** Set when the transition created the worktree (ready→implementing). */
-  worktree?: { worktreePath: string; portRange: number[]; install: string }
+  worktree?: { worktreePath: string; portRange: number[]; install: string; targets?: ProposalTarget[] }
   orchestration?: OrchestrationResult
   /**
    * True when the archive run skipped a gate via `force` (change `harden-archive-gates`).
@@ -356,25 +360,32 @@ export class LifecycleServiceImpl {
         return
       }
       case 'reviewing': {
-        const branch = proposal.proposalBranch ?? `proposal/${proposal.id}`
-        if (!(await branchExists(root, branch))) {
-          throw new InvalidTransitionError(
-            `提案分支 ${branch} 不存在 — 先创建分支并提交提案文件（提交信息携带 [proposal:${proposal.id}]）`,
-          )
-        }
-        return
+        const fingerprint = await computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId)
+        if (fingerprint.hash !== undefined) return
+        // Legacy proposal-branch flow remains valid but is no longer required.
+        const branch = proposal.proposalBranch
+        if (branch !== undefined && (await branchExists(root, branch))) return
+        throw new InvalidTransitionError(
+          `方案工件不完整：缺 ${fingerprint.missing.join(', ')} — 补齐 proposal.md/design.md/tasks.md`,
+        )
       }
       case 'ready': {
-        if (proposal.proposalBranch === undefined) return
-        const trunk = this.mainBranch
-        if (!(await isMergedInto(root, proposal.proposalBranch, trunk))) {
-          throw new InvalidTransitionError(
-            `提案分支 ${proposal.proposalBranch} 尚未合并进 ${trunk} — 等待提案评审合并`,
-          )
-        }
-        return
+        const fingerprint = await computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId)
+        const approvals = (proposal.approvals ?? []).filter(
+          (approval) => approval.gate === 'ready' && approval.decision === 'approve' && approval.planHash !== undefined,
+        )
+        const latest = approvals[approvals.length - 1]
+        if (fingerprint.hash !== undefined && latest?.planHash === fingerprint.hash) return
+        // Legacy branch merge keeps old proposals advancing.
+        if (proposal.proposalBranch !== undefined && (await isMergedInto(root, proposal.proposalBranch, this.mainBranch))) return
+        throw new InvalidTransitionError(
+          fingerprint.hash === undefined
+            ? `方案工件不完整，无法生成 planHash — 缺 ${fingerprint.missing.join(', ')}`
+            : `G2 方案未确认：先在面板确认 planHash ${fingerprint.hash.slice(0, 12)}…（方案变更会使其失效）`,
+        )
       }
       case 'implementing':
+        await this.assertWriteScopes(proposal)
         return // worktree is created as the side effect; failures surface there
       case 'merging': {
         if (root === undefined) return
@@ -392,11 +403,38 @@ export class LifecycleServiceImpl {
         return
       }
       case 'archiving': {
-        if (proposal.featureBranch === undefined) return
-        const trunk = this.mainBranch
-        if (!(await isMergedInto(root, proposal.featureBranch, trunk))) {
+        // Legacy single-target proposals keep the original one-branch check.
+        if (proposal.targets === undefined || proposal.targets.length === 0) {
+          if (proposal.featureBranch === undefined) return
+          const trunk = this.mainBranch
+          if (!(await isMergedInto(root, proposal.featureBranch, trunk))) {
+            throw new InvalidTransitionError(
+              `实现分支 ${proposal.featureBranch} 尚未合并进 ${trunk} — 先完成实现合并再归档`,
+            )
+          }
+          return
+        }
+        const roots = (await this.deps.resolveProjectRoots?.(proposal)) ?? []
+        const rootByProject = new Map(roots.map((entry) => [entry.project, entry.root]))
+        const unmerged: string[] = []
+        const missing: string[] = []
+        for (const target of proposal.targets) {
+          const projectRoot = rootByProject.get(target.project)
+          if (projectRoot === undefined) continue
+          if (target.featureBranch === undefined) {
+            missing.push(target.project)
+            continue
+          }
+          if (!(await isMergedInto(projectRoot, target.featureBranch, target.baseBranch))) {
+            unmerged.push(`${target.project}: ${target.featureBranch} → ${target.baseBranch}`)
+          }
+        }
+        if (missing.length > 0) {
+          throw new InvalidTransitionError(`以下 target 缺少实现分支：${missing.join(', ')} — 先完成实现再归档`)
+        }
+        if (unmerged.length > 0) {
           throw new InvalidTransitionError(
-            `实现分支 ${proposal.featureBranch} 尚未合并进 ${trunk} — 先完成实现合并再归档`,
+            `实现分支尚未合并进各自基线：${unmerged.join('；')} — 先完成实现合并再归档`,
           )
         }
         return
@@ -415,22 +453,78 @@ export class LifecycleServiceImpl {
     options: TransitionOptions = {},
   ): Promise<TransitionOutcome['worktree'] | undefined> {
     if (to === 'implementing') {
-      const root = await this.primaryRoot(proposal)
-      if (root === undefined) {
+      let targets = effectiveTargets(proposal, this.mainBranch)
+      const roots = (await this.deps.resolveProjectRoots?.(proposal)) ?? []
+      // Legacy/headless records may have neither `targets` nor `projects` but a
+      // resolver that still knows the root (the pre-target tests rely on this).
+      if (targets.length === 0 && roots.length > 0) {
+        targets = roots.map((entry) => ({ project: entry.project, baseBranch: this.mainBranch }))
+      }
+      if (targets.length === 0) {
         throw new InvalidTransitionError('无关联项目根 — 无法创建 worktree；先在面板关联项目')
       }
-      const created = await this.deps.worktree.create({
-        projectRoot: root,
-        proposalId: proposal.id,
-        mainBranch: this.mainBranch,
-        ...(options.signal !== undefined ? { signal: options.signal } : {}),
-      })
+      const rootByProject = new Map(roots.map((entry) => [entry.project, entry.root]))
+      const missing = targets.filter((target) => !rootByProject.has(target.project)).map((target) => target.project)
+      if (missing.length > 0) {
+        throw new InvalidTransitionError(`项目根未注册：${missing.join(', ')} — 先在面板注册项目`)
+      }
+
+      const created: ProposalTarget[] = []
+      const installed: string[] = []
+      const done: Array<{ projectRoot: string; project: string }> = []
+      try {
+        for (const target of targets) {
+          const projectRoot = rootByProject.get(target.project) as string
+          const result = await this.deps.worktree.createTarget({
+            projectRoot,
+            project: target.project,
+            proposalId: proposal.id,
+            baseBranch: target.baseBranch,
+            ...(options.signal !== undefined ? { signal: options.signal } : {}),
+          })
+          created.push({
+            ...target,
+            featureBranch: result.featureBranch,
+            worktreePath: result.worktreePath,
+            portRange: result.portRange,
+            ...(result.baseCommit !== undefined ? { baseCommit: result.baseCommit } : {}),
+          })
+          installed.push(result.install)
+          done.push({ projectRoot, project: target.project })
+        }
+      } catch (error) {
+        for (const entry of done.reverse()) {
+          try {
+            await this.deps.worktree.remove({
+              projectRoot: entry.projectRoot,
+              project: entry.project,
+              proposalId: proposal.id,
+              force: true,
+            })
+          } catch {
+            // best effort: the original failure is the one worth reporting
+          }
+        }
+        throw new InvalidTransitionError(
+          `创建 target worktree 失败（已回滚 ${done.length} 个）：${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+
+      const single = created.length === 1 ? created[0] : undefined
       await this.deps.proposals.patchFields(proposal.id, {
-        worktreePath: created.worktreePath,
-        portRange: created.portRange,
-        featureBranch: created.featureBranch,
+        targets: created,
+        ...(single !== undefined
+          ? { worktreePath: single.worktreePath, portRange: single.portRange, featureBranch: single.featureBranch }
+          : { worktreePath: undefined, portRange: undefined, featureBranch: undefined }),
       })
-      return { worktreePath: created.worktreePath, portRange: created.portRange, install: created.install }
+      const install = installed.includes('failed') ? 'failed' : installed.includes('installed') ? 'installed' : 'skipped'
+      const first = created[0] as ProposalTarget
+      return {
+        worktreePath: first.worktreePath as string,
+        portRange: first.portRange ?? [],
+        install,
+        targets: created,
+      }
     }
     if (to === 'archiving') {
       // wiki.md + commits.md land in the change dir BEFORE openspec archive
@@ -453,6 +547,68 @@ export class LifecycleServiceImpl {
    * orchestration. Success stamps `archived` and reclaims the worktree.
    * `force` skips the review gate only — never the CLI steps.
    */
+  /** Compute the plan fingerprint for a proposal (G2 approval covers this hash). */
+  async planFingerprint(id: string): Promise<PlanFingerprint> {
+    const proposal = await this.mustGet(id)
+    const root = await this.primaryRoot(proposal)
+    if (root === undefined) throw new InvalidTransitionError('无关联项目根 — 无法计算 planHash')
+    return computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId)
+  }
+
+  /** Human G2 approval of one exact plan revision. */
+  async approvePlan(
+    id: string,
+    options: { rationale?: string; actor?: 'human' | 'system' } = {},
+  ): Promise<{ approval: ApprovalRecord; fingerprint: PlanFingerprint }> {
+    const proposal = await this.mustGet(id)
+    const fingerprint = await this.planFingerprint(id)
+    if (fingerprint.hash === undefined) {
+      throw new InvalidTransitionError(`方案工件不完整，无法确认 — 缺 ${fingerprint.missing.join(', ')}`)
+    }
+    const approval = await this.deps.proposals.addApproval(id, {
+      gate: 'ready',
+      actor: options.actor ?? 'human',
+      decision: 'approve',
+      ...(options.rationale !== undefined && options.rationale !== '' ? { rationale: options.rationale } : {}),
+      planHash: fingerprint.hash,
+    })
+    return { approval, fingerprint }
+  }
+
+  /**
+   * Evidence-driven authoring advance: draft → proposing → reviewing → ready.
+   * Stops at the first missing evidence or gate (G2 approval of the current
+   * planHash); never crosses a human gate. Idempotent.
+   */
+  async reconcile(
+    id: string,
+  ): Promise<{ proposal: Proposal; transitions: Array<{ from: ProposalState; to: ProposalState }>; blocked?: string }> {
+    const transitions: Array<{ from: ProposalState; to: ProposalState }> = []
+    for (let step = 0; step < 3; step += 1) {
+      const proposal = await this.mustGet(id)
+      const next: ProposalState | undefined =
+        proposal.status === 'draft'
+          ? 'proposing'
+          : proposal.status === 'proposing'
+            ? 'reviewing'
+            : proposal.status === 'reviewing'
+              ? 'ready'
+              : undefined
+      if (next === undefined) return { proposal, transitions }
+      try {
+        await this.transition(id, next, { actor: 'system' })
+        transitions.push({ from: proposal.status, to: next })
+      } catch (error) {
+        return {
+          proposal: await this.mustGet(id),
+          transitions,
+          blocked: error instanceof Error ? error.message : String(error),
+        }
+      }
+    }
+    return { proposal: await this.mustGet(id), transitions }
+  }
+
   async runArchive(id: string, options: ArchiveOptions = {}): Promise<TransitionOutcome> {
     const proposal = await this.mustGet(id)
     if (proposal.status !== 'archiving') {
@@ -489,7 +645,26 @@ export class LifecycleServiceImpl {
     }
 
     let cleanup: string | undefined
-    if (proposal.worktreePath !== undefined) {
+    const cleanupTargets = effectiveTargets(proposal, this.mainBranch)
+    if (cleanupTargets.length > 0) {
+      const roots = (await this.deps.resolveProjectRoots?.(proposal)) ?? []
+      const rootByProject = new Map(roots.map((entry) => [entry.project, entry.root]))
+      const summaries: string[] = []
+      for (const target of cleanupTargets) {
+        if (target.worktreePath === undefined) continue
+        const root = rootByProject.get(target.project)
+        if (root === undefined) continue
+        const removed = await this.deps.worktree.remove({
+          projectRoot: root,
+          project: target.project,
+          proposalId: proposal.id,
+          baseBranch: target.baseBranch,
+          ...(options.signal !== undefined ? { signal: options.signal } : {}),
+        })
+        summaries.push(`${target.project}: ${removed.summary}`)
+      }
+      cleanup = summaries.length > 0 ? summaries.join(' | ') : undefined
+    } else if (proposal.worktreePath !== undefined) {
       const root = await this.primaryRoot(proposal)
       if (root !== undefined) {
         const removed = await this.deps.worktree.remove({
@@ -571,6 +746,50 @@ export class LifecycleServiceImpl {
     const proposal = await this.deps.proposals.get(id)
     if (!proposal) throw new Error(`proposal not found: ${id}`)
     return proposal
+  }
+
+  /**
+   * Declared write-scope overlap is a logical conflict that a worktree cannot
+   * fix: two active proposals editing the same files in one project will
+   * collide at merge time. Un-declared scopes are not checked here (no
+   * evidence), only declarations are.
+   */
+  private async assertWriteScopes(proposal: Proposal): Promise<void> {
+    const targets = effectiveTargets(proposal, this.mainBranch)
+    if (targets.length === 0) return
+    const roots = (await this.deps.resolveProjectRoots?.(proposal)) ?? []
+    const rootByProject = new Map(roots.map((entry) => [entry.project, entry.root]))
+    const projects = new Set(targets.map((target) => target.project))
+    const claims: WriteClaim[] = []
+    for (const target of targets) {
+      const projectRoot = rootByProject.get(target.project)
+      if (projectRoot === undefined) continue
+      const writes = await readProposalWriteScopes(projectRoot, this.openspecRoot, proposal.openspecChangeId)
+      if (writes.length > 0) claims.push({ proposalId: proposal.id, project: target.project, writes })
+    }
+    if (claims.length === 0) return
+
+    for (const other of await this.deps.proposals.list()) {
+      if (other.id === proposal.id || !isOccupying(other)) continue
+      const otherTargets = effectiveTargets(other, this.mainBranch).filter((target) => projects.has(target.project))
+      if (otherTargets.length === 0) continue
+      const otherRoots = (await this.deps.resolveProjectRoots?.(other)) ?? []
+      const otherRootByProject = new Map(otherRoots.map((entry) => [entry.project, entry.root]))
+      for (const target of otherTargets) {
+        const projectRoot = otherRootByProject.get(target.project)
+        if (projectRoot === undefined) continue
+        const writes = await readProposalWriteScopes(projectRoot, this.openspecRoot, other.openspecChangeId)
+        if (writes.length > 0) claims.push({ proposalId: other.id, project: target.project, writes })
+      }
+    }
+
+    const conflicts = findWriteConflicts(claims).filter((conflict) => conflict.proposalIds.includes(proposal.id))
+    if (conflicts.length > 0) {
+      const detail = conflicts
+        .map((conflict) => `${conflict.project}: ${conflict.proposalIds.join(' × ')} → ${conflict.scopes.join(', ')}`)
+        .join('；')
+      throw new InvalidTransitionError(`写域冲突 — ${detail}；先拆分写域或串行化这两个提案`)
+    }
   }
 
   private async primaryRoot(proposal: Proposal): Promise<string | undefined> {

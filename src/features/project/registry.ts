@@ -17,6 +17,28 @@ import { ProposalStore, StoreCorruptError } from '../proposal/store.ts'
 export interface RegisteredProject {
   name: string
   root: string
+  /**
+   * Branch a new proposal targets by default (`main` or `master` detected at
+   * registration time when omitted). Absent means "not detected yet".
+   */
+  defaultBranch?: string
+  /** Optional grouping label for the panel tree (e.g. the workspace directory). */
+  workspace?: string
+}
+
+export interface ProjectUpsertOptions {
+  /** `''` clears the stored value; `undefined` keeps whatever is already stored. */
+  defaultBranch?: string
+  /** `''` clears the stored value; `undefined` keeps whatever is already stored. */
+  workspace?: string
+}
+
+const cleanOptional = (value: string, field: string): string => {
+  const trimmed = value.trim()
+  if (trimmed !== '' && /\s/.test(trimmed)) {
+    throw new Error(`${field} must be a single token without whitespace`)
+  }
+  return trimmed
 }
 
 export interface RegistryOptions {
@@ -72,20 +94,34 @@ export class ProjectRegistry {
     return (await this.read()).find((project) => project.name === name)
   }
 
-  /** Register or re-root a project. `name` is the identity, roots may move. */
-  async upsert(name: string, root: string): Promise<RegisteredProject> {
+  /**
+   * Register or re-root a project. `name` is the identity, roots may move.
+   * Optional fields are only touched when supplied: omitting them keeps the
+   * stored value, passing `''` clears it.
+   */
+  async upsert(name: string, root: string, options: ProjectUpsertOptions = {}): Promise<RegisteredProject> {
     const cleanName = name.trim()
     if (!cleanName) throw new Error('project name must be a non-empty string')
     const resolvedRoot = validateProjectRoot(root.trim())
+    const defaultBranch =
+      options.defaultBranch === undefined ? undefined : cleanOptional(options.defaultBranch, 'defaultBranch')
+    const workspace = options.workspace === undefined ? undefined : cleanOptional(options.workspace, 'workspace')
+
     const projects = await this.read()
     const existing = projects.find((project) => project.name === cleanName)
-    if (existing) {
-      existing.root = resolvedRoot
-    } else {
-      projects.push({ name: cleanName, root: resolvedRoot })
+    const target: RegisteredProject = existing ?? { name: cleanName, root: resolvedRoot }
+    if (existing === undefined) projects.push(target)
+    target.root = resolvedRoot
+    if (defaultBranch !== undefined) {
+      if (defaultBranch === '') delete target.defaultBranch
+      else target.defaultBranch = defaultBranch
+    }
+    if (workspace !== undefined) {
+      if (workspace === '') delete target.workspace
+      else target.workspace = workspace
     }
     await this.write(projects)
-    return { name: cleanName, root: resolvedRoot }
+    return { ...target }
   }
 
   async remove(name: string): Promise<boolean> {

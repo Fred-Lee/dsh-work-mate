@@ -200,7 +200,7 @@ export const Config: z<Config> = z.object({
   weknoraWikiRequired: z.boolean().default(false).description('Fail implementing→merging when declared wiki pages are missing.'),
   approvalsRequired: z
     .array(z.string())
-    .default(['merging', 'archiving'])
+    .default(['merging'])
     .description('States that require a human approval to enter; empty disables the gate.'),
   allowAgentApproval: z
     .boolean()
@@ -287,7 +287,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   weknoraEnabled: true,
   weknoraKbId: '',
   weknoraWikiRequired: false,
-  approvalsRequired: ['merging', 'archiving'],
+  approvalsRequired: ['merging'],
   allowAgentApproval: false,
   reviewBlockingSeverities: ['CRIT'],
   planDriftGate: false,

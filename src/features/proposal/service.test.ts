@@ -128,6 +128,58 @@ describe('ProposalServiceImpl.upsert', () => {
       'proposal id must be a non-empty string',
     )
   })
+
+  it('derives projects from targets on create', async () => {
+    const created = await service.upsert({
+      id: 'p1',
+      title: 'multi',
+      targets: [
+        { project: 'a', baseBranch: 'main' },
+        { project: 'b', baseBranch: 'master' },
+      ],
+    })
+
+    expect(created.projects).toEqual(['a', 'b'])
+    expect(created.targets).toEqual([
+      { project: 'a', baseBranch: 'main' },
+      { project: 'b', baseBranch: 'master' },
+    ])
+  })
+
+  it('syncs projects from targets on update unless projects is explicit', async () => {
+    await service.upsert({ id: 'p1', title: 'v1', projects: ['old'] })
+    const updated = await service.upsert({
+      id: 'p1',
+      title: 'v2',
+      targets: [{ project: 'a', baseBranch: 'main' }],
+    })
+    expect(updated.projects).toEqual(['a'])
+
+    const explicit = await service.upsert({
+      id: 'p1',
+      title: 'v3',
+      projects: ['keep'],
+      targets: [{ project: 'a', baseBranch: 'main' }],
+    })
+    expect(explicit.projects).toEqual(['keep'])
+  })
+
+  it('normalizes targets on patch and rejects duplicate projects', async () => {
+    await service.upsert({ id: 'p1', title: 't' })
+    const patched = await service.patchFields('p1', {
+      targets: [{ project: ' a ', baseBranch: ' main ' }],
+    })
+    expect(patched.targets).toEqual([{ project: 'a', baseBranch: 'main' }])
+
+    await expect(
+      service.patchFields('p1', {
+        targets: [
+          { project: 'a', baseBranch: 'main' },
+          { project: 'a', baseBranch: 'dev' },
+        ],
+      }),
+    ).rejects.toThrow('duplicate target project')
+  })
 })
 
 describe('ProposalServiceImpl.get', () => {

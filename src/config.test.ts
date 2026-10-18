@@ -15,7 +15,7 @@ describe('resolveConfig', () => {
       basePort: 3000,
       portStep: 10,
       copyFiles: ['.env', '.env.local'],
-      approvalsRequired: ['merging', 'archiving'],
+      approvalsRequired: ['merging'],
       allowAgentApproval: false,
       reviewBlockingSeverities: ['CRIT'],
       planDriftGate: false,

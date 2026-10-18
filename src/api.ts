@@ -20,12 +20,18 @@ import { gitnexusAnalyze, gitnexusStatus, gitnexusWiki } from './features/knowle
 import { ensureSseProxy } from './features/knowledge-bridge/sse-proxy.ts'
 import { prescreenInjection } from './features/decision/injection.ts'
 import { describeGitnexusCredentials } from './features/knowledge-bridge/gitnexus-credentials.ts'
-import type { ProposalSource, Provenance } from './features/proposal/store.ts'
+import type { ProposalSource, ProposalTarget, Provenance } from './features/proposal/store.ts'
 import type { ProposalService } from './features/proposal/service.ts'
 import type { LifecycleServiceImpl } from './features/archive/service.ts'
 import { PROPOSAL_STATES, isProposalState } from './features/proposal/state-machine.ts'
 import { linkWikiToProposal } from './features/wiki/links.ts'
 import type { ProjectRegistry } from './features/project/registry.ts'
+import { listProjectBranches } from './features/project/branches.ts'
+import { listWorkspaceCandidates, type WorkspaceRegistryLike } from './features/project/workspace-candidates.ts'
+import { deriveBranchOccupancy, findBranchConflicts, isOccupying } from './features/proposal/isolation.ts'
+import { findWriteConflicts, readProposalWriteScopes } from './features/proposal/writes.ts'
+import { checkTargetDrift } from './features/proposal/drift.ts'
+import { effectiveTargets } from './features/proposal/targets.ts'
 import { syncProjectAssets } from './features/quality/sync.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
 import { generateChangeDir, readChangeState, validateProjectRoot } from './features/proposal/openspec.ts'
@@ -43,6 +49,10 @@ export interface ApiDeps {
   openspecRoot: string
   /** Config-level default project root; may be empty. */
   projectRoot: string
+  /** Official Workspace registry getter; absent = candidate import hidden. */
+  workspaceRegistry?: () => WorkspaceRegistryLike | undefined
+  /** Integration trunk used when projecting legacy single-target branches. */
+  lifecycleMainBranch?: string
   /** Sync quality assets into the target project on creation. @default true */
   qualitySyncEnabled: boolean
   /** Also distribute the Claude Code asset set (.claude/**). @default true */
@@ -81,12 +91,20 @@ export interface ApiDeps {
 export interface CreateProjectBody {
   name?: string
   root?: string
+  /** Branch a new proposal targets by default (main/master when omitted). */
+  defaultBranch?: string
+  /** Optional grouping label for the panel tree. */
+  workspace?: string
 }
 
 export interface CreateProposalBody {
   id?: string
   title?: string
   projects?: string[]
+  /** Per-project carriers (project × base branch). */
+  targets?: ProposalTarget[]
+  /** Project that owns the OpenSpec change directory (defaults to the first target). */
+  primaryProject?: string
   projectRoot?: string
   /** Origin of the proposal (change `add-feedback-loop`). */
   source?: ProposalSource
@@ -321,6 +339,18 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     }
   })
 
+  router.post('/api/proposals/:id/plan-approve', async (r) => {
+    const body = await readJsonBody<{ rationale?: string }>(r.req)
+    const result = await deps.archive.approvePlan(r.params['id'] ?? '', {
+      ...(body.rationale !== undefined ? { rationale: body.rationale } : {}),
+    })
+    return result
+  })
+
+  router.post('/api/proposals/:id/reconcile', async (r) => {
+    return deps.archive.reconcile(r.params['id'] ?? '')
+  })
+
   router.get('/api/projects', async () => {
     return { projects: await deps.registry.list() }
   })
@@ -329,8 +359,67 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     const body = await readJsonBody<CreateProjectBody>(r.req)
     const name = (body.name ?? '').trim()
     const root = (body.root ?? '').trim()
-    const registered = await deps.registry.upsert(name, root)
+    const registered = await deps.registry.upsert(name, root, {
+      ...(body.defaultBranch !== undefined ? { defaultBranch: body.defaultBranch } : {}),
+      ...(body.workspace !== undefined ? { workspace: body.workspace } : {}),
+    })
     return { project: registered }
+  })
+
+  router.get('/api/isolation', async () => {
+    const proposals = await deps.proposals.list()
+    const occupancy = deriveBranchOccupancy(proposals, deps.lifecycleMainBranch ?? 'main')
+    return { occupancy, conflicts: findBranchConflicts(occupancy) }
+  })
+
+  router.get('/api/isolation/drift', async () => {
+    const drifts = []
+    for (const proposal of await deps.proposals.list()) {
+      if (!isOccupying(proposal)) continue
+      for (const target of effectiveTargets(proposal, deps.lifecycleMainBranch ?? 'main')) {
+        const project = await deps.registry.get(target.project)
+        if (project === undefined) continue
+        const drift = await checkTargetDrift(project.root, target)
+        if (drift !== undefined) drifts.push(drift)
+      }
+    }
+    return { drifts }
+  })
+
+  router.get('/api/isolation/writes', async () => {
+    const proposals = await deps.proposals.list()
+    const claims: Array<{ proposalId: string; project: string; writes: string[] }> = []
+    for (const proposal of proposals) {
+      if (!isOccupying(proposal)) continue
+      for (const target of effectiveTargets(proposal, deps.lifecycleMainBranch ?? 'main')) {
+        const project = await deps.registry.get(target.project)
+        if (project === undefined) continue
+        const writes = await readProposalWriteScopes(project.root, deps.openspecRoot, proposal.openspecChangeId)
+        if (writes.length > 0) claims.push({ proposalId: proposal.id, project: target.project, writes })
+      }
+    }
+    return { claims, conflicts: findWriteConflicts(claims) }
+  })
+
+  router.get('/api/projects/candidates', async () => {
+    const workspaceRegistry = deps.workspaceRegistry?.()
+    if (workspaceRegistry === undefined) {
+      return { candidates: [], note: '宿主未提供 workspaceRegistry — 手动注册项目' }
+    }
+    return { candidates: await listWorkspaceCandidates(workspaceRegistry, deps.registry) }
+  })
+
+  router.get('/api/projects/:name/branches', async (r) => {
+    const name = r.params['name'] ?? ''
+    const project = await deps.registry.get(name)
+    if (project === undefined) {
+      const known = (await deps.registry.list()).map((entry) => entry.name)
+      throw new Error(`project not found: ${name}（已注册：${known.join(', ') || '无'}）`)
+    }
+    return {
+      project: project.name,
+      branches: await listProjectBranches(project.root, project.defaultBranch),
+    }
   })
 
   router.delete('/api/projects/:name', async (r) => {
@@ -474,19 +563,30 @@ export async function createProposal(
       .catch(() => undefined)
   }
 
+  const targets = body.targets
+  const primaryProject = body.primaryProject ?? targets?.[0]?.project
   const proposal = await deps.proposals.upsert({
     id,
     title,
     ...(body.projects !== undefined ? { projects: body.projects } : {}),
+    ...(targets !== undefined ? { targets } : {}),
+    ...(primaryProject !== undefined ? { primaryProject } : {}),
     ...(source !== undefined ? { source } : {}),
     ...(body.sourceRef !== undefined ? { sourceRef: body.sourceRef } : {}),
     ...(body.relatesTo !== undefined ? { relatesTo: body.relatesTo } : {}),
     ...(provenance !== undefined ? { provenance } : {}),
   })
 
-  const projectRoot = resolveRoot(deps, body.projectRoot)
+  const explicitRoot = (body.projectRoot ?? '').trim()
+  const registered =
+    explicitRoot === '' && primaryProject !== undefined ? await deps.registry.get(primaryProject) : undefined
+  const projectRoot = explicitRoot !== '' ? explicitRoot : (registered?.root ?? deps.projectRoot)
   if (!projectRoot) {
-    return { proposal, note: 'no projectRoot — openspec directory not generated' }
+    const reason =
+      primaryProject !== undefined
+        ? `primary project '${primaryProject}' 未注册根，且没有可用的默认 projectRoot — openspec directory not generated`
+        : 'no projectRoot — openspec directory not generated'
+    return { proposal, note: reason }
   }
   validateProjectRoot(projectRoot)
   const openspec = await generateChangeDir(projectRoot, deps.openspecRoot, id, title, {
