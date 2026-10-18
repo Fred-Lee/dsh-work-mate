@@ -32,7 +32,7 @@ class FakeDispatcher implements TeamDispatcher {
   async start(request: DispatchRequest): Promise<DispatchHandle> {
     this.starts.push(request)
     const queue = this.outcomes.get(request.task.id) ?? []
-    const outcome = queue.shift() ?? { status: 'done' as const }
+    const outcome = queue.shift() ?? { status: 'done' as const, outcome: 'ok' }
     return { result: Promise.resolve(outcome) }
   }
 }
@@ -72,7 +72,7 @@ describe('TeamCoordinator', () => {
       budget: { maxAttempts: 2 },
     })
     const dispatcher = new FakeDispatcher()
-    dispatcher.queue('t1', { status: 'failed' }, { status: 'done' })
+    dispatcher.queue('t1', { status: 'failed' }, { status: 'done', outcome: 'ok' })
 
     const result = await new TeamCoordinator(runner, dispatcher).run('r1')
 
@@ -153,6 +153,23 @@ describe('TeamCoordinator', () => {
 
     await new TeamCoordinator(runner, new FakeDispatcher(), () => new Date(), sink).run('r1')
     expect(calls).toEqual(['dispatch', 'settled', 'run'])
+  })
+
+  it('rejects a done claim without positive proof', async () => {
+    await runner.createRun({
+      id: 'r1',
+      proposalId: 'p1',
+      template: 'bug-fix',
+      tasks: [task('t1')],
+      budget: { maxAttempts: 1 },
+    })
+    const dispatcher = new FakeDispatcher()
+    dispatcher.queue('t1', { status: 'done' })
+
+    const result = await new TeamCoordinator(runner, dispatcher).run('r1')
+    expect(result.run.status).toBe('partial')
+    expect(result.run.tasks[0]?.status).toBe('failed')
+    expect(result.run.dispatches?.[0]?.outcome).toContain('缺少完成证据')
   })
 
 })

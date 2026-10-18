@@ -13,6 +13,7 @@ import type { TeamRunner } from './runner.ts'
 import type { SettleInput } from './runner.ts'
 import type { TeamRun, TeamTaskRecord } from './types.ts'
 import type { TeamEventSink } from './events.ts'
+import { validateWorkerDone } from './inbox.ts'
 
 export interface DispatchRequest {
   run: TeamRun
@@ -72,7 +73,7 @@ export class TeamCoordinator {
         return { run: final, waves, stopped }
       }
 
-      const handles: Array<{ taskId: string; dispatchId: string; handle: DispatchHandle }> = []
+      const handles: Array<{ task: TeamTaskRecord; dispatchId: string; handle: DispatchHandle }> = []
       for (const task of wave) {
         const dispatchId = `${runId}-${task.id}-a${task.attempts + 1}`
         try {
@@ -81,7 +82,7 @@ export class TeamCoordinator {
           if (current === undefined) continue
           await this.events?.dispatch({ run: dispatched, task: current, dispatchId })
           const handle = await this.dispatcher.start({ run: dispatched, task: current, dispatchId })
-          handles.push({ taskId: task.id, dispatchId, handle })
+          handles.push({ task: current, dispatchId, handle })
         } catch (error) {
           // A start failure is a failed attempt, not a crash of the whole run.
           await this.runner
@@ -108,15 +109,20 @@ export class TeamCoordinator {
       for (const [index, entry] of handles.entries()) {
         const outcome = outcomes[index]
         if (outcome === undefined) continue
-        const settled = await this.runner.settle(runId, entry.dispatchId, outcome)
-        const task = settled.tasks.find((item) => item.id === entry.taskId)
+        const proofErrors = validateWorkerDone(entry.task, outcome)
+        const effective =
+          proofErrors.length > 0
+            ? { status: 'failed' as const, outcome: `缺少完成证据：${proofErrors.join('；')}` }
+            : outcome
+        const settled = await this.runner.settle(runId, entry.dispatchId, effective)
+        const task = settled.tasks.find((item) => item.id === entry.task.id)
         if (task !== undefined) {
           await this.events?.settled({
             run: settled,
             task,
             dispatchId: entry.dispatchId,
-            status: outcome.status,
-            ...(outcome.outcome !== undefined ? { detail: outcome.outcome } : {}),
+            status: effective.status,
+            ...(effective.outcome !== undefined ? { detail: effective.outcome } : {}),
           })
         }
       }
