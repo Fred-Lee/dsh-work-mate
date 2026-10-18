@@ -64,4 +64,22 @@ describe('TeamInbox', () => {
     expect(validateWorkerDone(task, { status: 'done', outcome: 'ok' })).toEqual([])
   })
 
+  it('keeps integration testers inside the test allowlist', () => {
+    const tester = { id: 't2', role: 'integration-tester' as const, writes: ['tests/**', 'src/**'] }
+    expect(
+      validateWorkerDone(tester, {
+        status: 'done',
+        reportPath: 'TEST.md',
+        filesModified: ['tests/a.spec.ts'],
+      }),
+    ).toEqual([])
+    expect(
+      validateWorkerDone(tester, {
+        status: 'done',
+        reportPath: 'TEST.md',
+        filesModified: ['src/main/order.ts'],
+      }).join(),
+    ).toContain('测试改动越界')
+  })
+
 })

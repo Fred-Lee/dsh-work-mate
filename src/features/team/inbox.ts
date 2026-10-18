@@ -7,6 +7,7 @@
  * auto-close.
  */
 import { scopesIntersect } from '../swarm/plan.ts'
+import { testScopeViolations } from '../quality/test-scope.ts'
 import type { SettleInput } from './runner.ts'
 import type { TeamRole, TeamTaskRecord } from './types.ts'
 
@@ -50,6 +51,12 @@ export function validateWorkerDone(
         (file) => !task.writes.some((scope) => scopesIntersect(scope, file)),
       )
       if (outside.length > 0) errors.push(`${task.id} 越界改文件：${outside.join(', ')}`)
+    }
+    if (task.role === 'integration-tester') {
+      const testViolations = testScopeViolations(input.filesModified)
+      if (testViolations.length > 0) {
+        errors.push(`${task.id} 测试改动越界（允许 tests/**、**/*.test.ts、scripts/**）：${testViolations.join(', ')}`)
+      }
     }
   }
   return errors
