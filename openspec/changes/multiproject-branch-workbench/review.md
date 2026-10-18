@@ -90,3 +90,9 @@
 - [x] targets 已纳入 planHash；改 targets 会失效 G2。
 - [x] legacy 无 targets 提案的 G2 校验已启用（plan 工件存在时）。
 - 团队侧 CRIT-8/CRIT-9 与 reviewer 独立性已闭合；仍不可归档：提案记录未迁移/未生成团队工件/未跑 Run。
+
+## 第八轮修复（2026-10-19，中期审查）
+
+- reviewer 身份：HostSubagentDispatcher handle 恢复 `sessionId/cancel`；reviewer prompt 注入 `<!-- reviewer: <dispatchId> -->`；证据门改为 marker 必须等于 Run 中 reviewer dispatch id（且不得等于实现者 dispatch id）。补测试。
+- review 混排：新增 `withLegacyCriticals` 统一 review.md 与 TEAM-REVIEW.md；resolved tagged CRIT 不再吞掉同文本 unresolved legacy CRIT；TEAM-REVIEW 的 legacy CRIT 现在参与 tally。补两条测试。
+- 仍不可归档：提案记录/工件/Run/G2/G5 均未就绪；最终独立审查报告未出。

@@ -108,3 +108,9 @@
 - [x] CRIT-9 G5 plan 拒绝退回 ready — 已改为 merging→implementing→ready，并保留 G2 reject；再次 implementing 需要新 approvePlan；plan 测试更新。
 - [x] HIGH reviewer 独立性：TEAM-REVIEW marker 必须对应 Run 中 reviewer dispatch，且不得等于实现者 session；补测试。
 - [ ] HIGH 当前提案记录仍是 reviewing、无 targets/approvals，change 目录缺 6 工件，从未真机跑 Run。
+
+## 第八轮修复（2026-10-19，中期审查）
+
+- reviewer 身份：HostSubagentDispatcher handle 恢复 `sessionId/cancel`；reviewer prompt 注入 `<!-- reviewer: <dispatchId> -->`；证据门改为 marker 必须等于 Run 中 reviewer dispatch id（且不得等于实现者 dispatch id）。补测试。
+- review 混排：新增 `withLegacyCriticals` 统一 review.md 与 TEAM-REVIEW.md；resolved tagged CRIT 不再吞掉同文本 unresolved legacy CRIT；TEAM-REVIEW 的 legacy CRIT 现在参与 tally。补两条测试。
+- 仍不可归档：提案记录/工件/Run/G2/G5 均未就绪；最终独立审查报告未出。
