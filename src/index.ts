@@ -525,6 +525,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       openspecRoot: resolved.openspecRoot,
       projectRoot: resolved.projectRoot,
       workspaceRegistry: () => workspaceRegistry,
+      lifecycleMainBranch: resolved.lifecycleMainBranch,
       qualitySyncEnabled: resolved.qualitySyncEnabled,
       claudeAssetsEnabled: resolved.claudeAssetsEnabled,
       approvalsRequired: resolved.approvalsRequired,

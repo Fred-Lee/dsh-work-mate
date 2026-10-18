@@ -28,6 +28,7 @@ import { linkWikiToProposal } from './features/wiki/links.ts'
 import type { ProjectRegistry } from './features/project/registry.ts'
 import { listProjectBranches } from './features/project/branches.ts'
 import { listWorkspaceCandidates, type WorkspaceRegistryLike } from './features/project/workspace-candidates.ts'
+import { deriveBranchOccupancy, findBranchConflicts } from './features/proposal/isolation.ts'
 import { syncProjectAssets } from './features/quality/sync.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
 import { generateChangeDir, readChangeState, validateProjectRoot } from './features/proposal/openspec.ts'
@@ -47,6 +48,8 @@ export interface ApiDeps {
   projectRoot: string
   /** Official Workspace registry getter; absent = candidate import hidden. */
   workspaceRegistry?: () => WorkspaceRegistryLike | undefined
+  /** Integration trunk used when projecting legacy single-target branches. */
+  lifecycleMainBranch?: string
   /** Sync quality assets into the target project on creation. @default true */
   qualitySyncEnabled: boolean
   /** Also distribute the Claude Code asset set (.claude/**). @default true */
@@ -346,6 +349,12 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
       ...(body.workspace !== undefined ? { workspace: body.workspace } : {}),
     })
     return { project: registered }
+  })
+
+  router.get('/api/isolation', async () => {
+    const proposals = await deps.proposals.list()
+    const occupancy = deriveBranchOccupancy(proposals, deps.lifecycleMainBranch ?? 'main')
+    return { occupancy, conflicts: findBranchConflicts(occupancy) }
   })
 
   router.get('/api/projects/candidates', async () => {

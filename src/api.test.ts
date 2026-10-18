@@ -611,4 +611,24 @@ describe('project registry REST API', () => {
     expect((json(missing.result) as { note?: string }).note).toContain('workspaceRegistry')
   })
 
+  it('reports branch occupancy conflicts for active proposals', async () => {
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    const r = projectRouter(registry)
+    for (const id of ['iso-a', 'iso-b']) {
+      await proposals.upsert({
+        id,
+        title: id,
+        targets: [{ project: 'repo', baseBranch: 'main', featureBranch: 'feature/shared' }],
+      })
+      await proposals.setStatus(id, 'implementing')
+    }
+
+    const res = stubRes()
+    await r.handle('/api/isolation', stubReq('GET', '/api/isolation'), res.res)
+
+    expect(json(res.result)).toMatchObject({
+      conflicts: [{ project: 'repo', branch: 'feature/shared', proposalIds: ['iso-a', 'iso-b'] }],
+    })
+  })
+
 })
