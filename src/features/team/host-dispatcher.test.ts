@@ -85,4 +85,15 @@ describe('HostSubagentDispatcher', () => {
     expect(prompt).toContain('不要启动子代理')
     expect(prompt).toContain('不要伪造成功')
   })
+  it('passes a role preset when configured', async () => {
+    const subagents = new FakeSubagents({ stopReason: 'completed' })
+    const dispatcher = new HostSubagentDispatcher(subagents, {
+      parent: {},
+      cwdForTask: () => '/wt',
+      agentPresetForRole: (role) => (role === 'backend-dev' ? 'preset-readonly' : undefined),
+    })
+    await dispatcher.start(request)
+    expect(subagents.specs[0]?.request.agentPreset).toBe('preset-readonly')
+  })
+
 })

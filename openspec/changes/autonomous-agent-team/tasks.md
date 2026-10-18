@@ -23,11 +23,11 @@
 
 ## 3. 角色实现（T3）
 
-- [ ] 3.1 需求评估角色：提示词/工具边界，产出 `REQ.md`（目标/边界/禁止项/验收判据），只读代码。<!-- writes: src/features/team/prompts/**, assets/** -->
-- [ ] 3.2 技术方案评估角色：产出 `PLAN.md` + `TASKS.json`（目标矩阵/依赖/回滚），只读代码。<!-- writes: src/features/team/prompts/**, assets/** -->
-- [ ] 3.3 前端/后端角色：按 target 写域实现，产出提交与 Task 证据；不得越界改文件。<!-- writes: src/features/team/prompts/**, assets/** -->
-- [ ] 3.4 集成测试角色：跨仓契约/E2E/回归，产出 `TEST.md`；允许改测试脚本但不改业务代码。<!-- writes: src/features/team/prompts/**, assets/** -->
-- [ ] 3.5 独立审查角色：只读评审，产出 `REVIEW.md`；与实现者身份不同。<!-- writes: src/features/team/prompts/**, assets/** -->
+- [x] 3.1 需求评估角色：提示词/工具边界，产出 `REQ.md`（目标/边界/禁止项/验收判据），只读代码。<!-- writes: src/features/team/prompts/**, assets/** -->
+- [x] 3.2 技术方案评估角色：产出 `PLAN.md` + `TASKS.json`（目标矩阵/依赖/回滚），只读代码。<!-- writes: src/features/team/prompts/**, assets/** -->
+- [x] 3.3 前端/后端角色：按 target 写域实现，产出提交与 Task 证据；不得越界改文件。<!-- writes: src/features/team/prompts/**, assets/** -->
+- [x] 3.4 集成测试角色：跨仓契约/E2E/回归，产出 `TEST.md`；允许改测试脚本但不改业务代码。<!-- writes: src/features/team/prompts/**, assets/** -->
+- [x] 3.5 独立审查角色：只读评审，产出 `REVIEW.md`；与实现者身份不同。<!-- writes: src/features/team/prompts/**, assets/** -->
 - [ ] 3.6 权限预设：评估/审查只读，开发/测试/协调器 workspace 写；不默认 full access；启动时固定。<!-- writes: src/features/team/**, src/config.ts -->
 - [ ] 3.7 模型配置：默认继承会话模型，支持角色级覆盖；本版本不要求逐角色配置。<!-- writes: src/features/team/**, src/config.ts -->
 

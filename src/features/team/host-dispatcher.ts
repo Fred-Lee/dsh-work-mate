@@ -9,8 +9,8 @@
  */
 import type { DispatchHandle, DispatchRequest, TeamDispatcher } from './coordinator.ts'
 import type { SettleInput } from './runner.ts'
-import { contractFor } from './roster.ts'
-import type { TeamTaskRecord } from './types.ts'
+import { buildTaskPrompt as buildTaskPromptFromRole } from './prompts/index.ts'
+import type { TeamRole, TeamTaskRecord } from './types.ts'
 
 export interface SubagentResultLike {
   readonly stopReason?: string
@@ -32,6 +32,7 @@ export interface SubagentStartSpecLike {
     prompt: Array<{ type: 'text'; text: string }>
     cwd?: string
     maxDepth?: number
+    agentPreset?: string
   }
   signal: AbortSignal
   delivery: 'caller'
@@ -48,24 +49,17 @@ export interface HostDispatcherOptions {
   /** Resolve the target worktree for one task; throw when it has none. */
   cwdForTask: (task: TeamTaskRecord) => string
   signal?: AbortSignal
+  /** Optional role→agent preset id; the host enforces the preset's composition. */
+  agentPresetForRole?: (role: TeamRole) => string | undefined
 }
 
-/** Role + task prompt; deliberately terse so the worker cannot invent scope. */
+/** One worker prompt built from the role contract and the task (kept for callers/tests). */
 export function buildTaskPrompt(request: DispatchRequest): string {
-  const contract = contractFor(request.task.role)
-  return [
-    `你是团队角色「${contract.label}」（${request.task.role}）。`,
-    `任务：${request.task.title}`,
-    `项目：${request.task.project}`,
-    `允许写入：${request.task.writes.length > 0 ? request.task.writes.join(', ') : '未声明（先向协调器确认）'}`,
-    `验收标准：${request.task.acceptance}`,
-    '',
-    '约束：',
-    `- ${contract.responsibility}`,
-    ...contract.forbidden.map((rule) => `- ${rule}`),
-    '- 不要启动子代理；不要修改本任务写域之外的文件。',
-    '- 结束时用一句话说明结果与证据（命令/测试/文件）；失败就说失败，不要伪造成功。',
-  ].join('\n')
+  return buildTaskPromptFromRole({
+    task: request.task,
+    ...(request.run.id !== undefined ? { runId: request.run.id } : {}),
+    ...(request.run.proposalId !== undefined ? { proposalId: request.run.proposalId } : {}),
+  })
 }
 
 export class HostSubagentDispatcher implements TeamDispatcher {
@@ -77,6 +71,7 @@ export class HostSubagentDispatcher implements TeamDispatcher {
   async start(request: DispatchRequest): Promise<DispatchHandle> {
     const cwd = this.options.cwdForTask(request.task)
     const signal = this.options.signal ?? new AbortController().signal
+    const preset = this.options.agentPresetForRole?.(request.task.role)
     const activation = await this.subagents.startActivation({
       provider: this.options.provider ?? 'spawn',
       label: `team:${request.task.role}:${request.task.id}`,
@@ -84,6 +79,7 @@ export class HostSubagentDispatcher implements TeamDispatcher {
         parent: this.options.parent,
         prompt: [{ type: 'text', text: buildTaskPrompt(request) }],
         cwd,
+        ...(preset !== undefined ? { agentPreset: preset } : {}),
       },
       signal,
       delivery: 'caller',
