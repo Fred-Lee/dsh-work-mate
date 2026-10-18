@@ -15,6 +15,7 @@ import type { TeamRunner } from './runner.ts'
 import { TeamEventLog } from './events.ts'
 import { writeTeamSummary } from './summary.ts'
 import type { EventLog } from '../proposal/events.ts'
+import { assertRolePresets, presetForRole, type RolePresetConfig } from './presets.ts'
 
 export interface TeamToolDeps {
   proposals: ProposalService
@@ -29,6 +30,9 @@ export interface TeamToolDeps {
   lifecycleMainBranch: string
   /** Append-only proposal event log (team events share it). */
   events: EventLog
+  /** Role→agentPreset mapping (T3-3.6). */
+  rolePresetConfig: RolePresetConfig
+  requireRolePresets: boolean
 }
 
 const json = (value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }]
@@ -124,9 +128,18 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
           }
           return target.worktreePath
         }
+        const missingPresets = assertRolePresets({
+          tasks: run.tasks,
+          config: deps.rolePresetConfig,
+          required: deps.requireRolePresets,
+        })
+        if (missingPresets.length > 0) {
+          throw new Error(`角色权限 preset 未配置 — ${missingPresets.join('；')}。配置 teamReadonlyPreset/teamWorkspacePreset`)
+        }
         const dispatcher = new HostSubagentDispatcher(subagents, {
           parent: agent,
           cwdForTask,
+          agentPresetForRole: (role) => presetForRole(role, deps.rolePresetConfig),
           ...(args.provider !== undefined ? { provider: args.provider } : {}),
           signal: (exec as { signal?: AbortSignal }).signal ?? new AbortController().signal,
         })

@@ -508,6 +508,11 @@ export function apply(ctx: Context, config: Config = {}): void {
     subagents: () => subagentsService,
     lifecycleMainBranch: resolved.lifecycleMainBranch,
     events,
+    rolePresetConfig: {
+      readonlyPreset: resolved.teamReadonlyPreset,
+      workspacePreset: resolved.teamWorkspacePreset,
+    },
+    requireRolePresets: resolved.teamRequireRolePresets,
   })
   // Native guidance surfaces: two runtime skills + one flow section. Lazy, so
   // a composition without those services keeps the plugin ACTIVE.

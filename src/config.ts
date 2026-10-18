@@ -113,6 +113,12 @@ export interface Config {
    * @default false
    */
   teamAutoPlan?: boolean
+  /** Read-only agent preset for evaluators/reviewer (T3-3.6). */
+  teamReadonlyPreset?: string
+  /** Workspace-write agent preset for developers/tester/coordinator (T3-3.6). */
+  teamWorkspacePreset?: string
+  /** Refuse dispatch when a role has no matching preset instead of inheriting parent scope. @default false */
+  teamRequireRolePresets?: boolean
   /**
    * Require every merged swarm task to carry an independent verification record
    * before archiving (change `wire-swarm-independent-review`). @default false
@@ -246,6 +252,18 @@ export const Config: z<Config> = z.object({
     .boolean()
     .default(false)
     .description('Create a planned team Run after G2 plan approval when TASKS.json is complete.'),
+  teamReadonlyPreset: z
+    .string()
+    .default('')
+    .description('Agent preset id for read-only team roles (evaluators/reviewer).'),
+  teamWorkspacePreset: z
+    .string()
+    .default('')
+    .description('Agent preset id for workspace-write team roles (dev/test/coordinator).'),
+  teamRequireRolePresets: z
+    .boolean()
+    .default(false)
+    .description('Refuse team dispatch when a role has no matching agent preset.'),
   swarmReviewRequired: z
     .boolean()
     .default(false)
@@ -316,6 +334,9 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   reviewEvidenceGate: 'warn',
   teamEvidenceGate: 'warn',
   teamAutoPlan: false,
+  teamReadonlyPreset: '',
+  teamWorkspacePreset: '',
+  teamRequireRolePresets: false,
   swarmReviewRequired: false,
   lifecycleMainBranch: 'main',
   decisionEnabled: false,
