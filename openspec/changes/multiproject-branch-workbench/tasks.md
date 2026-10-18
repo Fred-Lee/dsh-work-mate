@@ -12,7 +12,7 @@
 ## 2. 提案目标矩阵
 
 - [x] 2.1 `ProposalTarget` 类型与 `targets` 持久化；`effectiveTargets(proposal)` 兼容层（旧标量合成单目标），单目标继续回写标量。<!-- writes: src/features/proposal/** -->
-- [x] 2.2 创建入口接受 `targets`（`"project:branch,project:branch"` 或结构化）与 `primaryProject`；工具与 REST 共用同一校验；`generateChangeDir` 按 `openspecTargets`（primary|all）落主/副项目。<!-- writes: src/api.ts, src/index.ts, src/config.ts -->
+- [ ] 2.2 创建入口接受 `targets`（`"project:branch,project:branch"` 或结构化）与 `primaryProject`；工具与 REST 共用同一校验；`generateChangeDir` 按 `openspecTargets`（primary|all）落主/副项目。<!-- writes: src/api.ts, src/index.ts, src/config.ts -->
 
 ## 3. 多目标 worktree
 
@@ -35,7 +35,7 @@
 ## 6. 面板 B：信息架构重构
 
 - [ ] 6.1 上下文栏：Workspace / Project / 当前分支下拉 + 占用徽标 + 搜索 + 主按钮；切换项目过滤主区。<!-- writes: src/client/App.tsx, src/client/api.ts -->
-- [x] 6.2 项目树：按 workspace 分组，显示当前分支、脏文件、活跃 change、活跃 worktree；窄屏收起为下拉。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
+- [ ] 6.2 项目树：按 workspace 分组，显示当前分支、脏文件、活跃 change、活跃 worktree；窄屏收起为下拉。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
 - [x] 6.3 主区列表优先：默认「我的变更」列表（进行中优先），看板为第二视图；筛选（全部/进行中/待批准/已归档）、项目筛选、搜索；已归档默认折叠。<!-- writes: src/client/App.tsx, src/client/api.ts -->
 - [ ] 6.4 详情抽屉：选中行预取并打开；分段（概览/目标矩阵/任务/审查/事件）+ 固定动作条；去掉行内展开与「加载详情」二次点击；逐 target 展示分支/worktree/端口与释放操作。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
 - [ ] 6.5 创建三步模态：项目多选 → 每项目基线分支（默认 `defaultBranch`）→ 确认主项目/OpenSpec 归属/`feature/<id>` 预览；错误就地显示在项目行。<!-- writes: src/client/App.tsx, src/client/api.ts -->
@@ -53,10 +53,10 @@
 
 ## 8. 证据派生与自动推进
 
-- [x] 8.1 `ProposalReadiness` 评估器：工件完整性、OpenSpec validate、`planHash`、审批、团队 run/Task、target 合并状态。<!-- writes: src/features/proposal/**, src/features/quality/** -->
+- [ ] 8.1 `ProposalReadiness` 评估器：工件完整性、OpenSpec validate、`planHash`、审批、团队 run/Task、target 合并状态。<!-- writes: src/features/proposal/**, src/features/quality/** -->
 - [x] 8.2 `reconcile(proposalId)`：幂等推进非人工门；不跨 G2/G5；自动转移写 `auto:'evidence'` 与证据快照。<!-- writes: src/features/proposal/**, src/features/proposal/events.ts -->
 - [x] 8.3 G2 `planHash`：`REQ+PLAN+TASKS` 规范化哈希；批准记录绑定哈希；工件变化自动退回 reviewing。<!-- writes: src/features/proposal/**, src/features/archive/** -->
-- [x] 8.4 G5 合并/归档合并为一次人工批准（默认），配置可恢复两道；批准后协调器合并 target 分支并跑归档编排。<!-- writes: src/features/archive/**, src/config.ts -->
+- [ ] 8.4 G5 合并/归档合并为一次人工批准（默认），配置可恢复两道；批准后协调器合并 target 分支并跑归档编排。<!-- writes: src/features/archive/**, src/config.ts -->
 - [ ] 8.5 兼容：旧提案按同一评估器推导；`mode=advance` 手动入口保留但不再是 UI 主路径；补迁移测试。<!-- writes: src/features/proposal/**, src/api.test.ts -->
 - [x] 8.6 批准门默认改为 `['merging']`：一次批准覆盖合并归档；配置可恢复两道；更新 approval-gate 规格与测试。<!-- writes: src/config.ts, src/features/archive/**, src/features/archive/*.test.ts -->
 - [x] 8.7 提案分支降级为可选追溯：移除 reviewing/ready 对 `proposal/<id>` 存在/合并的前置；保留字段与手动分支流程。<!-- writes: src/features/archive/service.ts, src/features/proposal/** -->

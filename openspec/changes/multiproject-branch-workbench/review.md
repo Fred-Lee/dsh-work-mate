@@ -43,3 +43,14 @@
 - 面板证据：默认列表、状态筛选、项目树（当前分支/脏文件/活跃 worktree）、详情抽屉（概览/目标矩阵/任务/审查/事件）、流水线看板、`?view=list` 截图已存 `docs/assets/ui/`。
 - 仍未完成（不阻塞已实现能力）：`ui-primitives` 替换、`8.1` 之后的部分归档规格收尾、真机浏览器刷新后的最终截图。
 - 归档前置：`review.md` 的独立 reviewer 仍待提供；当前标记为自审，不得当作独立审查通过。
+
+## 独立审查（2026-10-19，subagent reviewer）
+
+结论：**不通过（修复中）**。HEAD `c3139a4` 时发现 4 个 CRITICAL；本轮已修 C1/C3/C4 与 H2：
+
+- C1 真实派发缺 reportPath：已加 `REPORT:` 标记 + 角色提示，tester/reviewer 可拿到 reportPath（需真实 worker 遵守）。
+- C3 G2 失效：`ready→implementing` 现在对 target 提案重新校验 planHash；`reconcile` 在 ready 发现哈希变化会退回 reviewing；planHash 纳入 REQ/PLAN/TASKS 且忽略 tasks 勾选状态；plan 类 G5 拒绝仍走 implementing（待改为 ready）。
+- C4 回滚：失败 target 释放端口；回滚成功 target 时删除本次创建的 feature 分支；remove 失败不再提前释放端口。
+- H2 创建：客户端提交 targets/primaryProject；服务端拒绝“多 project 无 targets”的静默单目标化。
+
+仍未修：C2 的 review-gate 接入（已改名 `TEAM-REVIEW.md` 避免大小写碰撞，但未接入 severity/未解决 CRITICAL 检查）、H1 无合并实现、H3 未用 git diff、H4 只读 preset 默认不生效、H5 团队证据默认 warn 且不查 Run 终态、H8 六份工件未生成。**不得归档。**

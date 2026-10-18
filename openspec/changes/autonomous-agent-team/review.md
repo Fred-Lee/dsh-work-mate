@@ -43,3 +43,14 @@
 - 真实宿主：通过 plugin manager 禁用/启用 `include:workmate` 热重载成功，WorkMate 指令重新注入（无需重启 harness）；浏览器端需刷新。
 - 仍未完成：无 agent 上下文的 G2 自动派发衔接（2.0 的 REST 侧限制）、`git diff` 结果与测试允许清单的自动闭环（已提供 `changedFilesSince`，当前主要依赖 worker `FILES:` 报告）、角色级 preset 的实际 profile 配置（代码与配置项已就绪）。
 - 归档前置：`review.md` 的独立 reviewer 仍待提供；当前标记为自审，不得当作独立审查通过。
+
+## 独立审查（2026-10-19，subagent reviewer）
+
+结论：**不通过（修复中）**。独立审查发现 4 个 CRITICAL；本轮修复：
+
+- C1：`HostSubagentDispatcher` 支持 `REPORT:` 并写入 `reportPath`；prompt 对工件角色要求输出 REPORT；测试覆盖。
+- C2：团队审查工件从 `REVIEW.md` 改名为 `TEAM-REVIEW.md`，避免 macOS 大小写不敏感与规划期 `review.md` 冲突；**仍未接入 review-gate 的 severity/未解决 CRITICAL 检查**。
+- C3：G2 在 implementing 前重新校验 target 提案的 planHash；reconcile 支持 ready→reviewing 回退；planHash 纳入团队工件并忽略 tasks 勾选。
+- C4：多 target 失败释放端口、回滚删除本次 feature 分支；真实 git 测试覆盖。
+
+仍未修：H3 未在 settle 用 `git diff --name-only`、H4 只读 preset 默认不生效、H5 团队证据不查 Run 终态、H7 token 预算宿主无 usage、H8 六份工件未生成、H13 启动未校验提案 G2 状态。**不得归档。**
