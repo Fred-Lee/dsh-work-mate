@@ -70,4 +70,24 @@ describe('role prompts', () => {
     expect(prompt).toContain('<!-- reviewer: r1-t3-a1 -->')
   })
 
+  it('points artifact roles at the change dir and lists required sections', () => {
+    const prompt = buildTaskPrompt({
+      task: {
+        id: 't4',
+        title: '写审查报告',
+        role: 'reviewer',
+        project: 'repo',
+        writes: ['TEAM-REVIEW.md'],
+        acceptance: 'ok',
+      },
+      runId: 'r1',
+      dispatchId: 'r1-t4-a1',
+      artifactDir: 'openspec/changes/p1',
+    })
+    expect(prompt).toContain('REPORT: openspec/changes/p1/TEAM-REVIEW.md')
+    expect(prompt).toContain('## 确认项')
+    expect(prompt).toContain('## CRITICAL 问题')
+    expect(prompt).toContain('openspec/changes/p1/TEAM-REVIEW.md 首行写 <!-- reviewer: r1-t4-a1 -->')
+  })
+
 })

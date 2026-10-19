@@ -60,6 +60,9 @@ workmate_team_prepare(proposalId, projectRoot?)
 - 多 target 提案必须在 `tasks.md` 每条任务写 `<!-- project: ... -->`，否则拒绝派生；
 - 建议同时写 `<!-- role: ... -->` 与 `<!-- writes: ... -->`；缺 writes 会警告，worker 改动会被判未声明写域。
 
+> 工件必须**先提交到基线分支**再进入 `implementing`：worker 的 worktree 只包含已跟踪文件；
+> `workmate_team_plan` 会检查每个 target 的 worktree 里是否有 change 的 `TASKS.json`，缺则拒绝建 Run。
+
 ## 3. 创建并运行
 
 ```
@@ -74,7 +77,8 @@ workmate_team_answer(runId, messageId, reply)                              # 回
 
 ## 4. 证据与门禁
 
-Run 结束写 `SUMMARY.md`；测试/审查角色分别写 `TEST.md`/`TEAM-REVIEW.md`。
+Run 结束写 `SUMMARY.md`；测试/审查角色分别写 `TEST.md`/`TEAM-REVIEW.md`，路径必须是
+`openspec/changes/<id>/<artifact>`（相对 worktree），并包含各自规定的段头。
 `TEAM-REVIEW.md` 首行必须是 `<!-- reviewer: <本 Run 的 reviewer dispatch id> -->`，
 否则团队证据门阻断归档。归档门要求：最近 Run `succeeded`、TASKS.json 在、
 TEST/TEAM-REVIEW/SUMMARY 齐全、reviewer dispatch 与实现者身份不相交。

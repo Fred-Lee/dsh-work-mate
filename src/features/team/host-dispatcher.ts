@@ -65,6 +65,8 @@ export interface HostDispatcherOptions {
   measureChanges?: boolean
   /** Require REPORT paths to exist under cwd before accepting done. */
   verifyReportPath?: boolean
+  /** Change-directory path relative to the worktree for artifact REPORT paths. */
+  artifactDirForTask?: (task: TeamTaskRecord) => string | undefined
   /** Write roles must commit their changes to the worktree branch. */
   requireCommit?: boolean
   /** Baseline ref used to check the feature branch is ahead of base. */
@@ -111,12 +113,13 @@ export function extractReportPath(output: readonly unknown[] | undefined): strin
 }
 
 /** One worker prompt built from the role contract and the task (kept for callers/tests). */
-export function buildTaskPrompt(request: DispatchRequest): string {
+export function buildTaskPrompt(request: DispatchRequest, artifactDir?: string): string {
   return buildTaskPromptFromRole({
     task: request.task,
     ...(request.run.id !== undefined ? { runId: request.run.id } : {}),
     ...(request.run.proposalId !== undefined ? { proposalId: request.run.proposalId } : {}),
     dispatchId: request.dispatchId,
+    ...(artifactDir !== undefined ? { artifactDir } : {}),
   })
 }
 
@@ -139,7 +142,7 @@ export class HostSubagentDispatcher implements TeamDispatcher {
       label: `team:${request.task.role}:${request.task.id}`,
       request: {
         parent: this.options.parent,
-        prompt: [{ type: 'text', text: buildTaskPrompt(request) }],
+        prompt: [{ type: 'text', text: buildTaskPrompt(request, this.options.artifactDirForTask?.(request.task)) }],
         cwd,
         ...(preset !== undefined ? { agentPreset: preset } : {}),
         ...(agentOptions !== undefined ? { agentOptions } : {}),

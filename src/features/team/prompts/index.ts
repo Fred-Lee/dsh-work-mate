@@ -8,6 +8,7 @@
  */
 import { contractFor } from '../roster.ts'
 import type { TeamRole } from '../types.ts'
+import { REQUIRED_SECTIONS } from '../artifacts.ts'
 
 export interface RolePrompt {
   role: TeamRole
@@ -73,6 +74,8 @@ export interface TaskPromptInput {
   runId?: string
   proposalId?: string
   dispatchId?: string
+  /** Change-directory path relative to the worktree (openspec/changes/<id>). */
+  artifactDir?: string
 }
 
 /** One self-contained worker prompt; no hidden conversation is required. */
@@ -94,7 +97,10 @@ export function buildTaskPrompt(input: TaskPromptInput): string {
     ...(input.dispatchId !== undefined ? [`- Dispatch：${input.dispatchId}`] : []),
     ...(contract.artifacts.length > 0 ? [`- 负责工件：${contract.artifacts.join(', ')}`] : []),
     ...(contract.artifacts.length > 0
-      ? [`- 完成时输出 REPORT: ${contract.artifacts[0]}（路径相对当前 worktree）`]
+      ? [
+          `- 完成时输出 REPORT: ${input.artifactDir !== undefined ? `${input.artifactDir}/${contract.artifacts[0]}` : contract.artifacts[0]}（路径相对当前 worktree）`,
+          `- 工件必须包含段头：${REQUIRED_SECTIONS[contract.artifacts[0] ?? 'TEST.md'].join(' / ')}`,
+        ]
       : []),
     '',
     '## 职责',
@@ -103,7 +109,9 @@ export function buildTaskPrompt(input: TaskPromptInput): string {
     '## 规则',
     ...role.rules.map((line) => `- ${line}`),
     ...(task.role === 'reviewer' && input.dispatchId !== undefined
-      ? [`- TEAM-REVIEW.md 首行写 <!-- reviewer: ${input.dispatchId} -->`]
+      ? [
+          `- ${input.artifactDir !== undefined ? `${input.artifactDir}/` : ''}TEAM-REVIEW.md 首行写 <!-- reviewer: ${input.dispatchId} -->`,
+        ]
       : []),
     ...contract.forbidden.map((line) => `- ${line}`),
     '完成前把改动 commit 到当前 feature 分支；未提交不算 done。',

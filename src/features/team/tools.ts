@@ -1,7 +1,8 @@
 /** Agent-facing team tools (change `autonomous-agent-team`, T2). */
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { readFile } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { ProjectRegistry } from '../project/registry.ts'
 import type { ProposalService } from '../proposal/service.ts'
 import { validateProjectRoot } from '../proposal/openspec.ts'
@@ -90,6 +91,7 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
       cwdForTask,
       agentPresetForRole: (role) => presetForRole(role, deps.rolePresetConfig),
       agentOptionsForRole: (role) => roleModels.models[role],
+      artifactDirForTask: () => join(deps.openspecRoot, 'changes', proposal.openspecChangeId),
       verifyReportPath: true,
       requireCommit: true,
       baseForTask: (task) => targets.find((entry) => entry.project === task.project)?.baseCommit,
@@ -164,6 +166,19 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
           throw new Error(`TASKS.json 不存在：${tasksPath} — 先运行 workmate_team_prepare 从 tasks.md 派生，或手工生成`)
         }
         const tasks = parseTeamTasks(raw)
+        // Workers read/report artifacts from the target worktree. The change
+        // directory must therefore exist in the base commit BEFORE the run;
+        // untracked artifacts in the main checkout are invisible there.
+        for (const target of effectiveTargets(proposal, deps.lifecycleMainBranch)) {
+          if (target.worktreePath === undefined) continue
+          try {
+            await access(join(target.worktreePath, deps.openspecRoot, 'changes', proposal.openspecChangeId, 'TASKS.json'))
+          } catch {
+            throw new Error(
+              `target ${target.project} 的 worktree 缺 ${deps.openspecRoot}/changes/${proposal.openspecChangeId}/TASKS.json — 先把 OpenSpec 工件提交到基线分支再进入 implementing`,
+            )
+          }
+        }
         const run = await deps.runner.createRun({
           ...(args.id !== undefined ? { id: args.id } : {}),
           proposalId: proposal.id,
