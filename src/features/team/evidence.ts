@@ -42,17 +42,24 @@ export async function checkTeamEvidence(
 
   const errors: string[] = []
   let reviewer: string | undefined
+  let roles: string[] = []
   const tasksRaw = await required(join(dir, 'TASKS.json'), 'TASKS.json', errors)
   if (tasksRaw !== undefined) {
     try {
       const validation = validateTeamTasks(JSON.parse(tasksRaw))
       if (!validation.ok) errors.push(`TASKS.json 校验失败：${validation.errors.join('；')}`)
+      else roles = validation.tasks.map((task) => task.role)
     } catch {
       errors.push('TASKS.json 不是合法 JSON')
     }
   }
 
-  for (const artifact of ['TEST.md', 'TEAM-REVIEW.md', 'SUMMARY.md'] as const) {
+  // Only require evidence a template actually produces: TEST.md needs a tester,
+  // TEAM-REVIEW.md needs a reviewer. SUMMARY.md is always required.
+  const artifacts: Array<'TEST.md' | 'TEAM-REVIEW.md' | 'SUMMARY.md'> = ['SUMMARY.md']
+  if (roles.includes('integration-tester')) artifacts.push('TEST.md')
+  if (roles.includes('reviewer')) artifacts.push('TEAM-REVIEW.md')
+  for (const artifact of artifacts) {
     const content = await required(join(dir, artifact), artifact, errors)
     if (content === undefined) continue
     for (const section of REQUIRED_SECTIONS[artifact]) {

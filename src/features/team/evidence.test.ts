@@ -23,6 +23,24 @@ const writeTasks = async (id: string): Promise<void> => {
           dependsOn: [],
           acceptance: 'ok',
         },
+        {
+          id: 't2',
+          title: 't2',
+          role: 'integration-tester',
+          project: 'demo',
+          writes: ['tests/**'],
+          dependsOn: [],
+          acceptance: 'ok',
+        },
+        {
+          id: 't3',
+          title: 't3',
+          role: 'reviewer',
+          project: 'demo',
+          writes: ['TEAM-REVIEW.md'],
+          dependsOn: ['t1'],
+          acceptance: 'ok',
+        },
       ],
     }),
     'utf8',
@@ -78,4 +96,16 @@ describe('checkTeamEvidence', () => {
     const result = await checkTeamEvidence(root, 'openspec', 'p1')
     expect(result.errors.join()).toContain('不是合法 JSON')
   })
+  it('requires only SUMMARY.md when the task list has no tester/reviewer', async () => {
+    await writeTasks('p2')
+    await writeFile(join(dir('p2'), 'TASKS.json'), JSON.stringify({
+      tasks: [{ id: 't1', title: 't1', role: 'backend-dev', project: 'demo', writes: ['src/**'], dependsOn: [], acceptance: 'ok' }],
+    }), 'utf8')
+    await writeArtifact('p2', 'SUMMARY.md', ['## Run', '## 逐任务结果', '## 未解阻塞', '## 终态'])
+    const result = await checkTeamEvidence(root, 'openspec', 'p2')
+    expect(result.errors).not.toContain('TEST.md 缺失')
+    expect(result.errors).not.toContain('TEAM-REVIEW.md 缺失')
+    expect(result.ok).toBe(true)
+  })
+
 })
