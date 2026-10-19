@@ -355,6 +355,14 @@ export const PANEL_STYLE = `
   background: var(--wm-card); color: var(--wm-fg);
 }
 .wm-tree-row:hover { box-shadow: var(--wm-shadow-lift); }
+.wm-tree-main { min-width: 0; flex: 1 1 auto; }
+.wm-tree-main b { white-space: nowrap; }
+.wm-tree-main .wm-progress-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wm-tree-meta { justify-content: flex-end; flex-shrink: 0; white-space: nowrap; font-size: 11px; color: var(--wm-muted); }
+.wm-steps { display: flex; gap: 6px; margin: 2px 0 10px; flex-wrap: wrap; }
+.wm-step { font-size: 11px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--wm-border-soft); color: var(--wm-muted); }
+.wm-step.active { border-color: var(--wm-accent); color: var(--wm-accent); font-weight: 600; }
+.wm-step.done { color: var(--wm-fg); border-color: var(--wm-border); }
 
 .wm-btn:focus-visible, .wm-pill:focus-visible, .wm-list-row:focus-visible,
 .wm-team-row:focus-visible, .wm-tree-row:focus-visible {

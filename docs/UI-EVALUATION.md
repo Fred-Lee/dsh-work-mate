@@ -53,3 +53,15 @@
 4. 控制台格式化/过滤（P1-4）；
 5. 看板/列表密度与创建 stepper（P1-5/6）；
 6. 项目树列宽与控件统一（P1-7/8）。
+
+## 本轮已落地的优化（2026-10-19）
+
+- 团队视图：按 `updatedAt` 倒序，自动选中最新 Run；详情显示角色/波次/Dispatch/session/report 与六工件内容。
+- 团队工件 API 回退读取 target worktree（修复“TEST/REVIEW 缺失”）。
+- 知识图谱：默认隐藏归档提案（客户端兜底）、项目/提交节点去重、去掉逐边文字、弯曲边、标签裁剪 + title、动态列。
+- 控制台：控制带数值按指标格式化（时长/百分比/计数）；abandoned 提案从过程表与聚合中排除（服务端行字段 `abandoned`）。
+- 列表/顶部：隐藏 abandoned 提案；提案总数不再包含临时验证提案。
+- 项目树：名称不换行、路径用 PathLabel 省略 + tooltip、meta 单行。
+- 创建模态：新增三步 stepper（项目 → 基线分支 → 确认）。
+
+复测截图：`after-graph.png`、`after-team.png`、`after-console.png`、`after-projects.png`、`after-create.png`。

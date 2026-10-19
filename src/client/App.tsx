@@ -1419,11 +1419,11 @@ function ProjectTreeModal(props: {
                   )
                   return (
                     <button className="wm-tree-row" key={project.name} type="button" onClick={() => props.onSelect(project.name)}>
-                      <div>
+                      <div className="wm-tree-main">
                         <b>{project.name}</b>
-                        <div className="wm-progress-label">{project.root}</div>
+                        <PathLabel path={project.root} className="wm-progress-label" />
                       </div>
-                      <div className="wm-meta">
+                      <div className="wm-meta wm-tree-meta">
                         <span>⎇ {statuses[project.name]?.branch ?? project.defaultBranch ?? 'main'}</span>
                         <span>脏 {statuses[project.name]?.dirtyCount ?? '—'}</span>
                         <span>进行中 {active.length}</span>
@@ -1655,7 +1655,18 @@ function CreateModal(props: {
         onClick={(event) => event.stopPropagation()}
         onSubmit={(event) => void submit(event)}
       >
-        <h3>＋ 新提案 · 步骤 {step}/3</h3>
+        <h3>＋ 新提案</h3>
+        <div className="wm-steps" aria-label="创建步骤">
+          {[
+            [1, '项目'],
+            [2, '基线分支'],
+            [3, '确认'],
+          ].map(([value, label]) => (
+            <span key={value} className={`wm-step${step === value ? ' active' : ''}${step > Number(value) ? ' done' : ''}`}>
+              {value}. {label}
+            </span>
+          ))}
+        </div>
         {step === 1 && (
           <>
             <div className="wm-field">
