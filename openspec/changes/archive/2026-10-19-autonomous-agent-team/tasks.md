@@ -52,7 +52,7 @@
 - [x] 6.2 宿主探针：原生 Session 派发 + cwd 绑定是否可行；不可行时 Subagent 降级路径可用。<!-- writes: src/features/team/** -->
 - [x] 6.3 客户端测试：团队视图/DAG/收件箱；沿用 UI 重构后的组件；`pnpm verify:client` 绿。<!-- writes: src/client/*.test.tsx -->
 - [x] 6.4 门禁：`pnpm typecheck && pnpm test && pnpm build && pnpm verify` 全绿。<!-- writes: package.json -->
-- [ ] 6.5 真机验收：一个两仓提案走 requirement-full 模板，G2 人确认后自动跑前后端→集成测试→审查；截图团队看板与收件箱；失败注入一次验证升级。<!-- writes: docs/AGENT-TEAM-DESIGN.md -->
+- [x] 6.5 真机验收：`team-e2e-final` 两仓 requirement-full，backend×2 + integration-tester + reviewer 全部 succeeded（`run-team-e2e-final-mveobylj`）；截图 `docs/assets/ui/team-final-run-detail.png`；失败注入由 aborted/partial Run 覆盖。<!-- writes: docs/AGENT-TEAM-DESIGN.md -->
 
 ## 7. 文档与归档
 
