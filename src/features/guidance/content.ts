@@ -303,4 +303,63 @@ export const FLOW_SECTION_TEXT = [
   '需要"确定不经过模型"的入口时用斜杠命令 /workmate：`/workmate wiki [项目] [--force] [--reanalyze]`、',
   '`/workmate status [项目]`（只读）、`/workmate export [--vault <路径>]`（导出到 Obsidian/Tolaria vault）；',
   '项目可省略（= 当前会话项目），也可给项目名或路径；它直接执行、不发送给模型。',
+  '日常约定：用户说“继续/按规划继续”时，先读 goal 与工作区事实，选一个最小可验证步骤，完成即报结论，不复述背景；',
+  'UI 任务默认先真机截图/测试再给评估；归档前按 workmate-archive-checklist 取证；提交前跑 typecheck/test/build/verify。',
 ].join('')
+
+export const DAILY_LOOP_SKILL: RuntimeSkill = {
+  name: 'workmate-daily-loop',
+  description:
+    'WorkMate 日常推进约定：用户说“继续/按规划继续”时，如何读取 goal 与工作区事实、选最小可验证步骤、验证并给结论，避免重复描述。',
+  whenToUse: '用户让继续推进长期目标、或抱怨任务没有往下走、或需要把一轮工作收口时。',
+  content: `# WorkMate 日常推进
+
+用户说“继续 / 按规划继续 / 推进”时，不要复述背景，直接做：
+
+1. 读 \`get_goal\` 与当前计划；\`git status\`、相关 tasks.md、最近的测试/截图；以工作区事实为准。
+2. 选**一个最小可验证步骤**（能在一轮内完成并有证据），不要同时铺开多个大改。
+3. 长耗时操作（全量测试、构建、真机验收）按小步执行：先说明要跑什么，再跑，失败先取证。
+4. 完成即报告：改了什么、证据（测试数字/截图/命令输出）、还剩什么；没验证的不要说完成。
+5. 目标未达成时不要把 goal 标 complete；缺人工批准就明确列出需要用户点哪里。
+
+禁止：凭记忆断言代码事实；用“应该/大概”代替验证；把未跑的测试说成通过。`,
+}
+
+export const UI_REVIEW_SKILL: RuntimeSkill = {
+  name: 'workmate-ui-review',
+  description:
+    'WorkMate 面板 UI 实测与评估流程：Playwright 截图、七条验收标准、控制台/深色/窄屏检查，输出 P0/P1 评估。',
+  whenToUse: '用户要求测试/评估/优化工作台 UI，或改动 App.tsx/styles.ts 后需要真机验收时。',
+  content: `# 面板 UI 实测
+
+1. 先 \`pnpm build\`，确保 3080 的面板加载最新 dist；必要时刷新页面。
+2. 用 Playwright（宿主 node_modules 里的 playwright）跑真实页面：
+   - 列表 / 看板 / 团队 / 控制台 / 知识图谱 / 创建模态；
+   - 900px 下 \`document.documentElement.scrollWidth === clientWidth\`；
+   - 深色：注入 \`--dsw-alias-*\` 变量后截图；
+   - 记录 \`pageerror\` 与控制台 error。
+3. 七条验收：3 秒定位项目/分支/待批准；2 次操作定位提案；详情 ≤1 次点击；
+   创建一次模态完成项目×分支×主项目；全键盘；无硬编码颜色；900px 无横向滚动。
+4. 评估按 P0（数据错误/不可用）、P1（信息架构/效率）、P2（打磨）分级，附截图路径与复现步骤。
+5. 改完必须复测同一路径并给 before/after 证据，不要只跑单测。
+
+截图放 \`docs/assets/ui/\`；评估写 \`docs/UI-EVALUATION.md\`。`,
+}
+
+export const TEAM_RUN_SKILL: RuntimeSkill = {
+  name: 'workmate-team-run',
+  description:
+    'WorkMate 团队 Run 操作与排障：prepare→plan→run→status→inbox→archive，角色 preset、工件路径与常见失败。',
+  whenToUse: '需要让 Agent 团队按 TASKS.json 跑需求评估/开发/测试/审查，或团队 Run 失败/卡住时。',
+  content: `# 团队 Run
+
+顺序：\`workmate_team_prepare\` → \`workmate_team_plan\` → \`workmate_team_run\`（按波次）→
+\`workmate_team_status\` / \`workmate_team_inbox\` / \`workmate_team_answer\`。
+
+- 工件必须先提交到基线分支再进 implementing；worker 的 worktree 只含已跟踪文件。
+- TEST.md / TEAM-REVIEW.md 必须写到 \`openspec/changes/<id>/\`，并含规定段头；
+  reviewer 首行写 \`<!-- reviewer: <dispatchId> -->\`。
+- 测试/审查角色需要 preset；reviewer 用 workspace preset（它要写报告），评估角色用 readonly。
+- Run 成功条件：所有 task done、证据门通过；失败先看 dispatch 的 outcome 与 inbox，不要直接重跑。
+- 合并/归档走提案生命周期；团队证据门要求最近 Run 为 succeeded 且 TASKS/TEST/TEAM-REVIEW/SUMMARY 齐全。`,
+}
