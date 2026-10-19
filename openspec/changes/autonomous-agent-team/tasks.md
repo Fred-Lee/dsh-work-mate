@@ -18,7 +18,7 @@
 - [x] 2.3 波次调度：拓扑分层、`maxParallel`、同 target 写域冲突串行；先起完整波次再等待。<!-- writes: src/features/team/** -->
 - [x] 2.4 收件箱与协调循环：`check/reply/ack`、`worker_done` 校验、`escalation/question` 升级、positive proof 才 stop/retry/release。<!-- writes: src/features/team/** -->
 - [x] 2.8 宿主服务装配：reactive `ctx.inject(['subagents','sessionController'], scope)`；缺失时团队不可用并提示，不 park fiber。<!-- writes: src/index.ts, src/features/team/** -->
-- [ ] 2.5 自主策略与预算：G2 后自动推进、每 Task 2 次重试、默认并发 3、Run 预算 2h/300k tokens/20 Dispatch、终态枚举；超限暂停并上报。<!-- writes: src/features/team/**, src/config.ts -->
+- [x] 2.5 自主策略与预算：G2 后自动推进、每 Task 2 次重试、默认并发 3、Run 预算 2h/300k tokens/20 Dispatch、终态枚举；超限暂停并上报。<!-- writes: src/features/team/**, src/config.ts -->
 - [x] 2.6 G5 拒绝回流：方案问题退回 ready 重走 G1/G2；实现/测试/审查问题退回 implementing 生成修复 Task；写 approval 记录。<!-- writes: src/features/team/**, src/features/archive/** -->
 
 ## 3. 角色实现（T3）
@@ -33,11 +33,11 @@
 
 ## 4. 证据与门禁（T4）
 
-- [ ] 4.1 G0/G1/G2 门禁：REQ/PLAN/TASKS 完整性与可实现性检查；G2 硬门 + 人确认门（高风险/多仓强制）。<!-- writes: src/features/team/**, src/features/quality/** -->
-- [ ] 4.2 G3/G4 门禁：TEST/REVIEW 产物与证据机检；接入现有 `review-gate` 与 `reviewEvidenceGate`。<!-- writes: src/features/team/**, src/features/archive/** -->
+- [x] 4.1 G0/G1/G2 门禁：REQ/PLAN/TASKS 完整性与可实现性检查；G2 硬门 + 人确认门（高风险/多仓强制）。<!-- writes: src/features/team/**, src/features/quality/** -->
+- [x] 4.2 G3/G4 门禁：TEST/REVIEW 产物与证据机检；接入现有 `review-gate` 与 `reviewEvidenceGate`。<!-- writes: src/features/team/**, src/features/archive/** -->
 - [x] 4.3 `SUMMARY.md` 与 run 结算：逐 Task outcome + 证据 + 未解阻塞；映射到归档 manifest。<!-- writes: src/features/team/**, src/features/archive/manifest.ts -->
 - [x] 4.4 事件与审计：dispatch/done/gate/decision 写 `events.jsonl`；面板可回放。<!-- writes: src/features/team/**, src/features/proposal/events.ts -->
-- [ ] 4.5 测试写域机检：`git diff --name-only` 对照测试允许清单；越界标记 violated；测试依赖变更单独 Task + 人批准。<!-- writes: src/features/team/**, src/features/quality/** -->
+- [x] 4.5 测试写域机检：`git diff --name-only` 对照测试允许清单；越界标记 violated；测试依赖变更单独 Task + 人批准。<!-- writes: src/features/team/**, src/features/quality/** -->
 
 ## 5. 团队控制台（T5）
 
