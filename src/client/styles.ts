@@ -69,19 +69,6 @@ export const PANEL_STYLE = `
   position: fixed; inset: 0; z-index: 9999;
   background: transparent; padding: 0;
 }
-@media (prefers-color-scheme: dark) {
-  .wm-root {
-    --wm-bg-fallback: #0d1117;
-    --wm-card-fallback: #161b22;
-    --wm-border-fallback: #30363d;
-    --wm-border-soft-fallback: #21262d;
-    --wm-fg-fallback: #e6edf3;
-    --wm-muted-fallback: #8b949e;
-    --wm-accent-fallback: #818cf8;
-    --wm-accent-soft-fallback: #1c2033;
-    --wm-code-fallback: #21262d;
-  }
-}
 
 /* ---------- header ---------- */
 .wm-header {
@@ -96,7 +83,7 @@ export const PANEL_STYLE = `
 .wm-logo {
   display: inline-flex; align-items: center; justify-content: center;
   width: 26px; height: 26px; border-radius: 8px; font-size: 14px;
-  background: linear-gradient(135deg, #6366f1, #22d3ee);
+  background: var(--wm-accent);
   box-shadow: var(--wm-shadow);
 }
 .wm-count { color: var(--wm-muted); font-size: 12px; font-weight: 400; }
@@ -152,7 +139,7 @@ export const PANEL_STYLE = `
 .wm-card-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--wm-muted); margin-top: 2px; }
 .wm-meta { color: var(--wm-muted); font-size: 11px; margin-top: 6px; display: flex; gap: 8px; align-items: center; }
 .wm-progress-track { margin-top: 8px; height: 6px; border-radius: 999px; background: var(--wm-code); overflow: hidden; }
-.wm-progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, #6366f1, #22d3ee); transition: width .3s ease; }
+.wm-progress-fill { height: 100%; border-radius: 999px; background: var(--wm-accent); transition: width .3s ease; }
 .wm-progress-label { font-size: 10px; color: var(--wm-muted); margin-top: 3px; }
 
 .wm-detail { border-top: 1px dashed var(--wm-border); margin-top: 10px; padding-top: 8px; font-size: 12px; cursor: default; }
@@ -377,6 +364,9 @@ export const PANEL_STYLE = `
   animation: wm-skeleton 1.4s ease-in-out infinite;
 }
 @keyframes wm-skeleton { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-@media (prefers-reduced-motion: reduce) { .wm-skeleton-row { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .wm-skeleton-row { animation: none; }
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
 
 `

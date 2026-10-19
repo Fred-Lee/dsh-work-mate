@@ -28,9 +28,9 @@
 
 ## 5. 面板 A：控件与视觉对齐
 
-- [ ] 5.1 引入 `@deepseek-ai/dsh-client-ui-primitives`（peer + client inject + 客户端构建白名单），`pnpm verify:client` 仍绿。<!-- writes: package.json, src/index.ts, scripts/** -->
+- [x] 5.1 引入 `@deepseek-ai/dsh-client-ui-primitives`（peer + client inject + 客户端构建白名单），`pnpm verify:client` 仍绿。<!-- writes: package.json, src/index.ts, scripts/** -->
 - [ ] 5.2 用共享控件替换手写控件：`Button` / `Pill` / `SegmentedControl` / `Tag` / `StateDot` / `DisclosureRow` / `Modal` / `Tooltip` / `PathLabel`；删除手写 `.wm-btn/.wm-pill/.wm-modal` 及其渐变。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
-- [ ] 5.3 颜色/圆角/阴影只用 `--dsw-*` 语义令牌；去掉硬编码 `#6366f1/#22d3ee`、emoji logo、`prefers-color-scheme` 分支；补 reduced motion。<!-- writes: src/client/styles.ts -->
+- [x] 5.3 颜色/圆角/阴影只用 `--dsw-*` 语义令牌；去掉硬编码 `#6366f1/#22d3ee`、emoji logo、`prefers-color-scheme` 分支；补 reduced motion。<!-- writes: src/client/styles.ts -->
 
 ## 6. 面板 B：信息架构重构
 

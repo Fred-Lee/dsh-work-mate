@@ -6,6 +6,7 @@
  * creation lives in a modal with a project picker.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives/src/Button.tsx'
 import { getBands, getMetrics } from './api'
 import type { AggregateMetrics, BandEvaluation, BandsPayload } from './types'
 import {
@@ -328,7 +329,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
 
       <header className="wm-header">
         <div className="wm-brand">
-          <span className="wm-logo">🛠</span>
+          <span className="wm-logo" aria-hidden>WM</span>
           WorkMate
           <span className="wm-count">{proposals.length} 条提案</span>
         </div>
@@ -350,9 +351,9 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
               知识图谱
             </button>
           </div>
-          <button className="wm-btn primary" type="button" onClick={() => setCreateOpen(true)}>
+          <Button variant="primary" size="sm" type="button" onClick={() => setCreateOpen(true)}>
             ＋ 新提案
-          </button>
+          </Button>
         </div>
       </header>
 
