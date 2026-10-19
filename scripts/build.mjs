@@ -3,6 +3,7 @@
 //   dist/client/client.js — DSH ModuleLoader CJS module (react/cordis external)
 // plus dist/client/index.html for the standalone route.
 import { build } from 'esbuild'
+import { resolve } from 'node:path'
 import { cp, mkdir, writeFile } from 'node:fs/promises'
 
 await mkdir('dist', { recursive: true })
@@ -11,10 +12,18 @@ await mkdir('dist/client', { recursive: true })
 // along the host bundle; the syncer reads them from dist/assets at runtime.
 await cp('assets', 'dist/assets', { recursive: true })
 
+const reactAlias = {
+  react: resolve('node_modules/react'),
+  'react-dom': resolve('node_modules/react-dom'),
+  'react/jsx-runtime': resolve('node_modules/react/jsx-runtime'),
+  'react-dom/client': resolve('node_modules/react-dom/client'),
+}
+
 await build({
   entryPoints: ['src/index.ts'],
   outfile: 'dist/index.js',
   bundle: true,
+  alias: reactAlias,
   format: 'esm',
   platform: 'node',
   target: 'es2022',
@@ -29,6 +38,7 @@ await build({
   entryPoints: ['src/client/main.tsx'],
   outfile: 'dist/client/app.js',
   bundle: true,
+  alias: reactAlias,
   format: 'iife',
   platform: 'browser',
   target: 'es2020',
@@ -45,6 +55,7 @@ await build({
   entryPoints: ['src/client/index.tsx'],
   outfile: 'dist/client/client.js',
   bundle: true,
+  alias: reactAlias,
   format: 'cjs',
   platform: 'browser',
   target: 'es2020',

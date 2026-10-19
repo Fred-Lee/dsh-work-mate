@@ -161,3 +161,12 @@
 - `docs/assets/ui/workbench-team-light.png`：团队 Run 列表（含 succeeded / aborted 两次真实 Run）
 
 > 截图来源：`http://127.0.0.1:3080/workmate/?view=list|team`，宿主 08:34 重启后的真实 profile。
+
+
+## 2026-10-19 当前面板（Playwright 真机）
+
+- `workbench-list-current.png`：列表优先 + ui-primitives 分段控件；
+- `workbench-drawer-current.png`：详情抽屉（概览/目标矩阵/任务/审查/事件 + 固定动作条）；
+- `workbench-projects-current.png`：项目树（dsh-Helmsman、e2e-a/e2e-b，含分支/脏文件/活跃 run）。
+
+> `scripts/build.mjs` 增加 React alias：ui-primitives 深导入不能再带第二份 React。
