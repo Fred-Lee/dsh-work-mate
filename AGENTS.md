@@ -270,7 +270,7 @@ fix(store): 修复原子写中断后残留 tmp 文件
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **dsh-Helmsman** (4164 symbols, 7601 relationships, 235 execution flows). Use GitNexus graph tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **dsh-Helmsman** (5429 symbols, 11052 relationships, 311 execution flows). Use GitNexus graph tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
 
