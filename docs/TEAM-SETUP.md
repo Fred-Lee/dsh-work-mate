@@ -67,6 +67,7 @@ workmate_team_prepare(proposalId, projectRoot?)
 
 ```
 workmate_team_plan(proposalId, template='requirement-full', start=false)  # 建 planned Run + 波次
+# G2 批准后若 teamAutoPlan=true，只自动建 planned Run；首波仍需 team_run（REST 无 agent）
 # 方案确认（planHash 需人工 approve，高风险/多仓强制）
 workmate_team_run(runId)                                                   # 真正派发
 workmate_team_status(runId) / workmate_team_inbox(runId)
