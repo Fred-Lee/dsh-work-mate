@@ -76,3 +76,14 @@
 - 控制台 KPI 卡片加顶部强调色，表格保持紧凑。
 
 截图：`v2-list.png`、`v2-board.png`、`v2-team.png`、`v2-console.png`、`v2-drawer.png`。
+
+## 视觉方向 A：DSH 原生极简（v3，2026-10-19）
+
+- 字号回到宿主基线：正文 14 / 说明 12 / 标签 11；
+- 边框 0.5px，使用 `--dsw-alias-border-l2/l3` 与 `--dsw-radius-sm/md`；
+- 页面底色 layer-1，卡片 layer-2，去内容卡阴影；仅抽屉/模态保留 elevation；
+- 列表、看板、团队、控制台全部改成宿主式平面层 + 分隔线；
+- 图谱节点改为中性 surface + 状态边框，不再用蓝/绿填充；
+- 按钮/输入/选择器统一 28px 高、0.5px 边框、6px 圆角。
+
+截图：`v3-list.png`、`v3-board.png`、`v3-team.png`、`v3-console.png`、`v3-graph.png`。

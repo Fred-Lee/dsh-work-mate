@@ -26,14 +26,14 @@ interface Positioned {
 }
 
 const KIND_FILL: Record<GraphPayload['nodes'][number]['kind'], string> = {
-  proposal: 'var(--dsw-alias-bg-secondary, #ddf4ff)',
-  project: 'var(--dsw-alias-bg-layer-3, #dafbe1)',
-  commit: 'var(--dsw-alias-bg-tertiary, #eaeef2)',
+  proposal: 'var(--dsw-alias-bg-layer-2, #ffffff)',
+  project: 'var(--dsw-alias-bg-module-platform, #f5f6f7)',
+  commit: 'var(--dsw-alias-bg-layer-1, #ffffff)',
 }
 const KIND_STROKE: Record<GraphPayload['nodes'][number]['kind'], string> = {
-  proposal: 'var(--dsw-alias-border-l2, #54aeff)',
-  project: 'var(--dsw-alias-border-l1, #4ac26b)',
-  commit: 'var(--dsw-alias-border-l1, #afb8c1)',
+  proposal: 'var(--dsw-alias-border-l3, #00000029)',
+  project: 'var(--dsw-alias-border-l2, #0000001a)',
+  commit: 'var(--dsw-alias-border-l2, #0000001a)',
 }
 const KIND_LABEL: Record<GraphPayload['nodes'][number]['kind'], string> = {
   proposal: '提案',
@@ -150,7 +150,7 @@ export function GraphView(props: { projectRoot?: string }): JSX.Element {
           return (
             <g key={node.id} clipPath={`url(#wm-graph-clip-${index})`}>
               <rect x={node.x} y={node.y} width={NODE_W} height={NODE_H} rx={7} fill={KIND_FILL[node.kind]} stroke={KIND_STROKE[node.kind]} />
-              <text x={node.x + 8} y={node.y + NODE_H / 2 + 4} fontSize={11} fill="var(--dsw-alias-label-primary, #1f2328)">
+              <text x={node.x + 8} y={node.y + NODE_H / 2 + 4} fontSize={12} fill="var(--dsw-alias-label-primary, #1f2328)">
                 <title>{node.label}</title>
                 {label}
               </text>
