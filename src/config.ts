@@ -28,6 +28,8 @@ export interface Config {
   /** WeKnora REST base URL; empty disables knowledge search (M3). @default '' */
   weknoraBaseUrl?: string
   /** Generate the change dir only in the primary target or in every target. @default 'primary' */
+  /** Write-scope conflict handling: block overlapping declarations, warn when undeclared. @default 'block' */
+  writeConflictGate?: string
   openspecTargets?: string
   /**
    * OpenSpec root relative to the target project. Applies to EVERY path that
@@ -203,6 +205,10 @@ export const Config: z<Config> = z.object({
   maxConcurrent: z.number().default(3).description('Upper bound for swarm parallel agents at archive time (reserved).'),
   gitnexusEnabled: z.boolean().default(true).description('Master switch for the GitNexus knowledge bridge.'),
   weknoraBaseUrl: z.string().default('').description('WeKnora REST base URL; empty disables knowledge search.'),
+  writeConflictGate: z
+    .string()
+    .default('block')
+    .description('block | warn | off for cross-proposal write-scope conflicts.'),
   openspecTargets: z
     .string()
     .default('primary')
@@ -326,6 +332,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   maxConcurrent: 3,
   gitnexusEnabled: true,
   weknoraBaseUrl: '',
+  writeConflictGate: 'block',
   openspecTargets: 'primary',
   openspecRoot: 'openspec',
   projectRoot: '',

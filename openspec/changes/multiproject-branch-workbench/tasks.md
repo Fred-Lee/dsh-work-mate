@@ -23,7 +23,7 @@
 ## 4. 并行隔离
 
 - [x] 4.1 占用派生：从活跃提案的 `effectiveTargets` + worktree 存在性计算 `(project, branch) → proposal`，不新增持久化文件；同项目同名分支即冲突。<!-- writes: src/features/proposal/**, src/features/worktree/** -->
-- [ ] 4.2 写域冲突：复用 `scopesIntersect` 解析提案声明范围，implementing 前与同项目其它活跃提案求交；声明重叠默认阻断，未声明 warn，可配置。<!-- writes: src/features/swarm/plan.ts, src/features/quality/** -->
+- [x] 4.2 写域冲突：复用 `scopesIntersect` 解析提案声明范围，implementing 前与同项目其它活跃提案求交；声明重叠默认阻断，未声明 warn，可配置。<!-- writes: src/features/swarm/plan.ts, src/features/quality/** -->
 - [x] 4.3 基线漂移：记录 `baseCommit`，与基线当前 HEAD 不同即返回 warn（附命令建议），不阻断。<!-- writes: src/features/archive/service.ts, src/features/proposal/** -->
 
 ## 5. 面板 A：控件与视觉对齐

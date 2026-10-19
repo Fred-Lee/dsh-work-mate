@@ -70,4 +70,31 @@ describe('implementing write-scope gate', () => {
     // worktree step and fails there because the temp project is not a git repo.
     await expect(lifecycle.transition('p1', 'implementing')).rejects.not.toThrow(/写域冲突/)
   })
+  it('warns instead of blocking when writeConflictGate=warn', async () => {
+    await writeChange('p1', 'src/main/order/**')
+    await writeChange('p2', 'src/main/order/detail/**')
+    await proposals.upsert({ id: 'p1', title: 'p1', projects: ['demo'] })
+    await proposals.upsert({ id: 'p2', title: 'p2', projects: ['demo'] })
+    await proposals.setStatus('p1', 'ready')
+    await proposals.setStatus('p2', 'ready')
+    const warned = new LifecycleServiceImpl({
+      proposals,
+      worktree: new WorktreeManager({
+        homeRoot: home,
+        subdir: 'workmate',
+        basePort: 3000,
+        portStep: 10,
+        copyFiles: [],
+        packageManager: 'pnpm',
+      }),
+      openspecRoot: 'openspec',
+      mainBranch: 'main',
+      approvalsRequired: [],
+      resolveProjectRoots: async () => [{ project: 'demo', root: project }],
+      orchestrate: async () => ({ ok: true, steps: [] }),
+      writeConflictGate: 'warn',
+    })
+    await expect(warned.transition('p1', 'implementing')).rejects.not.toThrow(/写域冲突/)
+  })
+
 })

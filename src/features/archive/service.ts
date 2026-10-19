@@ -112,6 +112,8 @@ export interface LifecycleDeps {
   teamEvidenceGate?: 'off' | 'warn' | 'block'
   /** Team run store; lets the evidence gate reject partial/blocked runs. */
   teamRuns?: TeamRunStore
+  /** block | warn | off for cross-proposal write-scope conflicts. @default 'block' */
+  writeConflictGate?: 'block' | 'warn' | 'off'
   /** Require an independent verification record per merged swarm task (`Config.swarmReviewRequired`). */
   swarmReviewRequired?: boolean
   /** Extra states a HIGH-risk proposal needs a human approval for (`Config.highRiskExtraGates`). */
@@ -949,7 +951,10 @@ export class LifecycleServiceImpl {
       const writes = await readProposalWriteScopes(projectRoot, this.openspecRoot, proposal.openspecChangeId)
       if (writes.length > 0) claims.push({ proposalId: proposal.id, project: target.project, writes })
     }
-    if (claims.length === 0) return
+    if (claims.length === 0) {
+      console.warn(`[workmate] ${proposal.id} 未声明写域（<!-- writes: ... -->）— 无法机检并行冲突，按 warn 放行`)
+      return
+    }
 
     for (const other of await this.deps.proposals.list()) {
       if (other.id === proposal.id || !isOccupying(other)) continue
@@ -966,6 +971,12 @@ export class LifecycleServiceImpl {
     }
 
     const conflicts = findWriteConflicts(claims).filter((conflict) => conflict.proposalIds.includes(proposal.id))
+    const gate = this.deps.writeConflictGate ?? 'block'
+    if (gate === 'off') return
+    if (conflicts.length > 0 && gate === 'warn') {
+      console.warn(`[workmate] write-scope conflicts (warn): ${conflicts.map((conflict) => conflict.project).join(', ')}`)
+      return
+    }
     if (conflicts.length > 0) {
       const detail = conflicts
         .map((conflict) => `${conflict.project}: ${conflict.proposalIds.join(' × ')} → ${conflict.scopes.join(', ')}`)

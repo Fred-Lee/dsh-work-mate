@@ -182,6 +182,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     worktree,
     resolveProjectRoots: resolveRoots,
     openspecRoot: resolved.openspecRoot,
+    writeConflictGate: resolved.writeConflictGate === 'off' ? 'off' : resolved.writeConflictGate === 'warn' ? 'warn' : 'block',
     mainBranch: resolved.lifecycleMainBranch,
     approvalsRequired: resolved.approvalsRequired,
     allowAgentApproval: resolved.allowAgentApproval,
