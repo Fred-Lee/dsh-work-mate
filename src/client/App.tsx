@@ -479,20 +479,28 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
               </div>
             )}
             {!loading && listRows.length === 0 && <div className="wm-empty">没有匹配的提案</div>}
+            {listRows.length > 0 && (
+              <div className="wm-list-head">
+                <span>提案</span>
+                <span>状态</span>
+                <span>项目</span>
+                <span>更新</span>
+              </div>
+            )}
             {listRows.map((proposal) => (
               <button className="wm-list-row" key={proposal.id} type="button" onClick={() => openDrawer(proposal.id)}>
-                <div>
+                <div className="wm-list-main">
                   <h3 className="wm-list-title">{proposal.title}</h3>
                   <div className="wm-card-id">{proposal.id}</div>
                 </div>
-                <div className="wm-meta">
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <StateDot state={statusDot(proposal.status)} />
-                    <Tag tone={statusTone(proposal.status)}>{STATE_META[proposal.status].label}</Tag>
-                  </span>
-                  <span>{proposal.projects.length > 0 ? proposal.projects.join(' · ') : '未关联项目'}</span>
-                  <span>{relativeTime(proposal.updatedAt)}</span>
-                </div>
+                <span className="wm-list-status">
+                  <StateDot state={statusDot(proposal.status)} />
+                  <Tag tone={statusTone(proposal.status)}>{STATE_META[proposal.status].label}</Tag>
+                </span>
+                <span className="wm-list-projects">
+                  {proposal.projects.length > 0 ? proposal.projects.join(' · ') : '未关联项目'}
+                </span>
+                <span className="wm-list-time">{relativeTime(proposal.updatedAt)}</span>
               </button>
             ))}
             {hiddenArchived > 0 && (
@@ -1014,6 +1022,7 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
 
   return (
     <div className="wm-team">
+      <aside className="wm-team-side">
       <div className="wm-team-head">
         <h3>团队 Run</h3>
         <button className="wm-btn mini" type="button" onClick={() => void refresh()}>
@@ -1033,6 +1042,7 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
                 className={`wm-team-row${selected === run.id ? ' active' : ''}`}
                 key={run.id}
                 type="button"
+                title={run.id}
                 onClick={() => void open(run.id)}
               >
                 <div>
@@ -1050,8 +1060,10 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
           })}
         </div>
       )}
+      </aside>
 
-      {shown !== undefined && (
+      <section className="wm-team-main">
+      {shown !== undefined ? (
         <div className="wm-team-detail">
           <h4>
             {shown.id} · {shown.status}
@@ -1156,7 +1168,10 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
             </div>
           )}
         </div>
+      ) : (
+        <div className="wm-empty">选择左侧 Run 查看任务与工件</div>
       )}
+      </section>
     </div>
   )
 }

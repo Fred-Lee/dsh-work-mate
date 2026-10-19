@@ -65,3 +65,14 @@
 - 创建模态：新增三步 stepper（项目 → 基线分支 → 确认）。
 
 复测截图：`after-graph.png`、`after-team.png`、`after-console.png`、`after-projects.png`、`after-create.png`。
+
+## 视觉重构 v2（2026-10-19）
+
+- 列表：卡片堆 → 表格化（提案/状态/项目/更新四列，行分隔，hover 行高亮）；
+- 看板：列撑满 380px、浅层背景、统一卡片内边距；不再整页拉伸；
+- 团队：上下堆叠 → 左侧 Run 列表 + 右侧详情两栏（<1100px 单列），Run ID 截断 + title；
+- 头部/筛选：去掉渐变，统一 12px 圆角、10px 大写标签、计数徽标；
+- 抽屉：宽度 480 → 560，内容区留白与分区层次调整；
+- 控制台 KPI 卡片加顶部强调色，表格保持紧凑。
+
+截图：`v2-list.png`、`v2-board.png`、`v2-team.png`、`v2-console.png`、`v2-drawer.png`。
