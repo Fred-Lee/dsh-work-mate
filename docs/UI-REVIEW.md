@@ -185,3 +185,10 @@
 | 7 | 900px 无横向滚动/裁剪 | 通过 | `workbench-narrow-900.png`；`scrollWidth=900=clientWidth` |
 
 剩余未覆盖：并行提案写域冲突的就地面板提示（7.4）。
+
+### 7.4 并行写域冲突真机验收
+
+- 场景：同一项目 `e2e-a` 两个提案声明 `<!-- writes: src/** -->`；
+- 面板触发 implementing → 横幅与事件同时显示
+  `写域冲突 — e2e-a: conflict-a × conflict-c → src/**；先拆分写域或串行化这两个提案`；
+- 截图：`docs/assets/ui/workbench-conflict-1440.png`（抽屉 + 错误横幅 + gate-failed 事件）。

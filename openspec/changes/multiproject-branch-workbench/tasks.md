@@ -48,7 +48,7 @@
 - [x] 7.1 单测：注册表字段兼容/探测、targets 兼容层、多目标创建与回滚、按 target 合并校验、占用冲突、写域冲突（含未声明 warn）。<!-- writes: src/features/**/*.test.ts, src/api.test.ts -->
 - [x] 7.2 客户端测试：上下文栏/项目树/列表筛选/抽屉/创建三步/键盘可达；`pnpm verify:client` 仍绿。<!-- writes: src/client/*.test.tsx -->
 - [x] 7.3 门禁：`pnpm typecheck && pnpm test && pnpm build && pnpm verify` 全绿；测试自证门禁不放宽。<!-- writes: package.json -->
-- [ ] 7.4 真机验收：装进 web profile，建 2–3 项目提案（不同基线分支），走 ready→implementing，截图工作台占用与详情抽屉；第二个并行提案验证冲突提示；浅色/深色各一张。<!-- writes: docs/UI-REVIEW.md -->
+- [x] 7.4 真机验收：装进 web profile，建 2–3 项目提案（不同基线分支），走 ready→implementing，截图工作台占用与详情抽屉；第二个并行提案验证冲突提示；浅色/深色各一张。<!-- writes: docs/UI-REVIEW.md -->
 - [x] 7.5 UI 验收对照 `docs/UI-REVIEW.md` §6 的 7 条标准，before/after 截图存入 `docs/assets/ui/`。<!-- writes: docs/assets/ui/** -->
 
 ## 8. 证据派生与自动推进
