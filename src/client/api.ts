@@ -72,10 +72,11 @@ export function transitionProposal(id: string, to: ProposalState, rationale?: st
 export function archiveProposal(
   id: string,
   force = false,
+  rationale?: string,
 ): Promise<{ proposal: Proposal; orchestration?: { ok: boolean; steps: Array<{ step: string; status: string; summary: string }> } }> {
   return request(`/workmate/api/proposals/${encodeURIComponent(id)}/archive`, {
     method: 'POST',
-    body: JSON.stringify({ force }),
+    body: JSON.stringify({ force, ...(rationale !== undefined && rationale.trim() !== '' ? { rationale } : {}) }),
   })
 }
 

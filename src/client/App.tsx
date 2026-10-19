@@ -232,7 +232,16 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
       setPending(`${id}:${action}`)
       try {
         let result: unknown
-        if (action === 'archive') result = await archiveProposal(id, force)
+        if (action === 'archive') {
+          let rationale: string | undefined
+          if (force) {
+            const entered = window.prompt('强制归档理由（必填，会写入审批记录）')
+            if (entered === null) throw new Error('已取消强制归档')
+            if (entered.trim() === '') throw new Error('强制归档必须写理由')
+            rationale = entered.trim()
+          }
+          result = await archiveProposal(id, force, rationale)
+        }
         else if (action === 'plan') {
           await approvePlan(id)
           result = await reconcileProposal(id)

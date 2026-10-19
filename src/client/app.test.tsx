@@ -303,12 +303,14 @@ describe('ProposalPanel (kanban)', () => {
     expect(screen.getByText('强制归档（跳过审查门）')).toBeTruthy()
     expect(screen.queryByText(/^推进到/)).toBeNull()
 
+    const prompt = vi.spyOn(window, 'prompt').mockReturnValue('验收后强制归档')
     fireEvent.click(screen.getByText('强制归档（跳过审查门）'))
 
     await waitFor(() => {
       const call = postedCall('/workmate/api/proposals/batch-grading-v2/archive')
-      expect(JSON.parse(String(call[1].body))).toEqual({ force: true })
+      expect(JSON.parse(String(call[1].body))).toEqual({ force: true, rationale: '验收后强制归档' })
     })
+    prompt.mockRestore()
   })
 
   it('surfaces REST errors inline', async () => {
