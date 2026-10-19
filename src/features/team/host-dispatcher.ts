@@ -61,6 +61,8 @@ export interface HostDispatcherOptions {
   agentOptionsForRole?: (role: TeamRole) => { provider?: string; model?: string; reasoningEffort?: string } | undefined
   /** Measure actual files changed in the worktree (git diff against the base commit). */
   changedFilesForTask?: (task: TeamTaskRecord) => Promise<string[] | undefined>
+  /** Measure files this dispatch changed (HEAD before → after), not the whole branch. */
+  measureChanges?: boolean
   /** Require REPORT paths to exist under cwd before accepting done. */
   verifyReportPath?: boolean
   /** Write roles must commit their changes to the worktree branch. */
@@ -129,6 +131,9 @@ export class HostSubagentDispatcher implements TeamDispatcher {
     const signal = this.options.signal ?? new AbortController().signal
     const preset = this.options.agentPresetForRole?.(request.task.role)
     const agentOptions = this.options.agentOptionsForRole?.(request.task.role)
+    const headBefore = this.options.measureChanges === true
+      ? (await gitExec(['rev-parse', 'HEAD'], cwd, 5_000).catch(() => undefined))?.trim()
+      : undefined
     const activation = await this.subagents.startActivation({
       provider: this.options.provider ?? 'spawn',
       label: `team:${request.task.role}:${request.task.id}`,
@@ -161,7 +166,12 @@ export class HostSubagentDispatcher implements TeamDispatcher {
           }
           const markerReport = extractReportPath(result.output)
           const markerFiles = extractFilesModified(result.output)
-          const measured = await this.options.changedFilesForTask?.(request.task)
+          let measured = await this.options.changedFilesForTask?.(request.task)
+          if (this.options.measureChanges === true && headBefore !== undefined) {
+            const tracked = await gitExec(['diff', '--name-only', headBefore, 'HEAD'], cwd, 10_000).catch(() => '')
+            const untracked = await gitExec(['ls-files', '--others', '--exclude-standard'], cwd, 10_000).catch(() => '')
+            measured = [...new Set([...tracked.split('\n'), ...untracked.split('\n')].map((line) => line.trim()).filter((line) => line !== ''))]
+          }
           const filesModified =
             measured !== undefined || markerFiles !== undefined
               ? [...new Set([...(measured ?? []), ...(markerFiles ?? [])])]

@@ -205,7 +205,7 @@ describe('HostSubagentDispatcher', () => {
       const dispatcher = new HostSubagentDispatcher(subagents, {
         parent: {},
         cwdForTask: () => root,
-        changedFilesForTask: async () => ['a.ts'],
+        measureChanges: true,
         requireCommit: true,
         baseForTask: () => base,
       })
@@ -217,6 +217,35 @@ describe('HostSubagentDispatcher', () => {
       await git(['add', '-A'])
       await git(['commit', '-m', 'work'])
       await expect((await dispatcher.start(request)).result).resolves.toMatchObject({ status: 'done' })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('measures only the current dispatch, not earlier commits on the branch', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'wm-measure-'))
+    const git = (args: string[]): Promise<string> =>
+      new Promise((resolvePromise, reject) => {
+        execFile('git', args, { cwd: root }, (error, stdout) =>
+          error ? reject(error) : resolvePromise(stdout.trim()),
+        )
+      })
+    try {
+      await git(['init', '-b', 'main'])
+      await git(['config', 'user.email', 't@t'])
+      await git(['config', 'user.name', 't'])
+      await writeFile(join(root, 'prior.txt'), 'prior\n', 'utf8')
+      await git(['add', '-A'])
+      await git(['commit', '-m', 'prior'])
+      await writeFile(join(root, 'current.ts'), 'current\n', 'utf8')
+
+      const dispatcher = new HostSubagentDispatcher(new FakeSubagents({ stopReason: 'completed' }), {
+        parent: {},
+        cwdForTask: () => root,
+        measureChanges: true,
+      })
+      const settled = await (await dispatcher.start(request)).result
+      expect(settled.filesModified).toEqual(['current.ts'])
     } finally {
       await rm(root, { recursive: true, force: true })
     }

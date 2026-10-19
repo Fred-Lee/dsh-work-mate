@@ -18,7 +18,6 @@ import { writeTeamSummary } from './summary.ts'
 import type { EventLog } from '../proposal/events.ts'
 import { assertRolePresets, presetForRole, type RolePresetConfig } from './presets.ts'
 import { parseRoleModels } from './models.ts'
-import { changedFilesAgainst } from '../quality/test-scope.ts'
 
 export interface TeamToolDeps {
   proposals: ProposalService
@@ -94,11 +93,7 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
       verifyReportPath: true,
       requireCommit: true,
       baseForTask: (task) => targets.find((entry) => entry.project === task.project)?.baseCommit,
-      changedFilesForTask: async (task) => {
-        const target = targets.find((entry) => entry.project === task.project)
-        if (target?.worktreePath === undefined || target.baseCommit === undefined) return undefined
-        return changedFilesAgainst(target.worktreePath, target.baseCommit)
-      },
+      measureChanges: true,
       ...(options.provider !== undefined ? { provider: options.provider } : {}),
       signal: exec.signal ?? new AbortController().signal,
     })
