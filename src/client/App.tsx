@@ -7,6 +7,14 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives/src/Button.tsx'
+import { SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives/src/SegmentedControl.tsx'
+import { Tag } from '@deepseek-ai/dsh-client-ui-primitives/src/Tag.tsx'
+import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives/src/StateDot.tsx'
+import { PathLabel } from '@deepseek-ai/dsh-client-ui-primitives/src/PathLabel.tsx'
+import { DisclosureRow } from '@deepseek-ai/dsh-client-ui-primitives/src/DisclosureRow.tsx'
+import { Modal } from '@deepseek-ai/dsh-client-ui-primitives/src/Modal.tsx'
+import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives/src/Tooltip.tsx'
+import { Pill } from '@deepseek-ai/dsh-client-ui-primitives/src/Pill.tsx'
 import { getBands, getMetrics } from './api'
 import type { AggregateMetrics, BandEvaluation, BandsPayload } from './types'
 import {
@@ -40,6 +48,21 @@ import type { TeamRun } from '../features/team/types.ts'
 import { GraphView } from './GraphView'
 import { taskWaves, waveDepth } from './team-waves'
 import { PANEL_STYLE } from './styles'
+
+/** Map lifecycle states onto the shared Tag/StateDot palettes. */
+function statusTone(status: ProposalState): 'success' | 'info' | 'warning' | 'outline' | 'danger' {
+  if (status === 'archived') return 'success'
+  if (status === 'merging' || status === 'archiving') return 'info'
+  if (status === 'reviewing' || status === 'ready' || status === 'implementing') return 'warning'
+  return 'outline'
+}
+
+function statusDot(status: ProposalState): 'done' | 'ongoing' | 'warning' | 'idle' | 'error' {
+  if (status === 'archived') return 'done'
+  if (status === 'implementing' || status === 'merging' || status === 'archiving') return 'ongoing'
+  if (status === 'ready' || status === 'reviewing') return 'warning'
+  return 'idle'
+}
 
 const POLL_MS = 5_000
 
@@ -334,23 +357,19 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           <span className="wm-count">{proposals.length} 条提案</span>
         </div>
         <div className="wm-toolbar">
-          <div className="wm-pills">
-            <button className={`wm-pill${view === 'board' ? ' active' : ''}`} type="button" aria-pressed={view === 'board'} onClick={() => setView('board')}>
-              看板
-            </button>
-            <button className={`wm-pill${view === 'list' ? ' active' : ''}`} type="button" aria-pressed={view === 'list'} onClick={() => setView('list')}>
-              列表
-            </button>
-            <button className={`wm-pill${view === 'team' ? ' active' : ''}`} type="button" aria-pressed={view === 'team'} onClick={() => setView('team')}>
-              团队
-            </button>
-            <button className={`wm-pill${view === 'console' ? ' active' : ''}`} type="button" aria-pressed={view === 'console'} onClick={() => setView('console')}>
-              控制台
-            </button>
-            <button className={`wm-pill${view === 'graph' ? ' active' : ''}`} type="button" aria-pressed={view === 'graph'} onClick={() => setView('graph')}>
-              知识图谱
-            </button>
-          </div>
+          <SegmentedControl
+            id="wm-view"
+            value={view}
+            label="视图"
+            options={[
+              { value: 'board', label: '看板' },
+              { value: 'list', label: '列表' },
+              { value: 'team', label: '团队' },
+              { value: 'console', label: '控制台' },
+              { value: 'graph', label: '知识图谱' },
+            ]}
+            onChange={(next) => setView(next)}
+          />
           <Button variant="primary" size="sm" type="button" onClick={() => setCreateOpen(true)}>
             ＋ 新提案
           </Button>
@@ -413,9 +432,11 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           placeholder="搜索提案 / 项目…"
           onChange={(event) => setSearch(event.target.value)}
         />
-        <button className="wm-btn mini" type="button" onClick={() => setShowArchived((prev) => !prev)}>
-          {showArchived ? '隐藏已归档' : '显示已归档'}
-        </button>
+        <Tooltip label={showArchived ? '隐藏已归档提案' : '显示已归档提案'} side="bottom">
+          <Pill active={showArchived} type="button" onClick={() => setShowArchived((prev) => !prev)}>
+            {showArchived ? '隐藏已归档' : '显示已归档'}
+          </Pill>
+        </Tooltip>
         <button className="wm-btn mini" type="button" onClick={() => setTreeOpen(true)}>
           项目树
         </button>
@@ -454,8 +475,9 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                   <div className="wm-card-id">{proposal.id}</div>
                 </div>
                 <div className="wm-meta">
-                  <span className="wm-tier" style={{ color: STATE_META[proposal.status].tone }}>
-                    {STATE_META[proposal.status].label}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <StateDot state={statusDot(proposal.status)} />
+                    <Tag tone={statusTone(proposal.status)}>{STATE_META[proposal.status].label}</Tag>
                   </span>
                   <span>{proposal.projects.length > 0 ? proposal.projects.join(' · ') : '未关联项目'}</span>
                   <span>{relativeTime(proposal.updatedAt)}</span>
@@ -463,12 +485,13 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
               </button>
             ))}
             {hiddenArchived > 0 && (
-              <div className="wm-col-empty">
-                已隐藏 {hiddenArchived} 条已归档
-                <button className="wm-btn mini" type="button" onClick={() => setShowArchived(true)}>
-                  显示
-                </button>
-              </div>
+              <DisclosureRow
+                icon="▸"
+                title={`已隐藏 ${hiddenArchived} 条已归档`}
+                open={false}
+                expandable
+                onToggle={() => setShowArchived(true)}
+              />
             )}
           </div>
         ) : (
@@ -1427,9 +1450,17 @@ function ImportProjectsModal(props: {
   }
 
   return (
-    <div className="wm-modal" onClick={props.onClose}>
-      <div className="wm-modal-box" onClick={(event) => event.stopPropagation()}>
-        <h3>从 DSH Workspace 导入项目</h3>
+    <Modal
+      open
+      onClose={props.onClose}
+      title="从 DSH Workspace 导入项目"
+      closeLabel="关闭"
+      footer={
+        <Button variant="outline" size="sm" type="button" onClick={props.onClose}>
+          关闭
+        </Button>
+      }
+    >
         <p className="wm-progress-label">只列出 git 仓库；导入后仍可在项目树里改默认分支与工作区。</p>
         {note !== '' && <div className="wm-action-note">{note}</div>}
         {loading ? (
@@ -1443,7 +1474,7 @@ function ImportProjectsModal(props: {
                 <div>
                   <b>{candidate.title || candidate.name}</b>
                   {candidate.hasOpenspec && <span className="wm-context-meta"> · openspec</span>}
-                  <div className="wm-import-path">{candidate.path}</div>
+                  <PathLabel path={candidate.path} className="wm-import-path" />
                 </div>
                 <div className="wm-actions">
                   {candidate.registered ? (
@@ -1463,13 +1494,7 @@ function ImportProjectsModal(props: {
             ))}
           </div>
         )}
-        <div className="wm-modal-foot">
-          <button className="wm-btn" type="button" onClick={props.onClose}>
-            关闭
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -1614,7 +1639,7 @@ function CreateModal(props: {
                     }
                   />
                   <code>{project.name}</code>
-                  <span style={{ color: 'var(--wm-muted)', fontSize: 11 }}>{project.root}</span>
+                  <PathLabel path={project.root} style={{ color: 'var(--wm-muted)', fontSize: 11 }} />
                 </label>
               ))}
               <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>

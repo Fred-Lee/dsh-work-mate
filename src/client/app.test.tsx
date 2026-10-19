@@ -189,7 +189,7 @@ describe('ProposalPanel (kanban)', () => {
     expect(screen.getByText('当前 ⎇ main')).toBeTruthy()
 
     fireEvent.click(screen.getByText('从 Workspace 导入'))
-    await screen.findByText('/repo/b')
+    await screen.findByText('加入项目')
     fireEvent.click(screen.getByText('加入项目'))
 
     await waitFor(() => {
