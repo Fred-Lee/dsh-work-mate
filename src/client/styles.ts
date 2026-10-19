@@ -70,6 +70,11 @@ export const PANEL_STYLE = `
   background: transparent; padding: 0;
 }
 
+.wm-team-artifacts { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.wm-team-artifact { border: 1px solid var(--wm-border-soft); border-radius: 8px; padding: 6px 8px; background: var(--wm-card); }
+.wm-team-artifact summary { cursor: pointer; font-size: 12px; color: var(--wm-fg); }
+.wm-team-artifact-body { white-space: pre-wrap; max-height: 240px; overflow: auto; font-size: 11px; line-height: 1.5; margin: 6px 0 0; }
+
 /* ---------- header ---------- */
 .wm-header {
   display: flex; align-items: center; gap: 10px;

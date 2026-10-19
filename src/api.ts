@@ -38,6 +38,7 @@ import { effectiveTargets } from './features/proposal/targets.ts'
 import { syncProjectAssets } from './features/quality/sync.ts'
 import { buildProposalStatus } from './features/proposal/status.ts'
 import { generateChangeDir, readChangeState, validateProjectRoot } from './features/proposal/openspec.ts'
+import { readProposalFile } from './features/archive/service.ts'
 import { listProposalCommits } from './features/proposal/git.ts'
 
 /** Explicit per-call root wins, then the config default, else disabled. */
@@ -183,6 +184,25 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     const read = deps.events === undefined ? { events: [] } : await deps.events.read()
     const events = read.events.filter((event) => event.runId === id && event.kind.startsWith('team-'))
     return { run, events }
+  })
+
+  router.get('/api/team/runs/:id/artifacts', async (r) => {
+    const id = r.params['id'] ?? ''
+    const run = await deps.teamRuns?.get(id)
+    if (run === undefined) throw new Error(`team run not found: ${id}`)
+    const proposal = await deps.proposals.get(run.proposalId)
+    if (proposal === undefined) return { artifacts: [], note: `proposal not found: ${run.proposalId}` }
+    const primary = proposal.primaryProject ?? proposal.projects[0]
+    const registered = primary === undefined ? undefined : await deps.registry.get(primary)
+    const root = registered?.root ?? deps.projectRoot
+    if (root === undefined || root === '') return { artifacts: [], note: 'no project root for run artifacts' }
+    const names = ['REQ.md', 'PLAN.md', 'TASKS.json', 'TEST.md', 'TEAM-REVIEW.md', 'SUMMARY.md']
+    const artifacts: Array<{ name: string; content?: string }> = []
+    for (const name of names) {
+      const content = await readProposalFile(root, deps.openspecRoot, proposal.openspecChangeId, name)
+      artifacts.push(content === undefined ? { name } : { name, content })
+    }
+    return { artifacts, changeId: proposal.openspecChangeId, root }
   })
 
   router.get('/api/proposals', async () => {

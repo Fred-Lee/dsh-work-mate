@@ -176,6 +176,15 @@ export function getTeamRun(id: string): Promise<{ run: TeamRun; events: TeamRunE
   return request(`/workmate/api/team/runs/${encodeURIComponent(id)}`)
 }
 
+export interface TeamArtifactView {
+  name: string
+  content?: string
+}
+
+export function getTeamArtifacts(id: string): Promise<{ artifacts: TeamArtifactView[]; changeId?: string; note?: string }> {
+  return request(`/workmate/api/team/runs/${encodeURIComponent(id)}/artifacts`)
+}
+
 export function answerTeamQuestion(
   runId: string,
   messageId: string,

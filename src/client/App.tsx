@@ -31,6 +31,8 @@ import {
   listProjects,
   listProposals,
   listTeamRuns,
+  getTeamArtifacts,
+  type TeamArtifactView,
   listWorkspaceCandidates,
   reconcileProposal,
   rejectMerge,
@@ -949,6 +951,7 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
   const [runs, setRuns] = useState<TeamRun[]>([])
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<{ run: TeamRun; events: TeamRunEvent[] } | null>(null)
+  const [artifacts, setArtifacts] = useState<TeamArtifactView[]>([])
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
@@ -973,6 +976,8 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
     setSelected(id)
     try {
       setDetail(await getTeamRun(id))
+      const view = await getTeamArtifacts(id)
+      setArtifacts(view.artifacts ?? [])
     } catch (cause) {
       props.onError(cause instanceof Error ? cause.message : String(cause))
     }
@@ -1104,6 +1109,21 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
               ))}
             </tbody>
           </table>
+          {artifacts.length > 0 && (
+            <div className="wm-team-artifacts">
+              {artifacts.map((artifact) => (
+                <details className="wm-team-artifact" key={artifact.name}>
+                  <summary>
+                    {artifact.name}
+                    {artifact.content === undefined ? '（缺失）' : ` · ${artifact.content.length} 字符`}
+                  </summary>
+                  {artifact.content !== undefined && (
+                    <pre className="wm-team-artifact-body">{artifact.content}</pre>
+                  )}
+                </details>
+              ))}
+            </div>
+          )}
           {detail !== null && detail.events.length > 0 && (
             <div className="wm-team-events">
               {detail.events.map((event, index) => (
