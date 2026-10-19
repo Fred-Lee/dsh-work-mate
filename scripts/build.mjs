@@ -55,7 +55,6 @@ await build({
   entryPoints: ['src/client/index.tsx'],
   outfile: 'dist/client/client.js',
   bundle: true,
-  alias: reactAlias,
   format: 'cjs',
   platform: 'browser',
   target: 'es2020',
