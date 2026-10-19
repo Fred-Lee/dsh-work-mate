@@ -196,10 +196,18 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     const registered = primary === undefined ? undefined : await deps.registry.get(primary)
     const root = registered?.root ?? deps.projectRoot
     if (root === undefined || root === '') return { artifacts: [], note: 'no project root for run artifacts' }
+    // Evidence artifacts are produced inside the target worktree before the
+    // feature branch is merged; fall back to the worktree so the team console
+    // shows TEST/TEAM-REVIEW during a run instead of "缺失".
+    const roots = [root, ...(proposal.targets ?? []).map((target) => target.worktreePath).filter((value): value is string => value !== undefined)]
     const names = ['REQ.md', 'PLAN.md', 'TASKS.json', 'TEST.md', 'TEAM-REVIEW.md', 'SUMMARY.md']
     const artifacts: Array<{ name: string; content?: string }> = []
     for (const name of names) {
-      const content = await readProposalFile(root, deps.openspecRoot, proposal.openspecChangeId, name)
+      let content: string | undefined
+      for (const candidate of roots) {
+        content = await readProposalFile(candidate, deps.openspecRoot, proposal.openspecChangeId, name)
+        if (content !== undefined) break
+      }
       artifacts.push(content === undefined ? { name } : { name, content })
     }
     return { artifacts, changeId: proposal.openspecChangeId, root }
