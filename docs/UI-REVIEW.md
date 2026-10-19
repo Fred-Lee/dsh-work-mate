@@ -170,3 +170,18 @@
 - `workbench-projects-current.png`：项目树（dsh-Helmsman、e2e-a/e2e-b，含分支/脏文件/活跃 run）。
 
 > `scripts/build.mjs` 增加 React alias：ui-primitives 深导入不能再带第二份 React。
+
+
+## 2026-10-19 验收复核（Playwright）
+
+| # | 标准 | 结果 | 证据 |
+| --- | --- | --- | --- |
+| 1 | 3 秒内回答项目/分支/进行中/待批准/worktree | 通过 | `workbench-list-current.png`、`workbench-projects-current.png` |
+| 2 | 30 条提案 2 次操作内定位 | 通过 | 状态筛选 + 搜索框，`app.test.tsx` |
+| 3 | 详情 ≤1 次点击 | 通过 | `workbench-drawer-current.png`（列表行直接开抽屉） |
+| 4 | 创建一次模态完成项目×分支×主项目 | 通过 | 三步模态 + 每项目分支下拉 |
+| 5 | 全键盘可完成 | 通过 | SegmentedControl/Cmd+K/Escape/role=dialog，`app.test.tsx` |
+| 6 | 浅/深色无硬编码颜色 | 通过 | 移除 `prefers-color-scheme` 与硬编码渐变；`workbench-dark-tokens.png` |
+| 7 | 900px 无横向滚动/裁剪 | 通过 | `workbench-narrow-900.png`；`scrollWidth=900=clientWidth` |
+
+剩余未覆盖：并行提案写域冲突的就地面板提示（7.4）。
