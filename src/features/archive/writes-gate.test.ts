@@ -52,7 +52,7 @@ describe('implementing write-scope gate', () => {
     await proposals.upsert({ id: 'p1', title: 'p1', projects: ['demo'] })
     await proposals.upsert({ id: 'p2', title: 'p2', projects: ['demo'] })
     await proposals.setStatus('p1', 'ready')
-    await proposals.setStatus('p2', 'ready')
+    await proposals.setStatus('p2', 'implementing')
 
     await expect(lifecycle.transition('p1', 'implementing')).rejects.toThrow(/写域冲突/)
     expect((await proposals.get('p1'))?.status).toBe('ready')
@@ -76,7 +76,7 @@ describe('implementing write-scope gate', () => {
     await proposals.upsert({ id: 'p1', title: 'p1', projects: ['demo'] })
     await proposals.upsert({ id: 'p2', title: 'p2', projects: ['demo'] })
     await proposals.setStatus('p1', 'ready')
-    await proposals.setStatus('p2', 'ready')
+    await proposals.setStatus('p2', 'implementing')
     const warned = new LifecycleServiceImpl({
       proposals,
       worktree: new WorktreeManager({

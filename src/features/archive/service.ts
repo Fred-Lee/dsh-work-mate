@@ -957,7 +957,11 @@ export class LifecycleServiceImpl {
     }
 
     for (const other of await this.deps.proposals.list()) {
-      if (other.id === proposal.id || !isOccupying(other)) continue
+      // Only a proposal that is actively implementing can write concurrently;
+      // proposing/reviewing/ready are planning states, and merging/archiving are
+      // past the write phase. Treating them as occupying made historical proposals
+      // block every new implementation forever.
+      if (other.id === proposal.id || other.abandonedAt !== undefined || other.status !== 'implementing') continue
       const otherTargets = effectiveTargets(other, this.mainBranch).filter((target) => projects.has(target.project))
       if (otherTargets.length === 0) continue
       const otherRoots = (await this.deps.resolveProjectRoots?.(other)) ?? []
