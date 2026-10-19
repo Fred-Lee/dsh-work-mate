@@ -1,16 +1,20 @@
 /**
- * GraphView — three-column layered SVG (proposals / projects / commits) over
- * /workmate/api/graph. Hand-drawn SVG instead of a charting library (design
- * D1 of the change): the acceptance bar is "3 layers of association", not
- * force-directed eye candy, and this keeps the bundle dependency-free.
+ * GraphView — a readable layered view over /workmate/api/graph.
+ *
+ * Active proposals only by default: the old view drew every archived proposal,
+ * repeated project nodes and a text label on every edge, which made the graph
+ * unreadable at 1440px. Now: one node per project/commit, no per-edge text,
+ * dynamic columns and full labels in a title tooltip.
  */
 import { useCallback, useEffect, useState } from 'react'
 import type { GraphPayload } from './graph-types'
 
-const NODE_W = 132
-const NODE_H = 26
-const COL_X = [16, 210, 404]
-const GAP = 14
+const NODE_W = 180
+const NODE_H = 28
+const COL_GAP = 64
+const ROW_GAP = 12
+const LEFT = 16
+const TOP = 34
 
 interface Positioned {
   id: string
@@ -22,44 +26,19 @@ interface Positioned {
 }
 
 const KIND_FILL: Record<GraphPayload['nodes'][number]['kind'], string> = {
-  proposal: '#ddf4ff',
-  project: '#dafbe1',
-  commit: '#eaeef2',
+  proposal: 'var(--dsw-alias-bg-secondary, #ddf4ff)',
+  project: 'var(--dsw-alias-bg-layer-3, #dafbe1)',
+  commit: 'var(--dsw-alias-bg-tertiary, #eaeef2)',
 }
 const KIND_STROKE: Record<GraphPayload['nodes'][number]['kind'], string> = {
-  proposal: '#54aeff',
-  project: '#4ac26b',
-  commit: '#afb8c1',
+  proposal: 'var(--dsw-alias-border-l2, #54aeff)',
+  project: 'var(--dsw-alias-border-l1, #4ac26b)',
+  commit: 'var(--dsw-alias-border-l1, #afb8c1)',
 }
-const COL_LABEL = ['提案', '项目', 'Git 提交']
-
-function layout(graph: GraphPayload): { nodes: Positioned[]; edges: Array<{ from: Positioned; to: Positioned; relation: string }>; height: number } {
-  const byKind = (kind: GraphPayload['nodes'][number]['kind']) => graph.nodes.filter((node) => node.kind === kind)
-  const groups = [byKind('proposal'), byKind('project'), byKind('commit')]
-  const nodes: Positioned[] = []
-
-  groups.forEach((group, column) => {
-    const height = group.length * (NODE_H + GAP) - GAP
-    group.forEach((node, index) => {
-      nodes.push({
-        ...node,
-        x: COL_X[column] as number,
-        y: Math.max(0, height / 2 - (group.length * (NODE_H + GAP) - GAP) / 2) + index * (NODE_H + GAP),
-      })
-    })
-  })
-
-  const byId = new Map(nodes.map((node) => [node.id, node]))
-  const edges = graph.edges
-    .map((edge) => {
-      const from = byId.get(edge.from)
-      const to = byId.get(edge.to)
-      return from && to ? { from, to, relation: edge.relation } : undefined
-    })
-    .filter((edge): edge is { from: Positioned; to: Positioned; relation: string } => edge !== undefined)
-
-  const maxCount = Math.max(1, ...groups.map((group) => group.length))
-  return { nodes, edges, height: 46 + maxCount * (NODE_H + GAP) }
+const KIND_LABEL: Record<GraphPayload['nodes'][number]['kind'], string> = {
+  proposal: '提案',
+  project: '项目',
+  commit: 'Git 提交',
 }
 
 export function GraphView(props: { projectRoot?: string }): JSX.Element {
@@ -87,55 +66,68 @@ export function GraphView(props: { projectRoot?: string }): JSX.Element {
   if (error !== '') return <div className="wm-error">{error}</div>
   if (graph === undefined) return <div className="wm-empty">加载中…</div>
   if (graph.nodes.length === 0)
-    return <div className="wm-empty">还没有可展示的关联 — 先创建提案并关联项目。</div>
+    return <div className="wm-empty">还没有活跃提案关联 — 归档提案默认不进入图谱。</div>
 
-  const { nodes, edges, height } = layout(graph)
+  const kinds = (['proposal', 'project', 'commit'] as const).filter((kind) => graph.nodes.some((node) => node.kind === kind))
+  const groups = kinds.map((kind) => graph.nodes.filter((node) => node.kind === kind))
+  const maxCount = Math.max(...groups.map((group) => group.length))
+  const positions = new Map<string, Positioned>()
+  groups.forEach((group, column) => {
+    const x = LEFT + column * (NODE_W + COL_GAP)
+    const groupHeight = group.length * (NODE_H + ROW_GAP) - ROW_GAP
+    const offset = Math.max(0, (maxCount * (NODE_H + ROW_GAP) - ROW_GAP - groupHeight) / 2)
+    group.forEach((node, index) => {
+      positions.set(node.id, { ...node, x, y: TOP + offset + index * (NODE_H + ROW_GAP) })
+    })
+  })
+  const edges = graph.edges
+    .map((edge) => {
+      const from = positions.get(edge.from)
+      const to = positions.get(edge.to)
+      return from !== undefined && to !== undefined ? { from, to } : undefined
+    })
+    .filter((edge): edge is { from: Positioned; to: Positioned } => edge !== undefined)
+  const width = LEFT + kinds.length * (NODE_W + COL_GAP)
+  const height = TOP + maxCount * (NODE_H + ROW_GAP) + 12
 
   return (
     <div className="wm-graph">
-      {COL_LABEL.map((label, column) => (
-        <div key={label} className="wm-graph-col-label" style={{ left: (COL_X[column] as number) + 2 }}>
-          {label}
-        </div>
-      ))}
-      <svg width={COL_X[2]! + NODE_W + 16} height={height} role="img" aria-label="知识图谱">
+      <div className="wm-graph-head">
+        {kinds.map((kind, column) => (
+          <span key={kind} className="wm-graph-col-label" style={{ left: LEFT + column * (NODE_W + COL_GAP) }}>
+            {KIND_LABEL[kind]} · {groups[column]?.length ?? 0}
+          </span>
+        ))}
+      </div>
+      <svg width={width} height={height} role="img" aria-label="知识图谱：活跃提案、项目与提交">
         {edges.map((edge, index) => {
           const x1 = edge.from.x + NODE_W
           const y1 = edge.from.y + NODE_H / 2
           const x2 = edge.to.x
           const y2 = edge.to.y + NODE_H / 2
-          const midX = (x1 + x2) / 2
+          const mid = (x1 + x2) / 2
           return (
-            <g key={index}>
-              <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#d0d7de" strokeWidth={1.4} />
-              <text x={midX} y={(y1 + y2) / 2 - 3} textAnchor="middle" fontSize={10} fill="#57606a">
-                {edge.relation}
+            <path
+              key={index}
+              d={`M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`}
+              fill="none"
+              stroke="var(--dsw-alias-border-l1, #d0d7de)"
+              strokeWidth={1.4}
+            />
+          )
+        })}
+        {[...positions.values()].map((node) => {
+          const label = node.label.length > 24 ? `${node.label.slice(0, 23)}…` : node.label
+          return (
+            <g key={node.id}>
+              <rect x={node.x} y={node.y} width={NODE_W} height={NODE_H} rx={7} fill={KIND_FILL[node.kind]} stroke={KIND_STROKE[node.kind]} />
+              <text x={node.x + 10} y={node.y + NODE_H / 2 + 4} fontSize={11} fill="var(--dsw-alias-label-primary, #1f2328)">
+                <title>{node.label}</title>
+                {label}
               </text>
             </g>
           )
         })}
-        {nodes.map((node) => (
-          <g key={node.id}>
-            <rect
-              x={node.x}
-              y={node.y}
-              width={NODE_W}
-              height={NODE_H}
-              rx={7}
-              fill={KIND_FILL[node.kind]}
-              stroke={KIND_STROKE[node.kind]}
-            />
-            <text
-              x={node.x + NODE_W / 2}
-              y={node.y + NODE_H / 2 + 4}
-              textAnchor="middle"
-              fontSize={11}
-              fill="#1f2328"
-            >
-              {node.label.length > 15 ? `${node.label.slice(0, 14)}…` : node.label}
-            </text>
-          </g>
-        ))}
       </svg>
     </div>
   )

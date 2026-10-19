@@ -542,7 +542,9 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     return { removed }
   })
   router.get('/api/graph', async (r) => {
-    return buildGraphData(deps, resolveRoot(deps, r.query.get('projectRoot') ?? undefined) || undefined)
+    return buildGraphData(deps, resolveRoot(deps, r.query.get('projectRoot') ?? undefined) || undefined, {
+      includeArchived: r.query.get('scope') === 'all',
+    })
   })
   router.post('/api/proposals/:id/wiki-links', async (r) => {
     const body = await readJsonBody<{ url?: string; pageType?: string; version?: number; commit?: string; taskId?: string }>(r.req)
@@ -741,20 +743,34 @@ export async function createProposal(
 }
 
 /** Aggregate the knowledge-graph face (M5) alongside per-proposal data. */
-export async function buildGraphData(deps: ApiDeps, projectRoot: string | undefined): Promise<GraphPayload> {
-  const proposals = await deps.proposals.list()
+export async function buildGraphData(
+  deps: ApiDeps,
+  projectRoot: string | undefined,
+  options: { includeArchived?: boolean } = {},
+): Promise<GraphPayload> {
+  const proposals = (await deps.proposals.list()).filter(
+    (proposal) =>
+      proposal.abandonedAt === undefined && (options.includeArchived === true || proposal.status !== 'archived'),
+  )
   const nodes: GraphPayload['nodes'] = []
   const edges: GraphPayload['edges'] = []
+  const projectNodes = new Set<string>()
+  const commitNodes = new Set<string>()
 
   for (const proposal of proposals) {
     nodes.push({ kind: 'proposal', id: `proposal:${proposal.id}`, label: proposal.title, status: proposal.status })
     for (const project of proposal.projects) {
-      nodes.push({ kind: 'project', id: `project:${project}`, label: project })
+      if (!projectNodes.has(project)) {
+        projectNodes.add(project)
+        nodes.push({ kind: 'project', id: `project:${project}`, label: project })
+      }
       edges.push({ from: `proposal:${proposal.id}`, to: `project:${project}`, relation: '涉及' })
     }
     if (projectRoot) {
       const { commits } = await listProposalCommits(projectRoot, proposal.id)
       for (const commit of commits) {
+        if (commitNodes.has(commit.hash)) continue
+        commitNodes.add(commit.hash)
         nodes.push({ kind: 'commit', id: `commit:${commit.hash}`, label: commit.short })
         edges.push({ from: `project:${proposal.projects[0] ?? proposal.id}`, to: `commit:${commit.hash}`, relation: '提交' })
       }

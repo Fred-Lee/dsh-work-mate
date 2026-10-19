@@ -992,6 +992,12 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
     }
   }
 
+  useEffect(() => {
+    if (selected === null && runs.length > 0) void open(runs[0]!.id)
+    // Auto-select the newest run so the console is not an empty page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runs])
+
   async function answer(runId: string, messageId: string): Promise<void> {
     const reply = window.prompt('回答 worker 的提问（会写回 Run 的 inbox）')
     if (reply === null || reply.trim() === '') return
@@ -1809,6 +1815,13 @@ function formatDuration(ms: number | undefined): string {
 
 const percent = (value: number): string => `${Math.round(value * 100)}%`
 
+/** Band metrics mix durations, ratios and counts; format by metric name. */
+function formatBandValue(metric: string, value: number): string {
+  if (/time|ms/i.test(metric)) return formatDuration(value)
+  if (metric === 'rework' || metric === 'firstPass' || /rate/i.test(metric)) return percent(value)
+  return Number.isInteger(value) ? String(value) : value.toFixed(2)
+}
+
 /**
  * Control room: the cross-proposal view of the process facts (change
  * `add-workbench-panel`). Two read-only requests — the aggregate metric
@@ -1928,7 +1941,7 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {rows.filter((row) => !row.abandoned).map((row) => (
                 <tr key={row.id}>
                   <td title={row.id}>{row.title}</td>
                   <td>{row.status}</td>
@@ -1976,9 +1989,9 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
                       <span className={`wm-tier wm-tier-${entry.tier}`}>{entry.tier}</span>
                     )}
                   </td>
-                  <td className="wm-num">{entry.status === 'ok' ? entry.current.toFixed(2) : '—'}</td>
-                  <td className="wm-num">{entry.status === 'ok' ? entry.baseline.toFixed(2) : '—'}</td>
-                  <td className="wm-num">{entry.status === 'ok' ? entry.sigma.toFixed(2) : '—'}</td>
+                  <td className="wm-num">{entry.status === 'ok' ? formatBandValue(entry.metric, entry.current) : '—'}</td>
+                  <td className="wm-num">{entry.status === 'ok' ? formatBandValue(entry.metric, entry.baseline) : '—'}</td>
+                  <td className="wm-num">{entry.status === 'ok' ? formatBandValue(entry.metric, entry.sigma) : '—'}</td>
                   <td className="wm-num">{entry.status === 'ok' ? `${entry.deviation.toFixed(2)}σ` : '—'}</td>
                   <td className="wm-num">
                     {entry.samples}

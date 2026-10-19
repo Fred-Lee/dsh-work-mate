@@ -207,6 +207,7 @@ export interface ProposalMetricRow {
   title: string
   status: ProposalState
   archived: boolean
+  abandoned: boolean
   currentStateMs: number
   cycleTimeMs?: number
   reworkCount: number

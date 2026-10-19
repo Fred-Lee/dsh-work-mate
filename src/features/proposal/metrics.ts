@@ -51,6 +51,8 @@ export interface ProposalMetricRow {
   title: string
   status: ProposalState
   archived: boolean
+  /** Deliberately abandoned proposals are history, not process samples. */
+  abandoned: boolean
   /** Dwell time in the state the proposal currently sits in. */
   currentStateMs: number
   cycleTimeMs?: number
@@ -204,6 +206,7 @@ export function aggregateMetrics(
       title: proposal.title,
       status: proposal.status,
       archived: metrics.archived,
+      abandoned: proposal.abandonedAt !== undefined,
       currentStateMs: metrics.timeInStateMs[proposal.status] ?? 0,
       ...(metrics.cycleTimeMs !== undefined ? { cycleTimeMs: metrics.cycleTimeMs } : {}),
       reworkCount: metrics.reworkCount,

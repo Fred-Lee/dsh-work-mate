@@ -44,8 +44,8 @@ describe('GraphView', () => {
     expect(svg).toContain('批量批改')
     expect(svg).toContain('grading-core')
     expect(svg).toContain('abc1234')
-    expect(svg).toContain('涉及')
-    expect(svg).toContain('提交')
+    expect(svg).not.toContain('涉及')
+    expect(svg).not.toContain('提交')
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/workmate/api/graph?projectRoot=%2Fproj')
   })
 
@@ -59,7 +59,7 @@ describe('GraphView', () => {
   it('shows the guidance copy when there is nothing to show', async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => graph({ nodes: [], edges: [] }) })
     render(<GraphView />)
-    expect(await screen.findByText(/还没有可展示的关联/)).toBeTruthy()
+    expect(await screen.findByText(/还没有活跃提案关联/)).toBeTruthy()
   })
 
   it('surfaces REST errors inline', async () => {
