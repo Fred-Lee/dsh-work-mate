@@ -98,3 +98,13 @@ TEST/TEAM-REVIEW/SUMMARY 齐全、reviewer dispatch 与实现者身份不相交�
 - [ ] `TEST.md` / `TEAM-REVIEW.md` / `SUMMARY.md` 生成且 marker 匹配
 - [ ] G2（approvePlan）与 G5（merge approval）由人完成
 - [ ] `merging→archiving` 真实合并成功，归档编排产物事实正确
+
+
+## 7. 客户端 ui-primitives 依赖
+
+工作台客户端使用 `@deepseek-ai/dsh-client-ui-primitives` 的共享原子控件（Button / SegmentedControl /
+Tag / StateDot / PathLabel / DisclosureRow / Modal / Tooltip / Pill）。它是 **peerDependency**：
+
+- 宿主 profile 已自带 `0.2.1-rc.2`，构建时按 `src/*` 深导入并打包进 `dist/client/client.js`；
+- 新机器构建前需保证该包可解析（`npm/pnpm add @deepseek-ai/dsh-client-ui-primitives@0.2.1-rc.2`
+  或从宿主 profile link）；缺包时 `pnpm typecheck`/`build` 会直接失败，不会静默降级。
