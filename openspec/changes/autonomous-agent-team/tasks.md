@@ -42,7 +42,7 @@
 ## 5. 团队控制台（T5）
 
 - [x] 5.1 团队视图：角色看板、Task 状态、当前 worker。<!-- writes: src/client/App.tsx, src/client/api.ts -->
-- [ ] 5.2 DAG 视图：依赖边、波次、关键路径。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
+- [x] 5.2 DAG 视图：依赖边、波次、关键路径。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
 - [x] 5.3 收件箱：question/escalation 列表与一键回答；阻塞 Task 高亮。<!-- writes: src/client/App.tsx, src/client/api.ts -->
 - [ ] 5.4 运行时间线与证据面板：六份工件 Markdown 渲染、commit/文件链接。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
 

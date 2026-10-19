@@ -1064,6 +1064,7 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
                 <th>Task</th>
                 <th>角色</th>
                 <th>状态</th>
+                <th>依赖</th>
                 <th>尝试</th>
               </tr>
             </thead>
@@ -1073,6 +1074,7 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
                   <td>{task.id}</td>
                   <td>{task.role}</td>
                   <td>{task.status}</td>
+                  <td>{task.dependsOn !== undefined && task.dependsOn.length > 0 ? task.dependsOn.join(', ') : '—'}</td>
                   <td>{task.attempts}</td>
                 </tr>
               ))}
