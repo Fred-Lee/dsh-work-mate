@@ -1843,9 +1843,17 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
   const [metrics, setMetrics] = useState<AggregateMetrics | null>(null)
   const [bands, setBands] = useState<BandsPayload | null>(null)
   const [failure, setFailure] = useState('')
+  const [abandonedIds, setAbandonedIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     let alive = true
+    void listProposals()
+      .then(({ proposals }) => {
+        if (alive) {
+          setAbandonedIds(new Set(proposals.filter((proposal) => proposal.abandonedAt !== undefined).map((proposal) => proposal.id)))
+        }
+      })
+      .catch(() => undefined)
     // Independent fetches: one failing endpoint must not hide the other's data
     // (a corrupt bands.json would otherwise keep the whole console in "loading").
     void getMetrics()
@@ -1893,7 +1901,7 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
       <section className="wm-section">
         <div className="wm-kpis">
           <div className="wm-kpi">
-            <div className="wm-kpi-value">{metrics.proposals}</div>
+            <div className="wm-kpi-value">{rows.filter((row) => !abandonedIds.has(row.id)).length || metrics.proposals}</div>
             <div className="wm-kpi-label">提案总数</div>
           </div>
           <div className="wm-kpi">
@@ -1952,7 +1960,7 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
               </tr>
             </thead>
             <tbody>
-              {rows.filter((row) => !row.abandoned).map((row) => (
+              {rows.filter((row) => !row.abandoned && !abandonedIds.has(row.id)).map((row) => (
                 <tr key={row.id}>
                   <td title={row.id}>{row.title}</td>
                   <td>{row.status}</td>
