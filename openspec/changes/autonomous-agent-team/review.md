@@ -138,3 +138,12 @@
 - 主干 `feat/workmate` 同步。
 - 追加：`workmate_team_plan` 仅允许 ready/implementing/merging，堵住 archiving 后新建 planned Run 的通道。
 - **仍不可归档**：提案工件/G2/G5/Run/独立审查放行未就绪。
+
+## 第十一轮：真实两仓 Run 验收（2026-10-19）
+
+- 环境：宿主 08:34 重启后 `teamReadonlyPreset=minimal`、`teamWorkspacePreset=standard` 生效。
+- 提案：`team-e2e`（临时两仓 `/tmp/wm-e2e-a`、`/tmp/wm-e2e-b`），TASKS 为两个 backend + 一个 reviewer。
+- Run `run-team-e2e-mvek1jdg`：t1/t2 真实 subagent 写入并提交 `src/e2e.txt`；t3 reviewer 写 `TEAM-REVIEW.md`（含 `<!-- reviewer: run-team-e2e-mvek1jdg-t3-a1 -->`），Run **succeeded**。
+- 合并/归档：`merging→archiving` 逐 target 真实 merge，`runArchive` 两仓 openspec archive + gitnexus analyze + worktree 回收，提案 **archived**。
+- 过程中发现并修复：abort 未清理在飞 dispatch/task；reviewer 用只读 preset 无法写报告（改为 workspace preset）；变更测量按 base 误把前一任务提交算入当前（改为本 dispatch 起始 HEAD）；证据门硬性要求 TEST/TEAM-REVIEW（改为按 TASKS 角色）；REPORT 指向 worktree 根而非 change 目录；prompt 未列必需段头；建 Run 前未校验 worktree 内工件。
+- 当前两个正式提案仍 reviewing、tasks 未完成；e2e 仅验证链路，不替代它们的归档审查。

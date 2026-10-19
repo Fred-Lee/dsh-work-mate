@@ -49,7 +49,7 @@
 ## 6. 测试与验证
 
 - [x] 6.1 单测：角色契约、DAG 无环与波次、写域冲突、重试/预算/终态、inbox FIFO 与 ack、门禁缺失证据。<!-- writes: src/features/team/**/*.test.ts -->
-- [ ] 6.2 宿主探针：原生 Session 派发 + cwd 绑定是否可行；不可行时 Subagent 降级路径可用。<!-- writes: src/features/team/** -->
+- [x] 6.2 宿主探针：原生 Session 派发 + cwd 绑定是否可行；不可行时 Subagent 降级路径可用。<!-- writes: src/features/team/** -->
 - [x] 6.3 客户端测试：团队视图/DAG/收件箱；沿用 UI 重构后的组件；`pnpm verify:client` 绿。<!-- writes: src/client/*.test.tsx -->
 - [x] 6.4 门禁：`pnpm typecheck && pnpm test && pnpm build && pnpm verify` 全绿。<!-- writes: package.json -->
 - [ ] 6.5 真机验收：一个两仓提案走 requirement-full 模板，G2 人确认后自动跑前后端→集成测试→审查；截图团队看板与收件箱；失败注入一次验证升级。<!-- writes: docs/AGENT-TEAM-DESIGN.md -->
