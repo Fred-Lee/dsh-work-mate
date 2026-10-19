@@ -82,4 +82,17 @@ describe('TeamInbox', () => {
     ).toContain('测试改动越界')
   })
 
+  it('lets a tester write its REPORT artifact outside the test allowlist', () => {
+    const errors = validateWorkerDone(
+      { id: 't1', role: 'integration-tester', writes: ['tests/**', 'openspec/changes/p1/TEST.md'] },
+      {
+        status: 'done',
+        outcome: 'tests passed',
+        reportPath: 'openspec/changes/p1/TEST.md',
+        filesModified: ['tests/a.test.ts', 'openspec/changes/p1/TEST.md'],
+      },
+    )
+    expect(errors).toEqual([])
+  })
+
 })

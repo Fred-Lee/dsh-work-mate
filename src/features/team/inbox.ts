@@ -53,7 +53,10 @@ export function validateWorkerDone(
       if (outside.length > 0) errors.push(`${task.id} 越界改文件：${outside.join(', ')}`)
     }
     if (task.role === 'integration-tester') {
-      const testViolations = testScopeViolations(input.filesModified)
+      // The report artifact is evidence, not production code: a tester may write
+      // TEST.md under the change dir even though it is outside tests/**.
+      const candidates = input.filesModified.filter((file) => file !== input.reportPath)
+      const testViolations = testScopeViolations(candidates)
       if (testViolations.length > 0) {
         errors.push(`${task.id} 测试改动越界（允许 tests/**、**/*.test.ts、scripts/**）：${testViolations.join(', ')}`)
       }
