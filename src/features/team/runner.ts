@@ -197,7 +197,17 @@ export class TeamRunner {
   }
 
   async abort(id: string): Promise<TeamRun> {
-    return this.store.patch(id, { status: 'aborted' }, this.now)
+    const run = await this.get(id)
+    const at = this.now().toISOString()
+    const tasks = run.tasks.map((task) =>
+      task.status === 'dispatched' || task.status === 'running' ? { ...task, status: 'failed' as const } : task,
+    )
+    const dispatches = (run.dispatches ?? []).map((dispatch) =>
+      dispatch.status === 'dispatched' || dispatch.status === 'running'
+        ? { ...dispatch, status: 'abandoned' as const, endedAt: at, outcome: 'Run aborted（波次超时/预算）' }
+        : dispatch,
+    )
+    return this.store.patch(id, { status: 'aborted', tasks, dispatches }, this.now)
   }
 
   /** Append one persisted inbox message (question/escalation/worker_done) to the Run. */

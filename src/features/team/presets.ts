@@ -20,7 +20,11 @@ export function presetForRole(role: TeamRole, config: RolePresetConfig): string 
   const override = config.rolePresets?.[role]
   if (override !== undefined && override.trim() !== '') return override.trim()
   const contract = contractFor(role)
-  const preset = contract.permission === 'read-only' ? config.readonlyPreset : config.workspacePreset
+  // A reviewer must WRITE TEAM-REVIEW.md, so it cannot use the strict read-only
+  // preset even though its code permission is read-only. Evaluators keep the
+  // readonly preset; the reviewer prompt forbids touching implementation files.
+  const readOnlyBucket = contract.permission === 'read-only' && role !== 'reviewer'
+  const preset = readOnlyBucket ? config.readonlyPreset : config.workspacePreset
   return preset !== undefined && preset.trim() !== '' ? preset.trim() : undefined
 }
 

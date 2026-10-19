@@ -145,4 +145,13 @@ describe('TeamRunner', () => {
     expect((await runner.get('r2')).tokensUsed).toBeUndefined()
   })
 
+  it('abort marks in-flight tasks failed and dispatches abandoned', async () => {
+    await runner.createRun({ id: 'r1', proposalId: 'p1', template: 'bug-fix', tasks: [task('t1')] })
+    await runner.dispatch('r1', 't1', 'd1')
+    const aborted = await runner.abort('r1')
+    expect(aborted.status).toBe('aborted')
+    expect(aborted.tasks[0]?.status).toBe('failed')
+    expect(aborted.dispatches?.[0]).toMatchObject({ status: 'abandoned', outcome: expect.stringContaining('aborted') })
+  })
+
 })

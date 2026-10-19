@@ -8,7 +8,7 @@
 agent preset 不是 `$DSH_HOME/.agent-presets/` 旧目录，而是 profile 里安装的
 `@deepseek-ai/dsh-agent-preset` bundle（如 Web 自带的 `standard` / `minimal` / `ptc`）。
 
-读角色（需求/方案评估、reviewer）必须映射到不含写工具的 readonly preset；
+需求/方案评估映射到不含写工具的 readonly preset；reviewer 因要写 TEAM-REVIEW.md 使用 workspace preset；
 开发/测试/协调角色映射到 workspace-write preset。Web 自带 `minimal`（无 write/edit）
 与 `standard`（workspace-write）可直接使用：
 
