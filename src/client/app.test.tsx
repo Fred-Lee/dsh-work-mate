@@ -130,8 +130,10 @@ describe('ProposalPanel (kanban)', () => {
     await screen.findAllByText('暂无提案')
 
     fireEvent.click(screen.getByText('＋ 新提案'))
-    expect(screen.getByText('＋ 新提案', { selector: 'h3' })).toBeTruthy()
+    expect(screen.getByText(/＋ 新提案/, { selector: 'h3' })).toBeTruthy()
     fireEvent.change(screen.getByPlaceholderText('批量批改 v2.1'), { target: { value: '新提案标题' } })
+    fireEvent.click(screen.getByText('下一步'))
+    fireEvent.click(screen.getByText('下一步'))
     fireEvent.click(screen.getByText('创建提案'))
 
     await waitFor(() => expect(screen.getByText('批量批改 v2.1')).toBeTruthy())

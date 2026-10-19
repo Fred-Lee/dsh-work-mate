@@ -120,6 +120,8 @@ export class TeamRunner {
   /** Mark one task dispatched and append its dispatch record. */
   async dispatch(id: string, taskId: string, dispatchId: string): Promise<TeamRun> {
     const run = await this.get(id)
+    // Idempotent: retrying the same dispatch id must not create a second dispatch.
+    if (run.dispatches?.some((dispatch) => dispatch.id === dispatchId) === true) return run
     if (run.dispatches !== undefined && run.dispatches.length >= run.budget.maxDispatches) {
       throw new Error(`Run 达到 Dispatch 上限 ${run.budget.maxDispatches} — 暂停并上报`)
     }

@@ -36,7 +36,7 @@ describe('prepareTeamArtifacts', () => {
         { project: 'other', baseBranch: 'master' },
       ],
     })
-    expect(first.written).toEqual(['REQ.md', 'PLAN.md', 'TASKS.json'])
+    expect(first.written).toEqual(['REQ.md', 'PLAN.md', 'TASKS.json', 'TEST.md', 'TEAM-REVIEW.md', 'SUMMARY.md'])
     expect(await readFile(join(dir(), 'REQ.md'), 'utf8')).toContain('因为订单流程太长')
     const plan = await readFile(join(dir(), 'PLAN.md'), 'utf8')
     expect(plan).toContain('other @ master')
@@ -50,7 +50,7 @@ describe('prepareTeamArtifacts', () => {
       primaryProject: 'demo',
     })
     expect(second.written).toEqual([])
-    expect(second.skipped).toEqual(['REQ.md', 'PLAN.md', 'TASKS.json'])
+    expect(second.skipped).toEqual(['REQ.md', 'PLAN.md', 'TASKS.json', 'TEST.md', 'TEAM-REVIEW.md', 'SUMMARY.md'])
   })
 
   it('warns when role/project annotations are missing', async () => {

@@ -65,6 +65,7 @@ export async function checkTeamEvidence(
     for (const section of REQUIRED_SECTIONS[artifact]) {
       if (!content.includes(section)) errors.push(`${artifact} 缺「${section}」`)
     }
+    if (content.includes('<!-- 待填写 -->')) errors.push(`${artifact} 仍是模板（<!-- 待填写 -->），没有真实证据`)
     if (artifact === 'TEAM-REVIEW.md') {
       const marker = /<!--\s*reviewer:\s*(\S+)/.exec(content)
       if (marker?.[1] === undefined) {

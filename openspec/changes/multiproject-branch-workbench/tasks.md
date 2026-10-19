@@ -4,7 +4,7 @@
 
 - [x] 1.1 `ProjectRegistry` 记录扩展为 `{name, root, defaultBranch?, workspace?}`：读取兼容旧两项，写入保留未知字段；`defaultBranch` 缺失时按 `main` → `master` 探测并回填，探测不到不写。<!-- writes: src/features/project/**, src/features/proposal/store.ts -->
 - [x] 1.2 新增只读分支列举与校验：`GET /workmate/api/projects/:name/branches` 返回 `current/default/local[]/remote[]`；不存在或未注册返回可读错误与候选。<!-- writes: src/api.ts, src/features/project/** -->
-- [ ] 1.3 面板注册项目时可选填默认分支与工作区名；未填走探测。<!-- writes: src/client/App.tsx, src/client/api.ts -->
+- [x] 1.3 面板注册项目时可选填默认分支与工作区名；未填走探测。<!-- writes: src/client/App.tsx, src/client/api.ts -->
 
 - [x] 1.4 DSH Workspace 候选发现：读取 `ctx.workspaceRegistry`，过滤存在/git 仓库/未注册/路径不重复；只读，不自动导入。<!-- writes: src/features/project/**, src/api.ts -->
 - [x] 1.5 面板「导入项目」：候选列表（标题/路径/当前分支/openspec）+ 一键加入注册表（探测默认分支）；服务不可用时隐藏并说明。<!-- writes: src/client/App.tsx, src/client/api.ts -->
@@ -34,30 +34,30 @@
 
 ## 6. 面板 B：信息架构重构
 
-- [ ] 6.1 上下文栏：Workspace / Project / 当前分支下拉 + 占用徽标 + 搜索 + 主按钮；切换项目过滤主区。<!-- writes: src/client/App.tsx, src/client/api.ts -->
-- [ ] 6.2 项目树：按 workspace 分组，显示当前分支、脏文件、活跃 change、活跃 worktree；窄屏收起为下拉。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
+- [x] 6.1 上下文栏：Workspace / Project / 当前分支下拉 + 占用徽标 + 搜索 + 主按钮；切换项目过滤主区。<!-- writes: src/client/App.tsx, src/client/api.ts -->
+- [x] 6.2 项目树：按 workspace 分组，显示当前分支、脏文件、活跃 change、活跃 worktree；窄屏收起为下拉。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
 - [x] 6.3 主区列表优先：默认「我的变更」列表（进行中优先），看板为第二视图；筛选（全部/进行中/待批准/已归档）、项目筛选、搜索；已归档默认折叠。<!-- writes: src/client/App.tsx, src/client/api.ts -->
-- [ ] 6.4 详情抽屉：选中行预取并打开；分段（概览/目标矩阵/任务/审查/事件）+ 固定动作条；去掉行内展开与「加载详情」二次点击；逐 target 展示分支/worktree/端口与释放操作。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
-- [ ] 6.5 创建三步模态：项目多选 → 每项目基线分支（默认 `defaultBranch`）→ 确认主项目/OpenSpec 归属/`feature/<id>` 预览；错误就地显示在项目行。<!-- writes: src/client/App.tsx, src/client/api.ts -->
-- [ ] 6.6 反馈与可访问性：首屏 skeleton、Toast、pending/disabled、行语义与 `aria-current`、抽屉焦点与 Escape、命令面板（`/` 或 Cmd+K）。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
-- [ ] 6.7 响应式：≥1200 三区、900–1200 项目树折叠、<900 单列 + 详情整页；面板根高度与唯一滚动容器契约不被破坏（`fix-panel-scroll`）。<!-- writes: src/client/styles.ts, src/client/App.tsx -->
-- [ ] 6.8 流水线视图：`方案 → 待确认 → 执行中 → 待合并 → 已归档`，只保留「确认方案」「合并并归档」两个主操作；逐态推进收进详情覆盖操作；`planHash` 失效时提示重新确认。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
+- [x] 6.4 详情抽屉：选中行预取并打开；分段（概览/目标矩阵/任务/审查/事件）+ 固定动作条；去掉行内展开与「加载详情」二次点击；逐 target 展示分支/worktree/端口与释放操作。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
+- [x] 6.5 创建三步模态：项目多选 → 每项目基线分支（默认 `defaultBranch`）→ 确认主项目/OpenSpec 归属/`feature/<id>` 预览；错误就地显示在项目行。<!-- writes: src/client/App.tsx, src/client/api.ts -->
+- [x] 6.6 反馈与可访问性：首屏 skeleton、Toast、pending/disabled、行语义与 `aria-current`、抽屉焦点与 Escape、命令面板（`/` 或 Cmd+K）。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
+- [x] 6.7 响应式：≥1200 三区、900–1200 项目树折叠、<900 单列 + 详情整页；面板根高度与唯一滚动容器契约不被破坏（`fix-panel-scroll`）。<!-- writes: src/client/styles.ts, src/client/App.tsx -->
+- [x] 6.8 流水线视图：`方案 → 待确认 → 执行中 → 待合并 → 已归档`，只保留「确认方案」「合并并归档」两个主操作；逐态推进收进详情覆盖操作；`planHash` 失效时提示重新确认。<!-- writes: src/client/App.tsx, src/client/styles.ts -->
 
 ## 7. 测试与验证
 
-- [ ] 7.1 单测：注册表字段兼容/探测、targets 兼容层、多目标创建与回滚、按 target 合并校验、占用冲突、写域冲突（含未声明 warn）。<!-- writes: src/features/**/*.test.ts, src/api.test.ts -->
-- [ ] 7.2 客户端测试：上下文栏/项目树/列表筛选/抽屉/创建三步/键盘可达；`pnpm verify:client` 仍绿。<!-- writes: src/client/*.test.tsx -->
+- [x] 7.1 单测：注册表字段兼容/探测、targets 兼容层、多目标创建与回滚、按 target 合并校验、占用冲突、写域冲突（含未声明 warn）。<!-- writes: src/features/**/*.test.ts, src/api.test.ts -->
+- [x] 7.2 客户端测试：上下文栏/项目树/列表筛选/抽屉/创建三步/键盘可达；`pnpm verify:client` 仍绿。<!-- writes: src/client/*.test.tsx -->
 - [x] 7.3 门禁：`pnpm typecheck && pnpm test && pnpm build && pnpm verify` 全绿；测试自证门禁不放宽。<!-- writes: package.json -->
 - [ ] 7.4 真机验收：装进 web profile，建 2–3 项目提案（不同基线分支），走 ready→implementing，截图工作台占用与详情抽屉；第二个并行提案验证冲突提示；浅色/深色各一张。<!-- writes: docs/UI-REVIEW.md -->
 - [ ] 7.5 UI 验收对照 `docs/UI-REVIEW.md` §6 的 7 条标准，before/after 截图存入 `docs/assets/ui/`。<!-- writes: docs/assets/ui/** -->
 
 ## 8. 证据派生与自动推进
 
-- [ ] 8.1 `ProposalReadiness` 评估器：工件完整性、OpenSpec validate、`planHash`、审批、团队 run/Task、target 合并状态。<!-- writes: src/features/proposal/**, src/features/quality/** -->
+- [x] 8.1 `ProposalReadiness` 评估器：工件完整性、OpenSpec validate、`planHash`、审批、团队 run/Task、target 合并状态。<!-- writes: src/features/proposal/**, src/features/quality/** -->
 - [x] 8.2 `reconcile(proposalId)`：幂等推进非人工门；不跨 G2/G5；自动转移写 `auto:'evidence'` 与证据快照。<!-- writes: src/features/proposal/**, src/features/proposal/events.ts -->
 - [x] 8.3 G2 `planHash`：`REQ+PLAN+TASKS` 规范化哈希；批准记录绑定哈希；工件变化自动退回 reviewing。<!-- writes: src/features/proposal/**, src/features/archive/** -->
 - [x] 8.4 G5 合并/归档合并为一次人工批准（默认），配置可恢复两道；批准后协调器合并 target 分支并跑归档编排。<!-- writes: src/features/archive/**, src/config.ts -->
-- [ ] 8.5 兼容：旧提案按同一评估器推导；`mode=advance` 手动入口保留但不再是 UI 主路径；补迁移测试。<!-- writes: src/features/proposal/**, src/api.test.ts -->
+- [x] 8.5 兼容：旧提案按同一评估器推导；`mode=advance` 手动入口保留但不再是 UI 主路径；补迁移测试。<!-- writes: src/features/proposal/**, src/api.test.ts -->
 - [x] 8.6 批准门默认改为 `['merging']`：一次批准覆盖合并归档；配置可恢复两道；更新 approval-gate 规格与测试。<!-- writes: src/config.ts, src/features/archive/**, src/features/archive/*.test.ts -->
 - [x] 8.7 提案分支降级为可选追溯：移除 reviewing/ready 对 `proposal/<id>` 存在/合并的前置；保留字段与手动分支流程。<!-- writes: src/features/archive/service.ts, src/features/proposal/** -->
 

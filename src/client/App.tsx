@@ -423,7 +423,11 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
         </button>
       </div>
 
-      {error !== '' && <div className="wm-error">{error}</div>}
+      {error !== '' && (
+        <div className="wm-error" role="alert" aria-live="polite">
+          {error}
+        </div>
+      )}
 
       <div className="wm-body">
         {view === 'graph' ? (
@@ -493,6 +497,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                         className="wm-card"
                         key={proposal.id}
                         tabIndex={0}
+                        aria-current={expanded === proposal.id ? 'true' : undefined}
                         onMouseEnter={() => {
                           if (details[proposal.id] === undefined) void loadDetail(proposal.id)
                         }}
@@ -1479,6 +1484,13 @@ function CreateModal(props: {
   const [checked, setChecked] = useState<string[]>([])
   const [newName, setNewName] = useState('')
   const [newRoot, setNewRoot] = useState('')
+  const [newBranch, setNewBranch] = useState('')
+  const [newWorkspace, setNewWorkspace] = useState('')
+  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [branches, setBranches] = useState<Record<string, ProjectBranches | undefined>>({})
+  const [chosen, setChosen] = useState<Record<string, string>>({})
+  const [primary, setPrimary] = useState('')
+  const [localError, setLocalError] = useState('')
   const [busy, setBusy] = useState(false)
   const [created, setCreated] = useState<{ id: string } | null>(null)
 
@@ -1491,31 +1503,68 @@ function CreateModal(props: {
   async function addProject(): Promise<void> {
     if (!newName.trim() || !newRoot.trim()) return
     try {
-      const { project } = await registerProject(newName.trim(), newRoot.trim())
+      const { project } = await registerProject(newName.trim(), newRoot.trim(), {
+        ...(newBranch.trim() !== '' ? { defaultBranch: newBranch.trim() } : {}),
+        ...(newWorkspace.trim() !== '' ? { workspace: newWorkspace.trim() } : {}),
+      })
       setProjects((prev) => [...prev.filter((p) => p.name !== project.name), project])
       setChecked((prev) => [...prev, project.name])
       setNewName('')
       setNewRoot('')
+      setNewBranch('')
+      setNewWorkspace('')
     } catch (cause) {
       props.onError(cause instanceof Error ? cause.message : String(cause))
     }
   }
 
-  async function submit(event: React.FormEvent): Promise<void> {
-    event.preventDefault()
-    if (!title.trim() || busy) return
+  async function goBranches(): Promise<void> {
+    const selected = projects.filter((project) => checked.includes(project.name))
+    if (selected.length === 0) {
+      setLocalError('未选择项目：将只创建提案记录，不生成 target/worktree')
+      setStep(2)
+      return
+    }
+    setLocalError('')
     setBusy(true)
     try {
-      const selected = projects.filter((project) => checked.includes(project.name))
-      const targets = selected.map((project) => ({
-        project: project.name,
-        baseBranch: project.defaultBranch ?? 'main',
-      }))
+      const entries = await Promise.all(
+        selected.map(async (project) => {
+          const response = await listProjectBranches(project.name).catch(() => undefined)
+          return [project.name, response?.branches] as const
+        }),
+      )
+      const nextBranches: Record<string, ProjectBranches | undefined> = {}
+      const nextChosen: Record<string, string> = {}
+      for (const [name, value] of entries) {
+        nextBranches[name] = value
+        const project = projects.find((entry) => entry.name === name)
+        nextChosen[name] = value?.default ?? project?.defaultBranch ?? 'main'
+      }
+      setBranches(nextBranches)
+      setChosen(nextChosen)
+      setPrimary((current) => (checked.includes(current) ? current : checked[0] ?? ''))
+      setStep(2)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function submit(event: React.FormEvent): Promise<void> {
+    event.preventDefault()
+    if (!title.trim() || busy || created !== null) return
+    const targets = checked.map((name) => ({
+      project: name,
+      baseBranch: chosen[name] ?? projects.find((project) => project.name === name)?.defaultBranch ?? 'main',
+    }))
+    setBusy(true)
+    setLocalError('')
+    try {
       const result = await createProposal({
         title: title.trim(),
         ...(id.trim() ? { id: id.trim() } : {}),
         ...(checked.length > 0 ? { projects: checked } : {}),
-        ...(targets.length > 0 ? { targets, primaryProject: targets[0]?.project } : {}),
+        ...(targets.length > 0 ? { targets, primaryProject: primary !== '' ? primary : targets[0]?.project } : {}),
         ...(props.projectRoot.trim() ? { projectRoot: props.projectRoot.trim() } : {}),
       })
       setCreated({ id: result.proposal.id })
@@ -1527,6 +1576,8 @@ function CreateModal(props: {
     }
   }
 
+  const featurePreview = `feature/${id.trim() !== '' ? id.trim() : '<id>'}`
+
   return (
     <div className="wm-modal" onClick={props.onClose}>
       <form
@@ -1534,69 +1585,135 @@ function CreateModal(props: {
         onClick={(event) => event.stopPropagation()}
         onSubmit={(event) => void submit(event)}
       >
-        <h3>＋ 新提案</h3>
-        <div className="wm-field">
-          <label>标题（必填）</label>
-          <input
-            autoFocus
-            value={title}
-            placeholder="批量批改 v2.1"
-            onChange={(event) => setTitle(event.target.value)}
-          />
-        </div>
-        <div className="wm-field">
-          <label>id（可选，留空自动生成）</label>
-          <input value={id} placeholder="batch-grading-v2" onChange={(event) => setId(event.target.value)} />
-        </div>
-        <div className="wm-field">
-          <label>关联项目（多选，微服务变更可同时勾选多个）</label>
-          {projects.length === 0 && <span className="wm-progress-label">还没有注册项目 — 在下方添加。</span>}
-          {projects.map((project) => (
-            <label key={project.name} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
+        <h3>＋ 新提案 · 步骤 {step}/3</h3>
+        {step === 1 && (
+          <>
+            <div className="wm-field">
+              <label>标题（必填）</label>
+              <input autoFocus value={title} placeholder="批量批改 v2.1" onChange={(event) => setTitle(event.target.value)} />
+            </div>
+            <div className="wm-field">
+              <label>id（可选，留空自动生成）</label>
+              <input value={id} placeholder="batch-grading-v2" onChange={(event) => setId(event.target.value)} />
+            </div>
+            <div className="wm-field">
+              <label>关联项目（多选，微服务变更可同时勾选多个）</label>
+              {projects.length === 0 && <span className="wm-progress-label">还没有注册项目 — 在下方添加。</span>}
+              {projects.map((project) => (
+                <label key={project.name} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
+                  <input
+                    type="checkbox"
+                    checked={checked.includes(project.name)}
+                    onChange={(event) =>
+                      setChecked((prev) =>
+                        event.target.checked ? [...prev, project.name] : prev.filter((name) => name !== project.name),
+                      )
+                    }
+                  />
+                  <code>{project.name}</code>
+                  <span style={{ color: 'var(--wm-muted)', fontSize: 11 }}>{project.root}</span>
+                </label>
+              ))}
+              <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                <input style={{ flex: 1 }} value={newName} placeholder="项目名" onChange={(event) => setNewName(event.target.value)} />
+                <input style={{ flex: 2 }} value={newRoot} placeholder="/abs/path/to/project" onChange={(event) => setNewRoot(event.target.value)} />
+                <input value={newBranch} placeholder="默认分支（可选）" onChange={(event) => setNewBranch(event.target.value)} />
+                <input value={newWorkspace} placeholder="工作区（可选）" onChange={(event) => setNewWorkspace(event.target.value)} />
+                <button className="wm-btn mini" type="button" onClick={() => void addProject()}>
+                  注册
+                </button>
+              </div>
+            </div>
+            <div className="wm-field">
+              <label>单项目根（可选，兼容旧流程；多项目请用上方关联）</label>
               <input
-                type="checkbox"
-                checked={checked.includes(project.name)}
-                onChange={(event) =>
-                  setChecked((prev) =>
-                    event.target.checked ? [...prev, project.name] : prev.filter((name) => name !== project.name),
-                  )
-                }
+                value={props.projectRoot}
+                placeholder="/abs/path/to/project"
+                onChange={(event) => props.onProjectRoot(event.target.value)}
               />
-              <code>{project.name}</code>
-              <span style={{ color: 'var(--wm-muted)', fontSize: 11 }}>{project.root}</span>
-            </label>
-          ))}
-          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-            <input style={{ flex: 1 }} value={newName} placeholder="项目名" onChange={(event) => setNewName(event.target.value)} />
-            <input style={{ flex: 2 }} value={newRoot} placeholder="/abs/path/to/project" onChange={(event) => setNewRoot(event.target.value)} />
-            <button className="wm-btn mini" type="button" onClick={() => void addProject()}>
-              注册
-            </button>
-          </div>
-        </div>
-        <div className="wm-field">
-          <label>单项目根（可选，兼容旧流程；多项目请用上方关联）</label>
-          <input
-            value={props.projectRoot}
-            placeholder="/abs/path/to/project"
-            onChange={(event) => props.onProjectRoot(event.target.value)}
-          />
-        </div>
-        {created !== null && (
-          <div className="wm-ok-note">
-            ✓ 已创建 <code>{created.id}</code> —{' '}
-            <a href="/workmate/" target="_blank" rel="noreferrer">
-              打开面板
-            </a>
+            </div>
+            {localError !== '' && <div className="wm-error-note">{localError}</div>}
+          </>
+        )}
+
+        {step === 2 && (
+          <div className="wm-field">
+            <label>每个项目选择基线分支（默认 master/main）</label>
+            {checked.map((name) => {
+              const value = branches[name]
+              const options = value?.local ?? []
+              return (
+                <label key={name} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12 }}>
+                  <code style={{ minWidth: 90 }}>{name}</code>
+                  <select
+                    value={chosen[name] ?? value?.default ?? 'main'}
+                    onChange={(event) => setChosen((prev) => ({ ...prev, [name]: event.target.value }))}
+                  >
+                    {(options.length > 0 ? options : [chosen[name] ?? 'main']).map((branch) => (
+                      <option key={branch} value={branch}>
+                        {branch}
+                        {branch === value?.default ? '（默认）' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )
+            })}
           </div>
         )}
+
+        {step === 3 && (
+          <div className="wm-field">
+            <label>确认主项目、OpenSpec 归属与分支预览</label>
+            <label style={{ fontSize: 12 }}>
+              主项目：
+              <select value={primary} onChange={(event) => setPrimary(event.target.value)}>
+                {checked.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="wm-progress-label">OpenSpec 归属：主项目 {primary || checked[0] || '—'}（openspecTargets 可配 all）</div>
+            <div className="wm-progress-label">
+              分支预览：{checked.map((name) => `${name} @ ${chosen[name] ?? 'main'} → ${featurePreview}`).join('；')}
+            </div>
+            {created !== null && (
+              <div className="wm-ok-note">
+                ✓ 已创建 <code>{created.id}</code> —{' '}
+                <a href="/workmate/" target="_blank" rel="noreferrer">
+                  打开面板
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="wm-modal-foot">
           <button className="wm-btn" type="button" onClick={props.onClose}>
             关闭
           </button>
-          <button className="wm-btn primary" type="submit" disabled={busy || created !== null}>
-            创建提案
-          </button>
+          {step > 1 && step < 3 && (
+            <button className="wm-btn" type="button" onClick={() => setStep((step - 1) as 1 | 2)}>
+              上一步
+            </button>
+          )}
+          {step === 1 && (
+            <button className="wm-btn primary" type="button" disabled={busy} onClick={() => void goBranches()}>
+              下一步
+            </button>
+          )}
+          {step === 2 && (
+            <button className="wm-btn primary" type="button" onClick={() => setStep(3)}>
+              下一步
+            </button>
+          )}
+          {step === 3 && (
+            <button className="wm-btn primary" type="submit" disabled={busy || created !== null}>
+              创建提案
+            </button>
+          )}
         </div>
       </form>
     </div>

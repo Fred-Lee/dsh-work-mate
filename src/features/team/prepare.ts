@@ -10,6 +10,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parseTeamTasks } from './tasks.ts'
+import { renderTeamArtifact } from './artifacts.ts'
 import type { ProposalTarget } from '../proposal/store.ts'
 
 export interface PrepareInput {
@@ -156,6 +157,12 @@ export async function prepareTeamArtifacts(input: PrepareInput): Promise<Prepare
     const parsed = parseTeamTasks(JSON.stringify(derived))
     await writeFile(tasksPath, `${JSON.stringify({ ...(derived as object), tasks: parsed }, null, 2)}\n`, 'utf8')
     written.push('TASKS.json')
+  }
+
+  // Evidence templates are skeletons; the evidence gate rejects placeholder
+  // content until a real worker fills them in.
+  for (const artifact of ['TEST.md', 'TEAM-REVIEW.md', 'SUMMARY.md'] as const) {
+    await writeIfMissing(artifact, renderTeamArtifact(artifact, input.changeId, 'pending'))
   }
 
   return { written, skipped, warnings }

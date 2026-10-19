@@ -5,7 +5,7 @@
 - [x] 1.1 定义 7 角色名册与 `RoleContract`：职责、产出、可写域、权限预设、禁止项；支持模板裁剪。<!-- writes: src/features/team/**, src/config.ts -->
 - [x] 1.2 定义 `Run` / `Task` / `Dispatch` 数据模型与 `team-runs.json` 原子存储；损坏 fail-closed。<!-- writes: src/features/team/**, src/features/proposal/store.ts -->
 - [x] 1.3 `TASKS.json` schema 与校验：每个 Task 必须有 `role/project/writes/depends_on/acceptance`；DAG 无环。<!-- writes: src/features/team/**, src/features/swarm/plan.ts -->
-- [ ] 1.4 六份工件模板：`REQ.md` / `PLAN.md` / `TASKS.json` / `TEST.md` / `TEAM-REVIEW.md` / `SUMMARY.md`，随提案目录生成。<!-- writes: src/features/team/**, src/features/proposal/openspec.ts -->
+- [x] 1.4 六份工件模板：`REQ.md` / `PLAN.md` / `TASKS.json` / `TEST.md` / `TEAM-REVIEW.md` / `SUMMARY.md`，随提案目录生成。<!-- writes: src/features/team/**, src/features/proposal/openspec.ts -->
 - [ ] 1.5 入口判断：检查 OpenSpec 工件完整性与 validate，决定从 G2 还是 G0 开始；支持调用方覆盖并记录理由。<!-- writes: src/features/team/**, src/features/proposal/** -->
 - [x] 1.6 入口归一化：从 `proposal.md/design.md` 派生 `REQ.md/PLAN.md`（`derived: true`），从 `tasks.md` 生成 `TASKS.json`（role/project/writes/depends_on/acceptance），不改变方案范围。<!-- writes: src/features/team/**, src/features/proposal/openspec.ts -->
 
@@ -14,7 +14,7 @@
 - [ ] 2.0 G2 启动链：批准 `planHash` 后自动创建 Run、派发第一波；不重复调用需求/方案评估；方案变更使 run 暂停并退回待确认。<!-- writes: src/features/team/**, src/features/proposal/** -->
 
 - [x] 2.1 `workmate_team_plan`：从提案 targets 与模板生成 Run + DAG，校验写域冲突与依赖。<!-- writes: src/features/team/**, src/index.ts -->
-- [ ] 2.2 `workmate_team_dispatch`：为 Task 创建原生 Session/Subagent，cwd 绑定 target worktree，记录 dispatch 与 sessionId；幂等防重复。<!-- writes: src/features/team/**, src/features/worktree/** -->
+- [x] 2.2 `workmate_team_dispatch`：为 Task 创建原生 Session/Subagent，cwd 绑定 target worktree，记录 dispatch 与 sessionId；幂等防重复。<!-- writes: src/features/team/**, src/features/worktree/** -->
 - [x] 2.3 波次调度：拓扑分层、`maxParallel`、同 target 写域冲突串行；先起完整波次再等待。<!-- writes: src/features/team/** -->
 - [x] 2.4 收件箱与协调循环：`check/reply/ack`、`worker_done` 校验、`escalation/question` 升级、positive proof 才 stop/retry/release。<!-- writes: src/features/team/** -->
 - [x] 2.8 宿主服务装配：reactive `ctx.inject(['subagents','sessionController'], scope)`；缺失时团队不可用并提示，不 park fiber。<!-- writes: src/index.ts, src/features/team/** -->

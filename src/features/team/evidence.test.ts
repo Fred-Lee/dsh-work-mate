@@ -108,4 +108,11 @@ describe('checkTeamEvidence', () => {
     expect(result.ok).toBe(true)
   })
 
+  it('rejects an evidence file that is still the generated template', async () => {
+    await writeTasks('p3')
+    await writeFile(join(dir('p3'), 'SUMMARY.md'), ['## Run', '## 逐任务结果', '## 未解阻塞', '## 终态', '<!-- 待填写 -->'].join('\n'), 'utf8')
+    const result = await checkTeamEvidence(root, 'openspec', 'p3')
+    expect(result.errors.join()).toContain('仍是模板')
+  })
+
 })

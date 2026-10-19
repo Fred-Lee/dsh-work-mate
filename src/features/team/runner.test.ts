@@ -154,4 +154,13 @@ describe('TeamRunner', () => {
     expect(aborted.dispatches?.[0]).toMatchObject({ status: 'abandoned', outcome: expect.stringContaining('aborted') })
   })
 
+  it('is idempotent for the same dispatch id', async () => {
+    await runner.createRun({ id: 'r1', proposalId: 'p1', template: 'bug-fix', tasks: [task('t1')] })
+    const first = await runner.dispatch('r1', 't1', 'd1')
+    const second = await runner.dispatch('r1', 't1', 'd1')
+    expect(second.dispatches).toHaveLength(1)
+    expect(second.tasks[0]?.attempts).toBe(1)
+    expect(second.dispatches?.[0]?.id).toBe(first.dispatches?.[0]?.id)
+  })
+
 })
