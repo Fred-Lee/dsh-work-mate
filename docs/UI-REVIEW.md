@@ -152,3 +152,12 @@
 3. 项目来源：是否接入 **DSH Workspace 注册表**（`ctx.workspaceRegistry`）自动列出已注册目录，避免手工填路径？
 4. 是否把「控制台 / 知识图谱」降为二级入口（更多菜单），给「工作台 / 变更」让位？
 5. 右侧栏常驻 tab（`dsh-better-sidebar` 的 `ctx.betterSidebar`）是否列入下一阶段？
+
+
+## 2026-10-19 真机截图（headless Chrome，1440×1000）
+
+- `docs/assets/ui/workbench-list-light.png`：列表优先视图（上下文栏、状态筛选、已归档折叠）
+- `docs/assets/ui/workbench-list-dark.png`：深色模式
+- `docs/assets/ui/workbench-team-light.png`：团队 Run 列表（含 succeeded / aborted 两次真实 Run）
+
+> 截图来源：`http://127.0.0.1:3080/workmate/?view=list|team`，宿主 08:34 重启后的真实 profile。
