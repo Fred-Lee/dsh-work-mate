@@ -7,7 +7,7 @@ import type { ProjectRegistry } from '../project/registry.ts'
 import type { ProposalService } from '../proposal/service.ts'
 import { validateProjectRoot } from '../proposal/openspec.ts'
 import { planTeamWaves, parseTeamTasks, teamTasksPath } from './tasks.ts'
-import { checkTeamCompleteness } from './completeness.ts'
+import { checkTeamCompleteness, validateOpenSpecChange } from './completeness.ts'
 import { prepareTeamArtifacts } from './prepare.ts'
 import { TeamCoordinator } from './coordinator.ts'
 import { HostSubagentDispatcher, type SubagentServiceLike } from './host-dispatcher.ts'
@@ -129,6 +129,8 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
         projectRoot: { type: 'string', description: 'Root hosting the OpenSpec change; defaults to the primary project.' },
         start: { type: 'boolean', description: 'Create then dispatch the first wave immediately (requires host agent).' },
         maxWaves: { type: 'number', description: 'Wave cap when start=true; default 1.' },
+        entry: { type: 'string', description: 'Entry gate override: G2 (artifacts ready) or G0 (start from requirement evaluation).' },
+        entryReason: { type: 'string', description: 'Required when overriding the entry gate; recorded in the response.' },
       },
       output: { schema: { type: 'json' }, render: (_args, value) => json(value) },
       timeoutMs: 30 * 60_000,
@@ -149,6 +151,14 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
         const root = (args.projectRoot ?? registered?.root ?? deps.projectRoot).trim()
         if (root === '') throw new Error('无可用项目根 — 先注册项目或在参数里给 projectRoot')
         const resolvedRoot = validateProjectRoot(root)
+        const entryOverride = args.entry === 'G0' ? 'G0' : args.entry === 'G2' ? 'G2' : undefined
+        if (entryOverride === 'G0') {
+          return asJson({
+            entry: { gate: 'G0', reason: args.entryReason ?? '调用方要求从需求评估开始', overridden: true },
+            proposalId: proposal.id,
+            next: '先用 requirement-evaluator 产出 REQ/PLAN/TASKS，再重新调用 workmate_team_plan',
+          })
+        }
         const completeness = await checkTeamCompleteness(
           resolvedRoot,
           deps.openspecRoot,
@@ -157,6 +167,10 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
         )
         if (!completeness.ok) {
           throw new Error(`团队工件不完整（G1）— ${completeness.errors.join('；')}`)
+        }
+        const validation = await validateOpenSpecChange(resolvedRoot, proposal.openspecChangeId)
+        if (validation?.ok === false) {
+          throw new Error(`openspec validate 失败，入口判为 G0 — ${validation.detail ?? ''}`)
         }
         const tasksPath = teamTasksPath(resolvedRoot, deps.openspecRoot, proposal.openspecChangeId)
         let raw: string
@@ -186,12 +200,14 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
           tasks,
         })
         const waves = planTeamWaves(tasks, run.budget.maxParallel).map((wave) => wave.map((task) => task.id))
-        if (args.start !== true) return asJson({ run, waves })
+        if (args.start !== true) {
+          return asJson({ entry: { gate: 'G2', reason: entryOverride === 'G2' ? (args.entryReason ?? '调用方指定 G2') : '工件完整，直接进入方案确认' }, run, waves })
+        }
         const started = await startRun(exec, run.id, {
           ...(args.projectRoot !== undefined ? { projectRoot: args.projectRoot } : {}),
           maxWaves: args.maxWaves ?? 1,
         })
-        return asJson({ run, waves, started })
+        return asJson({ entry: { gate: 'G2', reason: '工件完整，直接进入方案确认' }, run, waves, started })
       },
     }),
   )
