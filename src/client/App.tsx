@@ -6,15 +6,7 @@
  * creation lives in a modal with a project picker.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives/src/Button.tsx'
-import { SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives/src/SegmentedControl.tsx'
-import { Tag } from '@deepseek-ai/dsh-client-ui-primitives/src/Tag.tsx'
-import { StateDot } from '@deepseek-ai/dsh-client-ui-primitives/src/StateDot.tsx'
-import { PathLabel } from '@deepseek-ai/dsh-client-ui-primitives/src/PathLabel.tsx'
-import { DisclosureRow } from '@deepseek-ai/dsh-client-ui-primitives/src/DisclosureRow.tsx'
-import { Modal } from '@deepseek-ai/dsh-client-ui-primitives/src/Modal.tsx'
-import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives/src/Tooltip.tsx'
-import { Pill } from '@deepseek-ai/dsh-client-ui-primitives/src/Pill.tsx'
+import { Btn, DisclosureRow, Modal, PathLabel, Pill, Segmented, StateDot, Tag, Tooltip } from './controls'
 import { getBands, getMetrics } from './api'
 import type { AggregateMetrics, BandEvaluation, BandsPayload } from './types'
 import {
@@ -368,7 +360,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           <span className="wm-count">{proposals.length} 条提案</span>
         </div>
         <div className="wm-toolbar">
-          <SegmentedControl
+          <Segmented
             id="wm-view"
             value={view}
             label="视图"
@@ -379,11 +371,11 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
               { value: 'console', label: '控制台' },
               { value: 'graph', label: '知识图谱' },
             ]}
-            onChange={(next) => setView(next)}
+            onChange={(next) => setView(next as typeof view)}
           />
-          <Button variant="primary" size="sm" type="button" onClick={() => setCreateOpen(true)}>
+          <Btn variant="primary" size="sm" type="button" onClick={() => setCreateOpen(true)}>
             ＋ 新提案
-          </Button>
+          </Btn>
         </div>
       </header>
 
@@ -1506,6 +1498,21 @@ function ImportProjectsModal(props: {
     }
   }
 
+  async function addAll(): Promise<void> {
+    setBusy('*')
+    try {
+      for (const candidate of candidates.filter((entry) => !entry.registered)) {
+        await registerProject(candidate.suggestedName, candidate.path, { workspace: candidate.workspace })
+      }
+      await props.onImported()
+      setCandidates((prev) => prev.filter((entry) => entry.registered))
+    } catch (cause) {
+      props.onError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setBusy('')
+    }
+  }
+
   return (
     <Modal
       open
@@ -1513,9 +1520,16 @@ function ImportProjectsModal(props: {
       title="从 DSH Workspace 导入项目"
       closeLabel="关闭"
       footer={
-        <Button variant="outline" size="sm" type="button" onClick={props.onClose}>
-          关闭
-        </Button>
+        <>
+          <Btn variant="outline" size="sm" type="button" onClick={props.onClose}>
+            关闭
+          </Btn>
+          {candidates.filter((entry) => !entry.registered).length > 1 && (
+            <Btn variant="primary" size="sm" type="button" disabled={busy !== ''} onClick={() => void addAll()}>
+              {busy === '*' ? '加入中…' : `全部加入（${candidates.filter((entry) => !entry.registered).length}）`}
+            </Btn>
+          )}
+        </>
       }
     >
         <p className="wm-progress-label">只列出 git 仓库；导入后仍可在项目树里改默认分支与工作区。</p>
@@ -1530,7 +1544,7 @@ function ImportProjectsModal(props: {
               <div className="wm-import-row" key={candidate.path}>
                 <div>
                   <b>{candidate.title || candidate.name}</b>
-                  {candidate.hasOpenspec && <span className="wm-context-meta"> · openspec</span>}
+                  {candidate.hasOpenspec && <span className="wm-tag wm-import-badge">openspec</span>}
                   <PathLabel path={candidate.path} className="wm-import-path" />
                 </div>
                 <div className="wm-actions">
@@ -1538,7 +1552,7 @@ function ImportProjectsModal(props: {
                     <span className="wm-context-meta">已注册为 {candidate.registeredAs}</span>
                   ) : (
                     <button
-                      className="wm-btn mini primary"
+                      className="wm-btn mini"
                       type="button"
                       disabled={busy !== ''}
                       onClick={() => void add(candidate)}

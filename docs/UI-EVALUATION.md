@@ -87,3 +87,15 @@
 - 按钮/输入/选择器统一 28px 高、0.5px 边框、6px 圆角。
 
 截图：`v3-list.png`、`v3-board.png`、`v3-team.png`、`v3-console.png`、`v3-graph.png`。
+
+## 导入弹窗修复（2026-10-19）
+
+根因不是布局，而是 **ui-primitives 的 CSS modules 没有随插件客户端 bundle 加载**（宿主 CSS 的 hash 类名与插件 bundle 不一致），`Modal` 因此渲染为无样式的全页 DOM。
+
+- 新增 `src/client/controls.tsx`：Btn / Segmented / Tag / StateDot / PathLabel / Tooltip / Pill / DisclosureRow / Modal 全部本地实现，使用面板内联样式；
+- 导入弹窗改回居中模态（overlay + 560px 卡片 + 关闭按钮 + 底部按钮）；
+- openSpec 标记改为中性 Tag；行内“加入项目”改次级按钮；底部增加“全部加入（N）”；
+- 路径单行省略 + title，长仓库名不再挤压按钮；
+- 同时消除宿主内 Button/Tag/Segmented 裸样式问题。
+
+截图：`import-current.png`、`v3-list.png`。

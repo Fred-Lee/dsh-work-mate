@@ -538,7 +538,7 @@ export const PANEL_STYLE = `
 .wm-table tbody tr:hover { background: var(--wm-hover); }
 .wm-drawer { width: min(560px, 100vw); padding: 20px 24px; background: var(--wm-surface); border-left: 0.5px solid var(--wm-border); }
 .wm-drawer-head h3 { font-size: 16px; font-weight: 600; }
-.wm-modal { padding: 24px; }
+.wm-modal { align-items: center; padding: 24px; }
 .wm-modal-box {
   width: min(560px, 100%); padding: 24px;
   background: var(--dsw-alias-bg-layer-2, var(--wm-surface));
@@ -559,5 +559,49 @@ export const PANEL_STYLE = `
 .wm-empty { padding: 56px 0; font-size: 13px; }
 .wm-section-title, .wm-card-title { font-size: 13px; font-weight: 600; }
 .wm-skeleton-row { border-radius: var(--dsw-radius-sm, 6px); }
+
+/* local controls (replace ui-primitives CSS that the host does not load for plugins) */
+.wm-seg { display: inline-flex; align-items: center; gap: 2px; padding: 3px; background: var(--wm-code); border-radius: var(--dsw-radius-sm, 6px); }
+.wm-seg button {
+  height: 26px; padding: 0 12px; border: 0; border-radius: var(--dsw-radius-sm, 6px);
+  background: transparent; color: var(--wm-muted); font-size: 12px; font-weight: 500; cursor: pointer;
+}
+.wm-seg button:hover { color: var(--wm-fg); }
+.wm-seg button.active { background: var(--wm-card); color: var(--wm-fg); box-shadow: 0 1px 2px rgba(15,23,42,.08); }
+.wm-tag {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 7px;
+  border-radius: 999px; font-size: 11px; font-weight: 500; white-space: nowrap;
+  color: var(--wm-muted); background: var(--wm-code);
+}
+.wm-tag-success { color: var(--dsw-alias-state-success-primary, #22c55e); background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #22c55e) 10%, transparent); }
+.wm-tag-info { color: var(--dsw-alias-state-business-primary, #4d6bfe); background: color-mix(in srgb, var(--dsw-alias-state-business-primary, #4d6bfe) 10%, transparent); }
+.wm-tag-warning { color: var(--dsw-alias-state-warn-primary, #f59e0b); background: color-mix(in srgb, var(--dsw-alias-state-warn-primary, #f59e0b) 12%, transparent); }
+.wm-tag-danger { color: var(--dsw-alias-state-error-primary, #ef4444); background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #ef4444) 10%, transparent); }
+.wm-state-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--wm-muted); flex: none; }
+.wm-state-done { background: var(--dsw-alias-state-success-primary, #22c55e); }
+.wm-state-ongoing { background: var(--dsw-alias-state-business-primary, #4d6bfe); }
+.wm-state-warning { background: var(--dsw-alias-state-warn-primary, #f59e0b); }
+.wm-state-error { background: var(--dsw-alias-state-error-primary, #ef4444); }
+.wm-state-idle { background: var(--dsw-alias-state-idle-primary, #c9ccd1); }
+.wm-path { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wm-tip { display: inline-flex; }
+.wm-disclosure {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 16px;
+  border: 0; border-top: 0.5px solid var(--wm-border-soft); background: transparent;
+  color: var(--wm-muted); font-size: 12px; text-align: left; cursor: pointer;
+}
+.wm-disclosure:hover { background: var(--wm-hover); color: var(--wm-fg); }
+.wm-disclosure-icon { font-size: 10px; }
+.wm-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.wm-modal-head h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.wm-modal-body { max-height: min(60vh, 520px); overflow-y: auto; }
+.wm-modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.wm-import-list { margin: 12px 0 0; gap: 0; }
+.wm-import-row { padding: 10px 0; border: 0; border-top: 0.5px solid var(--wm-border-soft); border-radius: 0; align-items: flex-start; }
+.wm-import-row:first-child { border-top: 0; }
+.wm-import-row > div:first-child { min-width: 0; }
+.wm-import-row .wm-path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--wm-muted); margin-top: 2px; }
+.wm-import-row .wm-actions { flex: none; }
+.wm-import-badge { margin-left: 6px; vertical-align: 1px; }
 
 `
