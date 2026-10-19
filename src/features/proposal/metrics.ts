@@ -194,7 +194,8 @@ export function aggregateMetrics(
     if (event.kind === 'transition') actorShare[event.actor] += 1
   }
 
-  for (const proposal of proposals) {
+  const activeProposals = proposals.filter((proposal) => proposal.abandonedAt === undefined)
+  for (const proposal of activeProposals) {
     byState[proposal.status] += 1
     const metrics = proposalMetrics(proposal, events, now)
     for (const [state, ms] of Object.entries(metrics.timeInStateMs) as Array<[ProposalState, number]>) {
@@ -236,7 +237,7 @@ export function aggregateMetrics(
   }
 
   return {
-    proposals: proposals.length,
+    proposals: activeProposals.length,
     byState,
     averageTimeInStateMs,
     ...(median(cycleTimes) !== undefined ? { cycleTimeMedianMs: median(cycleTimes) } : {}),

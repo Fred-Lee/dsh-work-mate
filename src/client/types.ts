@@ -125,6 +125,8 @@ export interface Proposal {
   updatedAt: string
   /** Delivery summary of a successful archive run. */
   archiveManifest?: ArchiveManifest
+  /** Set when the proposal was deliberately abandoned (hidden from lists). */
+  abandonedAt?: string
   /** Per-task parallel carriers. */
   swarmTasks?: SwarmTaskRecord[]
 }

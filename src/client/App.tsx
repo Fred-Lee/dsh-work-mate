@@ -146,7 +146,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const refresh = useCallback(async () => {
     try {
       const { proposals: list } = await listProposals()
-      setProposals(list)
+      setProposals(list.filter((proposal) => proposal.abandonedAt === undefined))
       setError('')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -967,7 +967,7 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
     setLoading(true)
     try {
       const response = await listTeamRuns()
-      setRuns(response.runs ?? [])
+      setRuns([...(response.runs ?? [])].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)))
     } catch (cause) {
       props.onError(cause instanceof Error ? cause.message : String(cause))
     } finally {

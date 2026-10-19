@@ -65,11 +65,33 @@ export function GraphView(props: { projectRoot?: string }): JSX.Element {
 
   if (error !== '') return <div className="wm-error">{error}</div>
   if (graph === undefined) return <div className="wm-empty">加载中…</div>
-  if (graph.nodes.length === 0)
+  if (graph.nodes.filter((node) => node.kind === 'proposal' && node.status !== 'archived').length === 0)
     return <div className="wm-empty">还没有活跃提案关联 — 归档提案默认不进入图谱。</div>
 
-  const kinds = (['proposal', 'project', 'commit'] as const).filter((kind) => graph.nodes.some((node) => node.kind === kind))
-  const groups = kinds.map((kind) => graph.nodes.filter((node) => node.kind === kind))
+  // Client-side guard: an older host may still return archived proposals.
+  const activeProposalIds = new Set(
+    graph.nodes.filter((node) => node.kind === 'proposal' && node.status !== 'archived').map((node) => node.id),
+  )
+  const visibleIds = new Set<string>(activeProposalIds)
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const edge of graph.edges) {
+      if (visibleIds.has(edge.from) && !visibleIds.has(edge.to)) {
+        visibleIds.add(edge.to)
+        grew = true
+      }
+    }
+  }
+  const activeEdges = graph.edges.filter((edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to))
+  const seen = new Set<string>()
+  const visibleNodes = graph.nodes.filter((node) => {
+    if (!visibleIds.has(node.id) || seen.has(node.id)) return false
+    seen.add(node.id)
+    return true
+  })
+  const kinds = (['proposal', 'project', 'commit'] as const).filter((kind) => visibleNodes.some((node) => node.kind === kind))
+  const groups = kinds.map((kind) => visibleNodes.filter((node) => node.kind === kind))
   const maxCount = Math.max(...groups.map((group) => group.length))
   const positions = new Map<string, Positioned>()
   groups.forEach((group, column) => {
@@ -80,7 +102,7 @@ export function GraphView(props: { projectRoot?: string }): JSX.Element {
       positions.set(node.id, { ...node, x, y: TOP + offset + index * (NODE_H + ROW_GAP) })
     })
   })
-  const edges = graph.edges
+  const edges = activeEdges
     .map((edge) => {
       const from = positions.get(edge.from)
       const to = positions.get(edge.to)
@@ -100,6 +122,13 @@ export function GraphView(props: { projectRoot?: string }): JSX.Element {
         ))}
       </div>
       <svg width={width} height={height} role="img" aria-label="知识图谱：活跃提案、项目与提交">
+        <defs>
+          {[...positions.values()].map((node, index) => (
+            <clipPath key={node.id} id={`wm-graph-clip-${index}`}>
+              <rect x={node.x + 6} y={node.y} width={NODE_W - 12} height={NODE_H} rx={5} />
+            </clipPath>
+          ))}
+        </defs>
         {edges.map((edge, index) => {
           const x1 = edge.from.x + NODE_W
           const y1 = edge.from.y + NODE_H / 2
@@ -116,12 +145,12 @@ export function GraphView(props: { projectRoot?: string }): JSX.Element {
             />
           )
         })}
-        {[...positions.values()].map((node) => {
-          const label = node.label.length > 24 ? `${node.label.slice(0, 23)}…` : node.label
+        {[...positions.values()].map((node, index) => {
+          const label = node.label.length > 18 ? `${node.label.slice(0, 17)}…` : node.label
           return (
-            <g key={node.id}>
+            <g key={node.id} clipPath={`url(#wm-graph-clip-${index})`}>
               <rect x={node.x} y={node.y} width={NODE_W} height={NODE_H} rx={7} fill={KIND_FILL[node.kind]} stroke={KIND_STROKE[node.kind]} />
-              <text x={node.x + 10} y={node.y + NODE_H / 2 + 4} fontSize={11} fill="var(--dsw-alias-label-primary, #1f2328)">
+              <text x={node.x + 8} y={node.y + NODE_H / 2 + 4} fontSize={11} fill="var(--dsw-alias-label-primary, #1f2328)">
                 <title>{node.label}</title>
                 {label}
               </text>
