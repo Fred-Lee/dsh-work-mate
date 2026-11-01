@@ -615,6 +615,55 @@ describe('panel scroll contract (fix-panel-scroll)', () => {
     expect(screen.getByText('team-dispatch t1 dispatched role=backend-dev')).toBeTruthy()
   })
 
+  it('makes the team view read-only in superagent mode', async () => {
+    const run = {
+      id: 'r1',
+      proposalId: 'p1',
+      template: 'bug-fix',
+      status: 'running',
+      tasks: [],
+      dispatches: [],
+      inbox: [{ id: 'm1', kind: 'question', body: '用哪个分支？', status: 'open', createdAt: '2026-10-19T00:00:00.000Z' }],
+      budget: { maxParallel: 3, maxAttempts: 2, maxDurationMs: 1000, maxTokens: 100, maxDispatches: 5 },
+      createdAt: '2026-10-19T00:00:00.000Z',
+      updatedAt: '2026-10-19T00:00:00.000Z',
+    }
+    routeMock((url, method) => {
+      if (url === '/workmate/api/proposals' && method === 'GET') return { proposals: [] }
+      if (url === '/workmate/api/projects') return { projects: [] }
+      if (url === '/workmate/api/isolation') return { occupancy: [], conflicts: [] }
+      if (url === '/workmate/api/config') return { taskExecutor: 'superagent' }
+      if (url === '/workmate/api/team/runs' && method === 'GET') return { runs: [run] }
+      if (url === '/workmate/api/team/runs/r1') return { run, events: [] }
+      return {}
+    })
+
+    renderPanel()
+    fireEvent.click(screen.getByText('团队'))
+    await screen.findByText('只读投影')
+    await screen.findByText(/用哪个分支？/)
+
+    // 派发/回答/重试的入口不该出现在只读视图里。
+    expect(screen.queryByRole('button', { name: '回答' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '去任务视图回答' }))
+    await screen.findByRole('button', { name: '＋ 新建待办' })
+  })
+
+  it('keeps the team console writable in the team fallback', async () => {
+    routeMock((url, method) => {
+      if (url === '/workmate/api/proposals' && method === 'GET') return { proposals: [] }
+      if (url === '/workmate/api/projects') return { projects: [] }
+      if (url === '/workmate/api/isolation') return { occupancy: [], conflicts: [] }
+      if (url === '/workmate/api/config') return { taskExecutor: 'team' }
+      if (url === '/workmate/api/team/runs' && method === 'GET') return { runs: [] }
+      return {}
+    })
+
+    renderPanel()
+    fireEvent.click(screen.getByText('团队'))
+    await screen.findByText('回退执行器')
+  })
+
   it('filters the default list by lifecycle status', async () => {
     routeMock((url, method) => {
       if (url === '/workmate/api/proposals' && method === 'GET') {

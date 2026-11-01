@@ -238,6 +238,10 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     return await deps.worktreeReclaim.reclaim(taskId, { force: body.force === true })
   })
 
+  router.get('/api/config', async () => ({
+    taskExecutor: deps.taskExecutor ?? 'superagent',
+  }))
+
   router.get('/api/tasks', async () => {
     if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')
     return deps.tasks.board()

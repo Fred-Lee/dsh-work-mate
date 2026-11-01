@@ -133,9 +133,9 @@
   "改用任务视图或显式设 taskExecutor=team"；工具签名不变。附 `tools.test.ts`
   <!-- writes: src/features/team/tools.ts, src/features/team/tools.test.ts -->
 
-- [ ] 16. 团队视图只读 `src/client/App.tsx`：`TeamView` 在 superagent 模式下隐藏派发/回答/
+- [x] 16. 团队视图只读 `src/client/App.tsx`：`TeamView` 在 superagent 模式下隐藏派发/回答/
   重试并链接任务视图；运行态读 Ticket 投影；fallback 时显示「回退执行器」。附 `app.test.tsx`
-  <!-- writes: src/client/App.tsx, src/client/app.test.tsx -->
+  <!-- writes: src/client/App.tsx, src/client/app.test.tsx, src/api.ts, src/client/api.ts -->
 
 - [x] 17. 启动恢复边界 `src/index.ts`：`taskExecutor=superagent` 时不创建 Run、不装定时器；
   `team` 模式下扫描遗留 `running`/`dispatched` 标 `abandoned` 并写恢复事件。附 `index.test.ts`
@@ -162,7 +162,7 @@
   幂等且冲突时报错不覆盖；归档前置与 G5 合并据此可读。附用例：回写、幂等、冲突
   <!-- writes: src/features/task/project-targets.ts, src/features/task/project-targets.test.ts -->
 
-- [ ] 21. 测试与类型范围 `vitest.config.ts` + `tsconfig.json` + `scripts/check-test-integrity.mjs`：
+- [x] 21. 测试与类型范围 `vitest.config.ts` + `tsconfig.json` + `scripts/check-test-integrity.mjs`：
   `include` 扩到 `packages/**/*.test.ts`；typecheck 覆盖子包（新增
   `tsconfig.packages.json` 或把 `rootDir` 去掉）；确认 `pnpm verify:test` 能发现并执行
   子包测试。附 `test:toolchain` 用例
@@ -184,7 +184,7 @@
   合法 ID 各一例
   <!-- writes: packages/superagent-source/src/validate.ts, packages/superagent-source/src/validate.test.ts -->
 
-- [ ] 24. 增长上限 `packages/superagent-source/src/compact.ts`：单待办超过
+- [x] 24. 增长上限 `packages/superagent-source/src/compact.ts`：单待办超过
   `maxRowsPerTask`（默认 200）时压缩为最近 N 行（保留至少一条 `ack` 与最后一条
   `result`/`error`），tmp+rename 原子重写，只动该待办的行。附 `compact.test.ts`：
   超限压缩、保留规则、并发扫描不丢行

@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Btn, DisclosureRow, Modal, PathLabel, Pill, Segmented, StateDot, Tag, Tooltip } from './controls'
-import { getBands, getMetrics } from './api'
+import { getBands, getMetrics, getPanelConfig } from './api'
 import type { AggregateMetrics, BandEvaluation, BandsPayload } from './types'
 import {
   advanceProposal,
@@ -109,6 +109,8 @@ function relativeTime(iso: string): string {
 export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const { projectRoot } = props
   const [view, setView] = useState<'tasks' | 'board' | 'list' | 'graph' | 'console' | 'team'>(() => initialView())
+  /** 执行器模式：决定团队视图是只读投影（superagent）还是可派发控制台（team 回退）。 */
+  const [taskExecutor, setTaskExecutor] = useState<'superagent' | 'team'>('superagent')
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [details, setDetails] = useState<Record<string, ProposalStatusPayload>>({})
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -160,6 +162,13 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
     } catch {
       setProjects([])
     }
+  }, [])
+
+  useEffect(() => {
+    // 执行器模式是装配期事实，只取一次；取不到就按默认 superagent（只读更安全）。
+    void getPanelConfig()
+      .then((config) => setTaskExecutor(config.taskExecutor === 'team' ? 'team' : 'superagent'))
+      .catch(() => undefined)
   }, [])
 
   useEffect(() => {
@@ -462,7 +471,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
         ) : view === 'graph' ? (
           <GraphView projectRoot={projectRootDraft || undefined} />
         ) : view === 'team' ? (
-          <TeamView onError={setError} />
+          <TeamView onError={setError} taskExecutor={taskExecutor} onGoToTasks={() => setView('tasks')} />
         ) : view === 'console' ? (
           <ConsoleView onError={setError} />
         ) : view === 'list' ? (
@@ -960,7 +969,19 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   )
 }
 
-function TeamView(props: { onError: (message: string) => void }): JSX.Element {
+/**
+ * 团队视图（change `adopt-superagent-openspec-source`, task 16）。
+ *
+ * `superagent` 模式下它是**只读投影**：执行态来自 Ticket，回答与重试统一去任务视图，
+ * 这里不再直接改写 Run（避免同一个问题有两处入口、两种语义）。
+ * `team`（回退）模式保持原行为。
+ */
+function TeamView(props: {
+  onError: (message: string) => void
+  taskExecutor?: 'superagent' | 'team'
+  onGoToTasks?: () => void
+}): JSX.Element {
+  const readonly = (props.taskExecutor ?? 'superagent') !== 'team'
   const [runs, setRuns] = useState<TeamRun[]>([])
   const [selected, setSelected] = useState<string | null>(null)
   const [detail, setDetail] = useState<{ run: TeamRun; events: TeamRunEvent[] } | null>(null)
@@ -1021,10 +1042,16 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
       <aside className="wm-team-side">
       <div className="wm-team-head">
         <h3>团队 Run</h3>
+        {readonly ? <span className="wm-tier">只读投影</span> : <span className="wm-tier">回退执行器</span>}
         <button className="wm-btn mini" type="button" onClick={() => void refresh()}>
           刷新
         </button>
       </div>
+      {readonly && (
+        <div className="wm-empty">
+          团队 Run 仅作历史投影：派发、回答与重试都在任务视图完成（Super-agent 承担执行）。
+        </div>
+      )}
       {loading ? (
         <div className="wm-empty">加载中…</div>
       ) : runs.length === 0 ? (
@@ -1072,9 +1099,20 @@ function TeamView(props: { onError: (message: string) => void }): JSX.Element {
             .map((message) => (
               <div className="wm-team-question" key={message.id}>
                 <b>{message.kind}</b> {message.taskId ?? ''}：{message.body}
-                <button className="wm-btn mini" type="button" onClick={() => void answer(shown.id, message.id)}>
-                  回答
-                </button>
+                {readonly ? (
+                  <button
+                    className="wm-btn mini"
+                    type="button"
+                    onClick={() => props.onGoToTasks?.()}
+                    title="执行由 Super-agent 承担：回答在任务视图完成"
+                  >
+                    去任务视图回答
+                  </button>
+                ) : (
+                  <button className="wm-btn mini" type="button" onClick={() => void answer(shown.id, message.id)}>
+                    回答
+                  </button>
+                )}
               </div>
             ))}
           <div className="wm-team-roles">
