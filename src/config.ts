@@ -131,6 +131,22 @@ export interface Config {
    */
   swarmReviewRequired?: boolean
   /**
+   * 执行器选择：`superagent`（默认，待办交给 Super-agent 的 Source）或
+   * `team`（回退，沿用既有 TeamRunner 派发）。@default 'superagent'
+   */
+  taskExecutor?: string
+  /**
+   * 任务文件绝对路径；空表示 `<DSH home>/<workmateHome>/tasks.json`。
+   * 必须与 Super-agent 侧 source 实例配置的 taskFile 指向同一个文件。@default ''
+   */
+  taskFile?: string
+  /** Super-agent 管理 API 的 loopback 端点。@default 'http://127.0.0.1:3082' */
+  superagentEndpoint?: string
+  /** 代理请求超时（毫秒）。@default 5000 */
+  superagentTimeoutMs?: number
+  /** 面板读取 Ticket 投影的间隔（秒）。@default 5 */
+  superagentPollSeconds?: number
+  /**
    * Integration trunk the git gates and the proposal worktree use: the branch a
    * proposal branch must be merged into (`ready`) and a feature branch must be
    * merged into (`archiving`), and the branch the `implementing` worktree is cut
@@ -285,7 +301,28 @@ export const Config: z<Config> = z.object({
   swarmReviewRequired: z
     .boolean()
     .default(false)
-    .description('Block archiving while a merged swarm task has no independent verification record.'),
+    .description('Require an independent verification record per merged swarm task.'),
+  taskExecutor: z
+    .string()
+    .default('superagent')
+    .description("Executor: 'superagent' (default) hands todos to the Super-agent Source; 'team' is the fallback runner."),
+  taskFile: z
+    .string()
+    .default('')
+    .description('Absolute path of the task file; empty = <DSH home>/<workmateHome>/tasks.json. Must match the Super-agent Source config.'),
+  superagentEndpoint: z
+    .string()
+    .default('http://127.0.0.1:3082')
+    .description('Loopback endpoint of the Super-agent management API.'),
+  superagentTimeoutMs: z
+    .number()
+    .default(5000)
+    .description('Proxy request timeout in milliseconds.'),
+  superagentPollSeconds: z
+    .number()
+    .default(5)
+    .description('How often the panel re-reads the ticket projection.'),
+
   lifecycleMainBranch: z
     .string()
     .default('main')
@@ -359,6 +396,11 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   teamRequireRolePresets: true,
   teamRoleModels: '',
   swarmReviewRequired: false,
+  taskExecutor: 'superagent',
+  taskFile: '',
+  superagentEndpoint: 'http://127.0.0.1:3082',
+  superagentTimeoutMs: 5000,
+  superagentPollSeconds: 5,
   lifecycleMainBranch: 'main',
   decisionEnabled: false,
   decisionProvider: 'agent',

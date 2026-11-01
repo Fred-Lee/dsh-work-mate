@@ -70,6 +70,9 @@ import { describeGitnexusCredentials } from './features/knowledge-bridge/gitnexu
 import { createWeknoraClient } from './features/knowledge-bridge/weknora.ts'
 import { mountWorkmateApi, createProposal, type WebServerLike } from './api.ts'
 import { registerGuidance } from './features/guidance/index.ts'
+import { TaskFileStore } from './features/task/files.ts'
+import { TaskServiceImpl } from './features/task/service.ts'
+import { SuperagentClient } from './features/superagent/client.ts'
 export const name = 'workmate'
 /**
  * Only services every profile provides. `webServer` belongs to the web-app
@@ -118,6 +121,18 @@ export function apply(ctx: Context, config: Config = {}): void {
   const store = new ProposalStore({ subdir: resolved.workmateHome })
   const events = new EventLog({ subdir: resolved.workmateHome })
   const proposals = new ProposalServiceImpl(store, undefined, events)
+  const taskStore = new TaskFileStore({ rootDir: store.rootDir, file: resolved.taskFile })
+  const superagent = new SuperagentClient({
+    endpoint: resolved.superagentEndpoint,
+    timeoutMs: resolved.superagentTimeoutMs,
+  })
+  const tasks = new TaskServiceImpl({
+    store: taskStore,
+    superagent,
+    events,
+    operator: 'workmate:panel',
+    now: () => new Date(),
+  })
   const registry = new ProjectRegistry({ subdir: resolved.workmateHome })
   const teamRuns = new TeamRunStore({ subdir: resolved.workmateHome })
   const teamRunner = new TeamRunner(teamRuns)
@@ -580,6 +595,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       approvalsRequired: resolved.approvalsRequired,
       allowAgentApproval: resolved.allowAgentApproval,
       reviewBlockingSeverities: resolved.reviewBlockingSeverities,
+      tasks,
+      taskExecutor: resolved.taskExecutor === 'team' ? 'team' : 'superagent',
       decision,
       events,
       teamRuns,

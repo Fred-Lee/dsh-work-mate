@@ -81,7 +81,7 @@
 
 ## 阶段 2 — WorkMate 侧
 
-- [ ] 9. 任务文件与 API `src/features/task/{files,service}.ts` + `src/api.ts`：
+- [x] 9. 任务文件与 API `src/features/task/{files,service}.ts` + `src/api.ts`：
   面板独占的两个写者（`tasks.json` 原子写、`inputs.jsonl` 追加）；
   `GET /api/tasks`（合并三份文件 + 代理读取的 Ticket 阶段）、
   `POST /api/tasks`、`POST /api/tasks/:id/{assign,reply,retry,stop,abandon,reopen}`；
@@ -96,7 +96,7 @@
   附 `app.test.tsx`：四列计数、表单校验、抽屉、回答后列变化、离线空态、setup 提示的四种触发与自动消失
   <!-- writes: src/client/App.tsx, src/client/app.test.tsx, src/client/api.ts, src/client/types.ts -->
 
-- [ ] 11. 配置与门禁 `src/config.ts` + `scripts/*`：新增 `taskExecutor`（默认
+- [x] 11. 配置与门禁 `src/config.ts` + `scripts/*`：新增 `taskExecutor`（默认
   `superagent`）、`taskFile`、`superagentEndpoint`、`superagentTimeoutMs`、
   `superagentPollSeconds`（与子包 schema 的默认值一致）；Schemastery 与 interface 同步；
   `scripts/build.mjs` 增加子包构建；新增 `scripts/check-source-bundle.mjs`
