@@ -659,6 +659,47 @@ export function apply(ctx: Context, config: Config = {}): void {
       reviewBlockingSeverities: resolved.reviewBlockingSeverities,
       tasks,
       taskExecutor: resolved.taskExecutor === 'team' ? 'team' : 'superagent',
+      worktreeReclaim: {
+        leftover: async () => {
+          const boarded = await tasks.board()
+          const ticketIds = await (async () => {
+            const { ticketIdsFromResults } = await import('./features/task/reclaim.ts')
+            return ticketIdsFromResults(join(store.rootDir, 'tasks.jsonl'))
+          })()
+          const entries = boarded.cards
+            .map((card) => {
+              const ticketId = ticketIds[card.task.id] ?? card.ticket?.id
+              const directory = card.ticket?.directory
+              if (ticketId === undefined || directory === undefined) return undefined
+              if (card.lane !== 'done') return undefined
+              return { taskId: card.task.id, repo: card.task.repo, directory, ticketId }
+            })
+            .filter((entry): entry is { taskId: string; repo: string; directory: string; ticketId: string } => entry !== undefined)
+          return { entries }
+        },
+        reclaim: async (taskId, options) => {
+          const { reclaimOne, ticketIdsFromResults } = await import('./features/task/reclaim.ts')
+          const boarded = await tasks.board()
+          const card = boarded.cards.find((entry) => entry.task.id === taskId)
+          if (card === undefined) throw new Error(`任务不存在：${taskId}`)
+          const ticketIds = await ticketIdsFromResults(join(store.rootDir, 'tasks.jsonl'))
+          const ticketId = ticketIds[taskId] ?? card.ticket?.id
+          const directory = card.ticket?.directory
+          if (directory === undefined) throw new Error(`任务 ${taskId} 没有已观察到的 Ticket 目录 — 先等待执行器创建 worktree`)
+          return await reclaimOne(
+            {
+              worktreeRoots: async (repo) => (await registry.get(repo))?.root,
+              ports: worktree.ports(),
+              ticketAlive: async (id) => {
+                const found = (await superagent.tickets()).tickets.find((ticket) => ticket.id === id)
+                return found === undefined ? undefined : found.ended === undefined
+              },
+            },
+            { task: card.task, directory, ...(ticketId !== undefined ? { ticketId } : {}) },
+            { force: options.force === true },
+          )
+        },
+      },
       decision,
       events,
       teamRuns,

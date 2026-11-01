@@ -119,7 +119,7 @@
   并说明 `executor.directory` 应设为 `<repo>/.workmates`。附 `environment.test.ts`
   <!-- writes: packages/superagent-source/src/environment.ts, packages/superagent-source/src/environment.test.ts, docs/SUPERAGENT-INTEGRATION.md -->
 
-- [ ] 14. 回收与遗留 `src/features/worktree/reclaim.ts` + `src/api.ts`：归档时逐 target 读
+- [x] 14. 回收与遗留 `src/features/worktree/reclaim.ts` + `src/api.ts`：归档时逐 target 读
   Ticket 投影的 `execution.directory`，前置要求「Ticket 已结束 + 分支已合并」，满足才
   `git worktree remove --force` 并释放端口；不满足则拒绝并给原因；`GET /api/worktrees/leftover`
   列出已结束但目录仍在的项；`POST /api/worktrees/reclaim` 手动回收（二次确认在面板）。

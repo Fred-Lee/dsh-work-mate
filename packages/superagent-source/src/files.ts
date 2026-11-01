@@ -57,6 +57,8 @@ export interface ResultRow {
   taskId: string
   kind: ResultKind
   messageId?: string
+  /** 该消息属于哪个 Ticket；WorkMate 靠它把任务与 Ticket 对上（不靠标题匹配）。 */
+  ticketId?: string
   text: string
   at: string
 }
@@ -211,6 +213,7 @@ const normalizeResult = (value: Record<string, unknown>): ResultRow | undefined 
     taskId,
     kind,
     ...(typeof value['messageId'] === 'string' && value['messageId'] !== '' ? { messageId: value['messageId'] } : {}),
+    ...(typeof value['ticketId'] === 'string' && value['ticketId'] !== '' ? { ticketId: value['ticketId'] } : {}),
     text: asString(value['text']),
     at: asString(value['at']),
   }

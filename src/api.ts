@@ -103,6 +103,11 @@ export interface ApiDeps {
   tasks?: TaskServiceImpl
   /** 执行器选择：`superagent` 时团队派发默认关闭。 */
   taskExecutor?: 'superagent' | 'team'
+  /** worktree 回收与遗留清单（change `adopt-superagent-openspec-source`）。 */
+  worktreeReclaim?: {
+    leftover(): Promise<{ entries: Array<{ taskId: string; repo: string; directory: string; ticketId?: string }> }>
+    reclaim(taskId: string, options: { force?: boolean }): Promise<unknown>
+  }
 }
 
 export interface CreateProjectBody {
@@ -218,6 +223,20 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     return { artifacts, changeId: proposal.openspecChangeId, root }
   })
 
+
+
+  router.get('/api/worktrees/leftover', async () => {
+    if (deps.worktreeReclaim === undefined) return { entries: [], note: '回收服务未装配' }
+    return await deps.worktreeReclaim.leftover()
+  })
+
+  router.post('/api/worktrees/reclaim', async (r) => {
+    if (deps.worktreeReclaim === undefined) throw new Error('回收服务未装配：本 profile 缺少 worktree 回收依赖')
+    const body = await readJsonBody<{ taskId?: string; force?: boolean }>(r.req)
+    const taskId = (body.taskId ?? '').trim()
+    if (taskId === '') throw new Error('taskId 必填 — 一次只回收一个任务，避免误删')
+    return await deps.worktreeReclaim.reclaim(taskId, { force: body.force === true })
+  })
 
   router.get('/api/tasks', async () => {
     if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')

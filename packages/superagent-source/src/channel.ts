@@ -76,6 +76,7 @@ export function createChannel(options: ChannelOptions): NonNullable<SourceKind['
         taskId,
         kind: resultKindOf(message.kind),
         messageId: message.id,
+        ...(message.ticketId !== undefined && message.ticketId !== '' ? { ticketId: message.ticketId } : {}),
         text: message.text,
         at: now().toISOString(),
       })
