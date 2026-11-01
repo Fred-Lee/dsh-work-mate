@@ -604,4 +604,51 @@ export const PANEL_STYLE = `
 .wm-import-row .wm-actions { flex: none; }
 .wm-import-badge { margin-left: 6px; vertical-align: 1px; }
 
+
+/* task view (adopt-superagent-openspec-source) */
+.wm-tasks { display: flex; flex-direction: column; gap: 12px; padding: 14px 20px 24px; }
+.wm-tasks-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.wm-conn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--wm-muted); flex: none; }
+.wm-conn-dot.ok { background: var(--wm-success, #2e7d54); }
+.wm-conn-dot.off { background: var(--wm-danger, #a63d37); }
+.wm-tasks-health { font-size: 12px; color: var(--wm-muted); }
+.wm-tasks-count { font-size: 12px; color: var(--wm-muted); margin-left: auto; }
+.wm-tasks-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
+@media (max-width: 1180px) { .wm-tasks-board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .wm-tasks-board { grid-template-columns: minmax(0, 1fr); } }
+.wm-task-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px; border: 0.5px solid var(--wm-border-soft); border-radius: 10px; background: var(--wm-surface); }
+.wm-task-col-attention { border-color: var(--wm-border); }
+.wm-task-col-head { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.wm-task-col-label { font-weight: 600; }
+.wm-task-col-count { color: var(--wm-muted); }
+.wm-task-col-hint { margin-left: auto; color: var(--wm-muted); font-size: 11px; }
+.wm-task-col-body { display: flex; flex-direction: column; gap: 8px; }
+.wm-task-card { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border: 0.5px solid var(--wm-border-soft); border-radius: 8px; background: var(--wm-card); }
+.wm-task-open { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.wm-task-title { display: block; font-size: 13px; font-weight: 500; line-height: 1.45; }
+.wm-task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 5px; color: var(--wm-muted); font-size: 11px; }
+.wm-task-repo { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; padding: 1px 4px; border-radius: 4px; background: var(--wm-code); }
+.wm-task-time { font-size: 10px; }
+.wm-task-note { font-size: 11px; color: var(--wm-muted); line-height: 1.5; }
+.wm-task-quote { padding: 7px 9px; border-left: 2px solid var(--wm-border); border-radius: 0 6px 6px 0; background: var(--wm-accent-soft); font-size: 12px; line-height: 1.55; }
+.wm-task-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.wm-task-form { display: flex; flex-direction: column; gap: 10px; }
+.wm-task-form-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 760px) { .wm-task-form-row { grid-template-columns: minmax(0, 1fr); } }
+.wm-task-form .wm-context-field { display: flex; flex-direction: column; gap: 4px; }
+.wm-task-form input, .wm-task-form textarea, .wm-task-form select { width: 100%; padding: 6px 8px; border: 0.5px solid var(--wm-border); border-radius: 6px; background: var(--wm-card); color: var(--wm-fg); font: inherit; font-size: 12px; }
+.wm-task-modes { display: flex; flex-direction: column; gap: 6px; }
+.wm-task-mode { display: flex; align-items: flex-start; gap: 8px; padding: 7px 9px; border: 0.5px solid var(--wm-border-soft); border-radius: 8px; }
+.wm-task-mode.active { border-color: var(--wm-accent); }
+.wm-task-mode b { display: block; font-size: 12px; font-weight: 500; }
+.wm-task-mode small { display: block; color: var(--wm-muted); font-size: 11px; }
+.wm-task-form-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.wm-task-facts { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 4px 10px; margin: 0; font-size: 12px; }
+.wm-task-facts dt { color: var(--wm-muted); }
+.wm-task-facts dd { margin: 0; overflow-wrap: anywhere; }
+.wm-src { color: var(--wm-muted); font-size: 10px; font-weight: 400; }
+.wm-tasks-leftover { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 0.5px solid var(--wm-border-soft); border-radius: 10px; background: var(--wm-surface); }
+.wm-tasks-leftover-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 11px; }
+.wm-tasks-leftover-row code { font-size: 10px; }
+.wm-section-title { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
 `

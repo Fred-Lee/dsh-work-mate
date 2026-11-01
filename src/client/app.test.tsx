@@ -227,9 +227,11 @@ describe('ProposalPanel (kanban)', () => {
     fireEvent.click(rows[rows.length - 1] as HTMLElement)
 
     expect(await screen.findByText('关闭')).toBeTruthy()
-    expect(screen.getByText('下一步：确认方案后进入执行')).toBeTruthy()
-    expect(screen.getByText('目标矩阵')).toBeTruthy()
-    expect(screen.getByText('任务')).toBeTruthy()
+    const dialog = screen.getByRole('dialog', { name: /提案详情/ })
+    expect(within(dialog).getByText('下一步：确认方案后进入执行')).toBeTruthy()
+    expect(within(dialog).getByText('目标矩阵')).toBeTruthy()
+    // 「任务」现在同时是视图页签名与详情段名，断言要限定在抽屉内。
+    expect(within(dialog).getByText('任务')).toBeTruthy()
     expect(screen.getByText('审查')).toBeTruthy()
     expect(screen.getByText('事件')).toBeTruthy()
     expect(screen.getByText(/transition reviewing→ready/)).toBeTruthy()
@@ -629,6 +631,8 @@ describe('panel scroll contract (fix-panel-scroll)', () => {
     })
 
     render(<ProposalPanel />)
+    // 主视图已是「任务」（adopt-superagent-openspec-source）：本用例针对提案列表，先切页签。
+    fireEvent.click(screen.getByText('列表'))
     await screen.findByText('进行中提案')
     expect(screen.queryByText('旧提案')).toBeNull()
 
@@ -655,7 +659,9 @@ describe('panel scroll contract (fix-panel-scroll)', () => {
     render(<ProposalPanel />)
     fireEvent.click(await screen.findByText('项目树'))
     await screen.findByText('xkw')
-    expect(screen.getByText('进行中 1')).toBeTruthy()
+    // 项目树过滤的是提案列表，先切到「列表」页签再断言计数。
+    fireEvent.click(screen.getByText('列表'))
+    await screen.findByText('进行中 1')
     const treeRow = screen
       .getAllByText('alpha')
       .map((element) => element.closest('.wm-tree-row'))

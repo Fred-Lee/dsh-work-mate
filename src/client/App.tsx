@@ -38,6 +38,7 @@ import {
   type WorkspaceCandidate,
 } from './api'
 import type { Proposal, ProposalState, ProposalStatusPayload } from './types'
+import { TasksView } from './TasksView'
 import type { TeamRun } from '../features/team/types.ts'
 import { GraphView } from './GraphView'
 import { taskWaves, waveDepth } from './team-waves'
@@ -107,7 +108,7 @@ function relativeTime(iso: string): string {
 
 export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const { projectRoot } = props
-  const [view, setView] = useState<'board' | 'list' | 'graph' | 'console' | 'team'>(() => initialView())
+  const [view, setView] = useState<'tasks' | 'board' | 'list' | 'graph' | 'console' | 'team'>(() => initialView())
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [details, setDetails] = useState<Record<string, ProposalStatusPayload>>({})
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -365,6 +366,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
             value={view}
             label="视图"
             options={[
+              { value: 'tasks', label: '任务' },
               { value: 'board', label: '看板' },
               { value: 'list', label: '列表' },
               { value: 'team', label: '团队' },
@@ -455,7 +457,9 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
       )}
 
       <div className="wm-body">
-        {view === 'graph' ? (
+        {view === 'tasks' ? (
+          <TasksView onError={setError} />
+        ) : view === 'graph' ? (
           <GraphView projectRoot={projectRootDraft || undefined} />
         ) : view === 'team' ? (
           <TeamView onError={setError} />
@@ -1835,12 +1839,18 @@ function CreateModal(props: {
  * ignores the query, the standalone page honours it, screenshots and docs links
  * stay reproducible.
  */
-function initialView(): 'board' | 'list' | 'graph' | 'console' | 'team' {
-  if (typeof window === 'undefined') return 'list'
+function initialView(): 'tasks' | 'board' | 'list' | 'graph' | 'console' | 'team' {
+  // 主视图是「任务」（change `adopt-superagent-openspec-source`）：提案看板降为并列页签。
+  if (typeof window === 'undefined') return 'tasks'
   const requested = new URLSearchParams(window.location.search).get('view')
-  return requested === 'console' || requested === 'graph' || requested === 'list' || requested === 'team'
+  return requested === 'console' ||
+    requested === 'graph' ||
+    requested === 'list' ||
+    requested === 'team' ||
+    requested === 'board' ||
+    requested === 'tasks'
     ? requested
-    : 'list'
+    : 'tasks'
 }
 
 /** Human-readable dwell/cycle duration; unknown (0) stays unknown, never faked. */

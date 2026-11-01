@@ -89,7 +89,7 @@
   超时）；动作写 `events.jsonl`。附 `files.test.ts` 与 `api.test.ts`
   <!-- writes: src/features/task/files.ts, src/features/task/service.ts, src/features/task/*.test.ts, src/api.ts, src/api.test.ts -->
 
-- [ ] 10. 面板 `src/client/App.tsx` + `src/client/api.ts` + `src/client/types.ts`：
+- [x] 10. 面板 `src/client/App.tsx` + `src/client/api.ts` + `src/client/types.ts`：
   「任务」主视图（四列 + 侧栏徽标）、新建待办表单（三种执行方式）、任务抽屉
   （阶段/治理状态/对话/证据/动作条）、把 `window.prompt` 换成抽屉内结构化输入；
   提案视图降为并列页签；`taskExecutor=team` 时显示「回退执行器」徽标。

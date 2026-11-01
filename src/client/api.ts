@@ -5,6 +5,8 @@
 import type { AggregateMetrics, BandsPayload, CreateProposalBody, Proposal, ProposalState, ProposalStatusPayload } from './types'
 import type { ProposalEvent } from '../features/proposal/events.ts'
 import type { TeamRun } from '../features/team/types.ts'
+import type { PanelLane, PanelSubstate } from '../features/superagent/project.ts'
+import type { TaskRecord } from '../features/task/files.ts'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -232,4 +234,84 @@ export interface ProposalEventRow {
 
 export function listProposalEvents(id: string): Promise<{ events: ProposalEventRow[] }> {
   return request(`/workmate/api/proposals/${encodeURIComponent(id)}/events`)
+}
+
+
+/* ── 任务（change `adopt-superagent-openspec-source`） ───────────────────── */
+
+export interface TaskCardView {
+  lane: PanelLane
+  substate: PanelSubstate
+  note?: string
+  task: TaskRecord
+  connectable: boolean
+  ticket?: {
+    id: string
+    title: string
+    stage?: string
+    action?: string
+    ended?: { outcome?: string }
+    directory?: string
+    summary?: string
+  }
+}
+
+export interface TaskBoardView {
+  cards: TaskCardView[]
+  lanes: Record<PanelLane, TaskCardView[]>
+  health: { online: boolean; endpoint: string; reason?: string; paused?: boolean }
+  attention: number
+  notes: string[]
+}
+
+export function getTaskBoard(): Promise<TaskBoardView> {
+  return request('/workmate/api/tasks')
+}
+
+export interface CreateTaskBody {
+  intent: string
+  repo?: string
+  baseBranch?: string
+  acceptance?: string
+  priority?: 'P0' | 'P1' | 'P2'
+  mode?: 'superagent' | 'proposal' | 'record'
+  proposalId?: string
+}
+
+export function createTask(body: CreateTaskBody): Promise<{ task: TaskRecord }> {
+  return request('/workmate/api/tasks', { method: 'POST', body: JSON.stringify(body) })
+}
+
+export function assignTask(id: string): Promise<{ task: TaskRecord }> {
+  return request(`/workmate/api/tasks/${encodeURIComponent(id)}/assign`, { method: 'POST', body: '{}' })
+}
+
+export function retryTask(id: string): Promise<{ task: TaskRecord }> {
+  return request(`/workmate/api/tasks/${encodeURIComponent(id)}/retry`, { method: 'POST', body: '{}' })
+}
+
+export function replyTask(id: string, text: string, replyTo?: string): Promise<{ seq: number }> {
+  return request(`/workmate/api/tasks/${encodeURIComponent(id)}/reply`, {
+    method: 'POST',
+    body: JSON.stringify({ text, ...(replyTo !== undefined ? { replyTo } : {}) }),
+  })
+}
+
+export function stopTask(id: string): Promise<{ task: TaskRecord; stopped?: string }> {
+  return request(`/workmate/api/tasks/${encodeURIComponent(id)}/stop`, { method: 'POST', body: '{}' })
+}
+
+export function reopenTask(id: string): Promise<{ task: TaskRecord }> {
+  return request(`/workmate/api/tasks/${encodeURIComponent(id)}/reopen`, { method: 'POST', body: '{}' })
+}
+
+export function listLeftoverWorktrees(): Promise<{ entries: Array<{ taskId: string; repo: string; directory: string; ticketId?: string }> }> {
+  return request('/workmate/api/worktrees/leftover')
+}
+
+export function reclaimWorktree(taskId: string, options: { force?: boolean } = {}): Promise<unknown> {
+  return request('/workmate/api/worktrees/reclaim', {
+    method: 'POST',
+    body: JSON.stringify({ taskId, ...(options.force === true ? { force: true } : {}) }),
+  })
 }
