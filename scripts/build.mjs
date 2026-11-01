@@ -86,3 +86,21 @@ const indexHtml = `<!doctype html>
 `
 await writeFile('dist/client/index.html', indexHtml, 'utf8')
 console.log('[build] dist/client/index.html')
+
+// 子包 workmate-superagent-source：独立 bundle，装进 Super-agent 的 profile。
+// 不打包 zod（它在宿主侧由 profile 解析），产物是一个 ESM 入口。
+const SUB_BUILD_DIR = 'packages/superagent-source/dist'
+await mkdir(SUB_BUILD_DIR, { recursive: true })
+await build({
+  entryPoints: ['packages/superagent-source/src/index.ts'],
+  outfile: `${SUB_BUILD_DIR}/source-watch.js`,
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'es2022',
+  packages: 'external',
+  sourcemap: false,
+  minify: false,
+  logLevel: 'info',
+})
+console.log('[build] superagent source → packages/superagent-source/dist/source-watch.js')

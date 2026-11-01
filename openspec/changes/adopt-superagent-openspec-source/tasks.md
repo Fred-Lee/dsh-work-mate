@@ -47,7 +47,7 @@
   附 `kind.test.ts`：默认值、非法配置使实例被禁用、`parse({})` 不抛、`taskFile` 必须是绝对路径
   <!-- writes: packages/superagent-source/src/kind.ts, packages/superagent-source/src/kind.test.ts -->
 
-- [ ] 6. 扫描与投递 `packages/superagent-source/src/watch.ts`：按 `pollSeconds` 扫描；
+- [x] 6. 扫描与投递 `packages/superagent-source/src/watch.ts`：按 `pollSeconds` 扫描；
   对 ready 且 `assigned` 且未产生当前 `attempt` 的待办调用 `ctx.receive(trigger)`，
   Trigger 字段严格按 spec（`id=workmate:<taskId>:<attempt>`、`threads=[{source:'workmate',
   id:taskId}]`、`actor={source:'workmate',id:'workmate:<createdBy>'}`、`human:true`、
@@ -58,7 +58,7 @@
   只读模式不投递、inputs 不重放（游标持久化）、30 条积压只投 5 条、回答优先
   <!-- writes: packages/superagent-source/src/watch.ts, packages/superagent-source/src/watch.test.ts -->
 
-- [ ] 7. Channel 与上下文 `packages/superagent-source/src/channel.ts` +
+- [x] 7. Channel 与上下文 `packages/superagent-source/src/channel.ts` +
   `src/context.ts`：`channel.send` 固定映射写 `tasks.jsonl`（`messageId` 幂等、
   待办已删除返回 `'gone'`）、`channel.allowed`、`channel.link`（深链
   `/workmate/?task=<id>`，不可达返回空 url）；`threadContext.read` 支持
@@ -68,7 +68,7 @@
   附 `channel.test.ts` 与 `context.test.ts`（含"未关联提案不扫仓库"的反证）
   <!-- writes: packages/superagent-source/src/channel.ts, packages/superagent-source/src/context.ts, packages/superagent-source/src/channel.test.ts, packages/superagent-source/src/context.test.ts -->
 
-- [ ] 8. 入口与环境 `packages/superagent-source/src/index.ts`：导出
+- [x] 8. 入口与环境 `packages/superagent-source/src/index.ts`：导出
   `name = 'workmate-superagent-source'`、`inject = ['orchestrator']`、`apply`；
   在 `ctx.effect` 内注册 kind 与扫描器；`environment.variables` / `values` 注册
   `DSH_SUPERAGENT_WORKMATE_TASK|_ACCEPTANCE|_PRIORITY|_BASE_BRANCH|_PORTS|_COPY|_PROPOSAL`
@@ -113,7 +113,7 @@
   旧键在回收时按 target 兜底。附 `plan.test.ts` 与 `port-allocator` 兼容用例
   <!-- writes: src/features/task/plan.ts, src/features/task/plan.test.ts, src/features/worktree/port-allocator.ts, src/features/worktree/worktree.test.ts, src/features/archive/service.ts, src/features/archive/service.test.ts -->
 
-- [ ] 13. prepare 契约 `packages/superagent-source/src/environment.ts` + 文档：
+- [x] 13. prepare 契约 `packages/superagent-source/src/environment.ts` + 文档：
   注册 `_BASE_BRANCH`/`_PORTS`/`_COPY`；`docs/SUPERAGENT-INTEGRATION.md` 给出可直接粘贴的
   `executor.prepare` 片段（`git worktree add -b "workmate/$DSH_SUPERAGENT_NAME" "$DSH_SUPERAGENT_DIR" "$DSH_SUPERAGENT_WORKMATE_BASE"`、`.env` 追加、copyFiles、install），
   并说明 `executor.directory` 应设为 `<repo>/.workmates`。附 `environment.test.ts`
@@ -177,7 +177,7 @@
 
 ## 阶段 3c — 安全与验收标准
 
-- [ ] 23. 输入校验 `packages/superagent-source/src/validate.ts`：`proposalId` 白名单
+- [x] 23. 输入校验 `packages/superagent-source/src/validate.ts`：`proposalId` 白名单
   （`^[a-z0-9][a-z0-9-]*$`）+ `path.resolve` 前缀校验（工件读取不越界）；
   `messageId` 格式校验（32 位小写十六进制，参照 `src/core/ids.ts:3-5`）；不合法时
   `report` 健康错误且不写行。附 `validate.test.ts`：`../` 穿越、绝对路径、超长 ID、
