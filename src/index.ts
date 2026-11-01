@@ -126,13 +126,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     endpoint: resolved.superagentEndpoint,
     timeoutMs: resolved.superagentTimeoutMs,
   })
-  const tasks = new TaskServiceImpl({
-    store: taskStore,
-    superagent,
-    events,
-    operator: 'workmate:panel',
-    now: () => new Date(),
-  })
   const registry = new ProjectRegistry({ subdir: resolved.workmateHome })
   const teamRuns = new TeamRunStore({ subdir: resolved.workmateHome })
   const teamRunner = new TeamRunner(teamRuns)
@@ -142,6 +135,21 @@ export function apply(ctx: Context, config: Config = {}): void {
     portStep: resolved.portStep,
     copyFiles: resolved.copyFiles,
     packageManager: resolved.packageManager,
+  })
+  const tasks = new TaskServiceImpl({
+    store: taskStore,
+    superagent,
+    events,
+    operator: 'workmate:panel',
+    ports: worktree.ports(),
+    now: () => new Date(),
+  })
+  // target 分支回写：观察到的 Ticket 目录 → `workmate/<末段>` 写回对应 target，
+  // 让归档前置与 G5 合并有分支事实可读（design D10c / task 20）。
+  tasks.setObservationHook(async (observed) => {
+    const { writeBackTargets } = await import('./features/task/project-targets.ts')
+    const result = await writeBackTargets({ proposals, registry }, observed)
+    return { updated: result.updated, conflicts: result.conflicts }
   })
   // Every spawned `gitnexus` gets GITNEXUS_API_KEY mapped from the configured
   // variable (key lives in the Keychain / shell, never in a repo or plugin file).

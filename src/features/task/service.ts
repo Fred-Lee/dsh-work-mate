@@ -12,6 +12,11 @@ import type { SuperagentClient } from '../superagent/client.ts'
 import type { PortAllocator } from '../worktree/port-allocator.ts'
 import { planTaskPorts } from './plan.ts'
 
+export interface TicketObservation {
+  task: TaskRecord
+  ticket: TicketView
+}
+
 export interface TaskServiceDeps {
   store: TaskFileStore
   superagent: SuperagentClient
@@ -22,6 +27,8 @@ export interface TaskServiceDeps {
   operator?: string
   /** 端口分配器；给了就在建实现待办时分配任务级端口段。 */
   ports?: PortAllocator
+  /** 观察到 Ticket 时的回写钩子（target 分支与基线）；抛错只记在 notes，不阻断列表。 */
+  onTicketObserved?: (observed: ReadonlyArray<TicketObservation>) => Promise<{ updated: string[]; conflicts: string[] }>
   now?: () => Date
 }
 
@@ -42,6 +49,8 @@ export interface TaskCard extends Projection {
   ticket?: TicketView
   /** 该仓库是否被当前执行器接管。 */
   connectable: boolean
+  /** 已观察到的 Ticket（有它才可能有目录与分支）。 */
+  ticketId?: string
 }
 
 export interface TaskBoard {
@@ -61,6 +70,13 @@ export class TaskServiceImpl {
 
   constructor(private readonly deps: TaskServiceDeps) {
     this.now = deps.now ?? (() => new Date())
+  }
+
+  /** 注入回写钩子（index 装配时调用；测试也可单独设置）。 */
+  setObservationHook(
+    hook: (observed: ReadonlyArray<TicketObservation>) => Promise<{ updated: string[]; conflicts: string[] }>,
+  ): void {
+    ;(this.deps as { onTicketObserved?: typeof hook }).onTicketObserved = hook
   }
 
   /** 列出全部键名，供测试与面板使用。 */
@@ -243,6 +259,23 @@ export class TaskServiceImpl {
         connectable: this.connectable(task),
       }
     })
+
+    // 观察到带目录的 Ticket 就回写 target 分支（幂等；冲突不覆盖，只在 notes 里报）。
+    if (this.deps.onTicketObserved !== undefined) {
+      const observed: TicketObservation[] = cards
+        .filter((card): card is TaskCard & { ticket: TicketView } => card.ticket !== undefined && card.ticket.directory !== undefined)
+        .map((card) => ({ task: card.task, ticket: card.ticket }))
+      if (observed.length > 0) {
+        try {
+          const result = await this.deps.onTicketObserved(observed)
+          if (result.conflicts.length > 0) {
+            notes.push(`以下 target 已存在不同的实现分支（未覆盖）：${result.conflicts.join('、')}`)
+          }
+        } catch (error) {
+          notes.push(`回写 target 分支失败：${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+    }
 
     const lanes: Record<PanelLane, TaskCard[]> = { todo: [], working: [], attention: [], done: [] }
     for (const card of cards) lanes[card.lane].push(card)

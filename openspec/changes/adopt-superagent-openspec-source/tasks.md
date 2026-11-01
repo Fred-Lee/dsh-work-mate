@@ -157,7 +157,7 @@
   `team` 模式下保持原行为。附用例：批准后 tasks.json 出现待办、无 Run、无 dispatch
   <!-- writes: src/features/archive/service.ts, src/features/archive/service.test.ts, src/features/task/service.ts, src/features/task/service.test.ts -->
 
-- [ ] 20. target 分支回写 `src/features/task/project-targets.ts`：观察到 Ticket 后把
+- [x] 20. target 分支回写 `src/features/task/project-targets.ts`：观察到 Ticket 后把
   `workmate/<短名>` 与 `baseCommit` 回写对应 target（`git rev-parse <baseBranch>`），
   幂等且冲突时报错不覆盖；归档前置与 G5 合并据此可读。附用例：回写、幂等、冲突
   <!-- writes: src/features/task/project-targets.ts, src/features/task/project-targets.test.ts -->
