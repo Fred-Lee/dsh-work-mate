@@ -220,9 +220,15 @@ export interface SourceContext {
   config<C extends Record<string, unknown>>(kind: string): C | undefined
   receive(trigger: Trigger): { stored: boolean; duplicate?: boolean; filtered?: Advice } | Promise<{ stored: boolean }>
   atomic<T>(work: () => T): T
+  /**
+   * Source 私有 KV。键**必须是字符串**：宿主的实现直接把它绑给 SQLite 的 TEXT 列
+   * （`store.ts:164-171`），Symbol / 对象会在运行期报 "cannot be bound to SQLite parameter"。
+   * 约定用 `workmate-source:` 前缀，便于 `keys(prefix)` 按家族枚举。
+   */
   state: {
-    get<V>(key: unknown): V | undefined
-    set<V>(key: unknown, value: V | undefined): void
+    get<V>(key: string): V | undefined
+    set<V>(key: string, value: V | undefined): void
+    keys(prefix: string): string[]
   }
   threads: {
     get(key: string): Thread | undefined
@@ -245,7 +251,11 @@ export interface SourceContext {
 
 export interface SourceHost {
   readonly sources: {
-    register(kind: SourceKind<Record<string, unknown>>): void
+    /**
+     * 注册一个 kind。宿主的实现返回注销函数（`registry.ts:31-45`，重复注册同名 kind 会抛）；
+     * 契约里放宽成可选返回值，是因为注销只在重载时才有意义，而早期版本没有它。
+     */
+    register(kind: SourceKind<Record<string, unknown>>): void | (() => void)
     [extra: string]: unknown
   }
   context(kind: { kind: string; health: readonly string[] }): SourceContext

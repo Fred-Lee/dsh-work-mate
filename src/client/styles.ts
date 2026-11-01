@@ -93,6 +93,14 @@ export const PANEL_STYLE = `
 }
 .wm-count { color: var(--wm-muted); font-size: 11px; font-weight: 500; background: var(--wm-code); border-radius: 999px; padding: 2px 8px; }
 .wm-toolbar { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+/* 窄屏（320）：头部必须换行，否则视图切换被挤出可视区、提案计数被压成竖排单字。 */
+@media (max-width: 720px) {
+  .wm-header { flex-wrap: wrap; row-gap: 8px; padding: 10px 14px; }
+  .wm-brand { flex: 1 1 auto; min-width: 0; }
+  .wm-toolbar { margin-left: 0; width: 100%; justify-content: flex-start; overflow-x: auto; }
+  .wm-count { white-space: nowrap; flex: none; }
+  .wm-seg { flex: none; }
+}
 .wm-pills { display: inline-flex; background: var(--wm-code); border-radius: 999px; padding: 3px; }
 .wm-pill {
   border: 0; background: transparent; color: var(--wm-muted); cursor: pointer;
@@ -614,8 +622,10 @@ export const PANEL_STYLE = `
 .wm-tasks-health { font-size: 12px; color: var(--wm-muted); }
 .wm-tasks-count { font-size: 12px; color: var(--wm-muted); margin-left: auto; }
 .wm-tasks-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
-@media (max-width: 1180px) { .wm-tasks-board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 760px) { .wm-tasks-board { grid-template-columns: minmax(0, 1fr); } }
+/* 760 仍保持四列（验收要求）：每列约 170px，卡片标题两行截断即可读；
+   只有更窄才降成两列、单列。 */
+@media (max-width: 640px) { .wm-tasks-board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 460px) { .wm-tasks-board { grid-template-columns: minmax(0, 1fr); } }
 .wm-task-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px; border: 0.5px solid var(--wm-border-soft); border-radius: 10px; background: var(--wm-surface); }
 .wm-task-col-attention { border-color: var(--wm-border); }
 .wm-task-col-head { display: flex; align-items: center; gap: 6px; font-size: 12px; }
@@ -625,7 +635,7 @@ export const PANEL_STYLE = `
 .wm-task-col-body { display: flex; flex-direction: column; gap: 8px; }
 .wm-task-card { display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border: 0.5px solid var(--wm-border-soft); border-radius: 8px; background: var(--wm-card); }
 .wm-task-open { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.wm-task-title { display: block; font-size: 13px; font-weight: 500; line-height: 1.45; }
+.wm-task-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 13px; font-weight: 500; line-height: 1.45; }
 .wm-task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 5px; color: var(--wm-muted); font-size: 11px; }
 .wm-task-repo { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; padding: 1px 4px; border-radius: 4px; background: var(--wm-code); }
 .wm-task-time { font-size: 10px; }

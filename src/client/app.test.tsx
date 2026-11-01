@@ -567,6 +567,17 @@ describe('panel scroll contract (fix-panel-scroll)', () => {
     expect(body).toMatch(/min-height:\s*0/)
     expect(body).toMatch(/overflow-y:\s*auto/)
   })
+  it('keeps four task lanes at 760 and stacks the header instead of clipping it', () => {
+    // 断点是布局契约的一部分：760 仍要四列（验收表要求四档宽度四列可读），
+    // 720 以下头部换行（否则视图切换被挤出可视区）。
+    const board = cssBlock('.wm-tasks-board')
+    expect(board).toMatch(/repeat\(4,/)
+    expect(PANEL_STYLE).toMatch(/@media \(max-width: 640px\) \{ \.wm-tasks-board/)
+    expect(PANEL_STYLE).toMatch(/@media \(max-width: 720px\) \{[^}]*\.wm-header/)
+    expect(PANEL_STYLE).toMatch(/\.wm-toolbar \{[^}]*overflow-x: auto/)
+    expect(cssBlock('.wm-task-title')).toMatch(/-webkit-line-clamp: 2/)
+  })
+
   it('shows team runs and their task/event detail', async () => {
     const run = {
       id: 'r1',

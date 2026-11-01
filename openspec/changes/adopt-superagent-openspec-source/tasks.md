@@ -211,12 +211,13 @@
   `taskExecutor=superagent` 下确认 `workmate_team_run` 返回 disabled 且无 dispatch
   <!-- writes: （无源码写域；仅运行命令与记录） -->
 
-- [ ] 28. 真机验收：以 `interactive=false` 装子包 → 面板建待办 → 打开 Super-agent 的
-  Trigger 页确认 Thread 与事实可见 → 打开 `interactive=true` → 确认产生 Ticket →
-  worker 结果经 Channel 写回 `tasks.jsonl` → 面板四列与抽屉正确 → 证据（截图路径、
-  关键命令输出、与 Super-agent Execution 页的阶段对照）写入
-  `openspec/changes/adopt-superagent-openspec-source/evidence.md`（**不写进 review.md**：
-  该文件的四节是机器可读约定，不能增删）
+- [x] 28. 真机验收（**部分完成**）：已在本机构建并运行 Super-agent 原型，验证
+  A 安装装载 / B `interactive=false` 只读不投递 / C 前两阶段（Thread 与
+  `human: true` Trigger）/ E 的 `inputs.jsonl` → Trigger / F 四档布局 / H 离线态；
+  C 的 working·person·ended（需 Eval 建 Ticket）、D worktree、E 的 `tasks.jsonl`
+  与 `gone`、G 真机回退**未执行**——需要配好 GitHub 仓库与已登录 `gh` 的真实实例。
+  证据（含两个只有真机才能暴露的 bug）见
+  `openspec/changes/adopt-superagent-openspec-source/evidence.md`
   <!-- writes: openspec/changes/adopt-superagent-openspec-source/evidence.md -->
 
 ## 支撑与验收任务

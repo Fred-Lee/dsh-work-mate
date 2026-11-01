@@ -31,9 +31,13 @@ import { messageIdIssue } from './validate.ts'
 export const name = 'workmate-superagent-source'
 export const inject = ['orchestrator'] as const
 
-/** 游标与待办→Ticket 映射都存在 Source 自己的 state 里，不回写面板独占的文件。 */
-const CURSOR_KEY = Symbol.for('workmate.source.cursor')
-const TICKET_KEY = Symbol.for('workmate.source.tickets')
+/**
+ * 游标与待办→Ticket 映射都存在 Source 自己的 state 里，不回写面板独占的文件。
+ * 键必须是字符串（宿主的 KV 是 SQLite TEXT 列，见 `contract.ts` 的 state 注释）。
+ */
+const STATE_PREFIX = 'workmate-source:'
+const CURSOR_KEY = `${STATE_PREFIX}cursor`
+const TICKET_KEY = `${STATE_PREFIX}tickets`
 
 type TicketMap = Record<string, string>
 
@@ -48,12 +52,16 @@ export function apply(ctx: Context): void {
   const orchestrator = (ctx as unknown as { orchestrator?: SourceHost }).orchestrator
   if (orchestrator === undefined) return
 
+  // 顺序是硬的：**先注册 kind，再取 context**。宿主的 `SourceContext.report` 在构造时
+  // 就把 `kind.health` 解析成句柄表（`sourceContextOf`），注册前取到的是一张空表，
+  // 之后所有 report 都会被静默丢弃——健康条目会永远停在注册时的 `starting`。
   ctx.effect(() => {
-    const source = orchestrator.context({ kind: KIND, health: [HEALTH_ENTRY] })
     let cachedTasks: TaskRecord[] = []
     let disposed = false
     let nextScanAt = 0
     let running = false
+    // 由第二个 effect 赋值；host 调这些回调时必然已经注册并赋过值。
+    let source!: SourceContext
 
     const rawConfig = (): Record<string, unknown> => source.config<Record<string, unknown>>(KIND) ?? {}
     const configOf = (): WorkmateConfig | undefined => {
@@ -100,7 +108,10 @@ export function apply(ctx: Context): void {
       environment: { variables: VARIABLES, values: (input) => environmentValues(input) },
     }
 
-    orchestrator.sources.register(kind as unknown as SourceKind<Record<string, unknown>>)
+    // 注册必须先于 `context()`：健康句柄表在那一步才被 claim 出来。
+    const released = orchestrator.sources.register(kind as unknown as SourceKind<Record<string, unknown>>)
+    const unregister = typeof released === 'function' ? released : (): void => undefined
+    source = orchestrator.context({ kind: KIND, health: [HEALTH_ENTRY] })
 
     const tick = async (): Promise<void> => {
       if (disposed || running) return
@@ -186,6 +197,7 @@ export function apply(ctx: Context): void {
     return () => {
       disposed = true
       clearInterval(timer)
+      unregister()
     }
   }, 'workmate-superagent-source: kind + watch')
 }

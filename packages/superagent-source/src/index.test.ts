@@ -28,6 +28,9 @@ function fakeContext(config: Record<string, unknown>, options: { withOrchestrato
   const registered: SourceKind<Record<string, unknown>>[] = []
   const received: Trigger[] = []
   const reports: Array<{ state: string; detail: string }> = []
+  // 复刻宿主的语义（`sourceContextOf`）：`context()` 在构造时把 kind.health 解析成句柄表，
+  // 注册前解析出来是空表 → report 变成静默 no-op。真机上的 bug 正是这样被单测放过的。
+  const claimed = new Set<string>()
   const tickets: Fake['tickets'] = []
   const state = new Map<unknown, unknown>()
 
@@ -41,12 +44,18 @@ function fakeContext(config: Record<string, unknown>, options: { withOrchestrato
       return { stored: true }
     },
     atomic: <T,>(work: () => T): T => work(),
+    // 宿主把 key 直接绑给 SQLite TEXT 列：非字符串在真机会抛，这里也必须拒。
     state: {
-      get: <T,>(key: unknown) => state.get(key) as T | undefined,
-      set: <T,>(key: unknown, value: T | undefined) => {
+      get: <T,>(key: string) => {
+        if (typeof key !== 'string') throw new Error('Provided value cannot be bound to SQLite parameter 1.')
+        return state.get(key) as T | undefined
+      },
+      set: <T,>(key: string, value: T | undefined) => {
+        if (typeof key !== 'string') throw new Error('Provided value cannot be bound to SQLite parameter 1.')
         if (value === undefined) state.delete(key)
         else state.set(key, value)
       },
+      keys: (prefix: string) => [...state.keys()].filter((key) => typeof key === 'string' && key.startsWith(prefix)),
     },
     threads: {
       get: () => undefined,
@@ -62,11 +71,24 @@ function fakeContext(config: Record<string, unknown>, options: { withOrchestrato
     },
     triggers: { get: () => undefined, latest: () => undefined },
     notify: () => undefined,
-    report: (_entry: string, health: { state: string; detail: string }) => reports.push(health),
+    report: (_entry: string, health: { state: string; detail: string }) => {
+      if (!claimed.has(_entry)) return
+      reports.push(health)
+    },
   } as unknown as SourceContext
 
   const orchestrator = {
-    sources: { register: (kind: SourceKind<Record<string, unknown>>) => registered.push(kind) },
+    sources: {
+      register: (kind: SourceKind<Record<string, unknown>>) => {
+        for (const entry of kind.health) claimed.add(entry)
+        registered.push(kind)
+        return () => {
+          for (const entry of kind.health) claimed.delete(entry)
+          const index = registered.indexOf(kind)
+          if (index !== -1) registered.splice(index, 1)
+        }
+      },
+    },
     context: () => source,
   }
 
@@ -177,6 +199,37 @@ describe('扫描循环', () => {
     await flush()
     expect(fake.reports.some((report) => report.detail.includes('扫描失败') || report.state === 'error')).toBe(true)
     expect(fake.received).toHaveLength(0)
+  })
+
+  it('先注册 kind 再取 context，健康报告才落得到句柄上', async () => {
+    // 回归：宿主的 report 只写"取 context 时解析出的句柄表"；先取后注册会让所有
+    // 健康报告变成静默 no-op（健康永远停在 starting，真机上表现为来源看起来没启动）。
+    await writeFile(taskFile, taskJson([baseTask('task-1')]), 'utf8')
+    const fake = fakeContext({ taskFile, interactive: true })
+    apply(fake.ctx)
+    await flush()
+    expect(fake.registered).toHaveLength(1)
+    expect(fake.reports.length).toBeGreaterThan(0)
+    expect(fake.reports.some((report) => report.state === 'ready' || report.state === 'paused')).toBe(true)
+  })
+
+  it('dispose 时反注册 kind（重载不会撞 already registered）', async () => {
+    await writeFile(taskFile, taskJson([]), 'utf8')
+    const fake = fakeContext({ taskFile, interactive: true })
+    const disposers: Array<() => void> = []
+    const ctx = {
+      ...(fake.ctx as unknown as Record<string, unknown>),
+      effect: (fn: () => unknown) => {
+        const disposer = fn()
+        if (typeof disposer === 'function') disposers.push(disposer as () => void)
+        return disposer
+      },
+    } as unknown as Parameters<typeof apply>[0]
+    apply(ctx)
+    await flush()
+    expect(fake.registered).toHaveLength(1)
+    disposers.forEach((dispose) => dispose())
+    expect(fake.registered).toHaveLength(0)
   })
 
   it('dispose 后不再扫描', async () => {
