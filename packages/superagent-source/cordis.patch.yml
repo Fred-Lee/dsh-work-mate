@@ -1,0 +1,6 @@
+# workmate-superagent-source 的 bundle 层。
+# 只有一条 entry：这个包存在的唯一理由就是被装进 Super-agent 的 profile 当 Source。
+# 不要往这里加别的东西——它是一个专用包，不是一个可复用的插件集合。
+- insert:
+    - id: workmate-superagent-source
+      name: 'workmate-superagent-source'

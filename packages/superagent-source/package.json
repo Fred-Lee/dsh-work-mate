@@ -1,0 +1,32 @@
+{
+  "name": "workmate-superagent-source",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WorkMate 待办来源：把任务文件接成 DeepSeek Harness 的 Super-agent Source（独立 bundle，装进 Super-agent 的 profile）",
+  "type": "module",
+  "main": "./dist/source-watch.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/source-watch.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "license": "MIT"
+}

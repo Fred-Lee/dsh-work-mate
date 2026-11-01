@@ -27,7 +27,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs && tsc -p tsconfig.decls.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.packages.json --noEmit",
     "test": "vitest run",
     "test:toolchain": "node --test scripts/*.test.mjs",
     "verify:contract": "node scripts/check-contract.mjs",
@@ -73,5 +73,6 @@
   ],
   "dependencies": {
     "@deepseek-ai/schemastery": "3.18.5-alpha.1"
-  }
+  },
+  "packageManager": "pnpm@10.33.2"
 }

@@ -15,7 +15,9 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['src/**/*.test.{ts,tsx}'],
+    // 子包与主包一起跑：check-test-integrity 用仓库级规则发现 **/*.test.ts，
+    // include 漏掉 packages/** 会让 verify:test 直接红（见 adopt-superagent-openspec-source 任务 21）。
+    include: ['src/**/*.test.{ts,tsx}', 'packages/*/src/**/*.test.ts'],
     testTimeout: 30_000,
     hookTimeout: 30_000,
     pool: 'forks',
