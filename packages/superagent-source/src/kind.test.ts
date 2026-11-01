@@ -4,9 +4,13 @@ import {
   FIELDS,
   HEALTH_ENTRY,
   KIND,
+  POLICY_EXPLICIT,
+  POLICY_FIELDS,
   TITLE,
   factsOf,
   kindMetadataShape,
+  policyRows,
+  policySchema,
   validateConfig,
   workmateConfigSchema,
 } from './kind.ts'
@@ -96,6 +100,35 @@ describe('kind 元数据', () => {
     expect(HEALTH_ENTRY).toBe('workmate')
     expect(TITLE.en).toBe('WorkMate tasks')
     expect(DESCRIPTION.en.length).toBeGreaterThan(0)
+  })
+})
+
+describe('policy 分片', () => {
+  it('parse({}) 给出空的 allowed（默认拒绝，而不是默认放行）', () => {
+    expect(policySchema.parse({})).toEqual({ allowed: [] })
+  })
+
+  it('接受 workmate:<createdBy> 形式的身份，并保留可选的显示名', () => {
+    expect(policySchema.parse({ allowed: [{ id: 'workmate:panel', name: '面板' }] }).allowed).toEqual([
+      { id: 'workmate:panel', name: '面板' },
+    ])
+  })
+
+  it('拒绝未知键（strict），并且没有"接受规则"开关', () => {
+    expect(() => policySchema.parse({ acceptedRule: 'anything' })).toThrow()
+    expect(POLICY_FIELDS.map((field) => field.key)).toEqual(['allowed'])
+    expect(POLICY_FIELDS.map((field) => field.key)).not.toContain('rules')
+  })
+
+  it('准入表只有一行，且只放行"未列入但 @ 了来源"的格子', () => {
+    const rows = policyRows({})
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.cells).toEqual({ listedUnaddressed: false, unlistedAddressed: true, unlistedUnaddressed: false })
+  })
+
+  it('explicit 说明与设计一致（名单内 + 明确提及）', () => {
+    expect(POLICY_EXPLICIT.zh).toContain('明确请求')
+    expect(POLICY_EXPLICIT.en.length).toBeGreaterThan(0)
   })
 })
 

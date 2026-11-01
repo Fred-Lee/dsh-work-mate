@@ -211,12 +211,15 @@
   `taskExecutor=superagent` 下确认 `workmate_team_run` 返回 disabled 且无 dispatch
   <!-- writes: （无源码写域；仅运行命令与记录） -->
 
-- [x] 28. 真机验收（**部分完成**）：已在本机构建并运行 Super-agent 原型，验证
+- [x] 28. 真机验收（两档证据）：**真机**已在本机构建并运行 Super-agent 原型，验证
   A 安装装载 / B `interactive=false` 只读不投递 / C 前两阶段（Thread 与
-  `human: true` Trigger）/ E 的 `inputs.jsonl` → Trigger / F 四档布局 / H 离线态；
-  C 的 working·person·ended（需 Eval 建 Ticket）、D worktree、E 的 `tasks.jsonl`
-  与 `gone`、G 真机回退**未执行**——需要配好 GitHub 仓库与已登录 `gh` 的真实实例。
-  证据（含两个只有真机才能暴露的 bug）见
+  `human: true` Trigger）/ E 的 `inputs.jsonl` → Trigger / F 四档布局 / H 离线态，
+  并据此修掉两个只有真机才暴露的 bug；**引擎级**用真实 `Engine` + 真实 `settingsPolicy`
+  + 本仓库真实 Source/Channel/prepare/reclaim + 真实 git 跑通 C 的
+  working·person·ended、D 的 worktree/分支/`.env`、E 的 `tasks.jsonl`/`gone`/压缩、
+  G 的回收（`scripts/verify-superagent-offline.mjs`，31 项断言全过，`pnpm verify:drill`）。
+  仍需 `gh auth login` + 可写仓库才能补的是：worker 真实执行、GitHub PR 归属与合并、
+  面板 ↔ Execution 页逐阶段截图。证据见
   `openspec/changes/adopt-superagent-openspec-source/evidence.md`
   <!-- writes: openspec/changes/adopt-superagent-openspec-source/evidence.md -->
 

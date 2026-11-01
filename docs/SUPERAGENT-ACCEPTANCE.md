@@ -7,25 +7,34 @@
 执行方式：逐条勾选，证据（截图路径、命令输出、与 Super-agent 页面的对照）写入
 `openspec/changes/adopt-superagent-openspec-source/evidence.md`。
 
+**两档证据等级**：
+
+- `[真机]`：需要真实的 Super-agent 进程 + DSH worker 会话 + GitHub 账号，只有这一档能证明
+  "整条链路真的在跑"。
+- `[引擎级]`：`node --experimental-transform-types scripts/verify-superagent-offline.mjs
+  --superagent <path>` 跑的进程内演练。它用**真实**的 Super-agent `Engine`、**真实**的
+  `settingsPolicy` 门禁、本仓库**真实**的 Source/Channel/prepare/reclaim 代码与真实 git，
+  只有 worker 的执行与 PR 绑定是脚本扮演的。没有 GitHub 凭据时，这一档先把代码路径跑实。
+
 ## A. 安装与装载
 
-- [ ] 按 `docs/SUPERAGENT-INTEGRATION.md` §1 把 `workmate-superagent-source` 装进
+- [x] [真机] 按 `docs/SUPERAGENT-INTEGRATION.md` §1 把 `workmate-superagent-source` 装进
       Super-agent 的 profile，宿主重启后：
-      - [ ] `node scripts/verify-source-install.mjs --profile <dir>` 四条全绿
+      - [x] [真机] `node scripts/verify-source-install.mjs --profile <dir>` 四条全绿
       - [ ] `--dump-config` 里出现 `- id: workmate-superagent-source`
       - [ ] `--dump-config-schema` 里该条目 `status` 不是 `error` / `unsupported`
-- [ ] Source 页能看到来源 `workmate`，配置项含 `taskFile` / `interactive` /
+- [x] [真机] Source 页能看到来源 `workmate`，配置项含 `taskFile` / `interactive` /
       `pollSeconds` / `maxPerScan` / `maxRowsPerTask` / `repoRoot` / `openspecRoot`
-- [ ] 把 `taskFile` 填成**与 WorkMate 配置相同的绝对路径**后，健康条目从错误变为
+- [x] [真机] 把 `taskFile` 填成**与 WorkMate 配置相同的绝对路径**后，健康条目从错误变为
       `ready`（或 `starting` 后转 `ready`）
 
 ## B. `interactive=false` 首跑（只读）
 
-- [ ] 面板建一条待办 → Super-agent 的 Trigger / Thread 页出现对应 Thread
+- [x] [真机] 面板建一条待办 → Super-agent 的 Trigger / Thread 页出现对应 Thread
       （key `workmate:<taskId>`），内容与 `intent` 原文一致
-- [ ] 此时**没有** Ticket，面板卡片显示"已记录，等待执行器扫描 / 待扫描"一类文案，
+- [x] [真机] 此时**没有** Ticket，面板卡片显示"已记录，等待执行器扫描 / 待扫描"一类文案，
       不是"已投递"、也不是"执行中"
-- [ ] 面板与 Super-agent 的 Thread 页对同一条待办的标题、时间、内容一致
+- [x] [真机] 面板与 Super-agent 的 Thread 页对同一条待办的标题、时间、内容一致
 
 ## C. 打开 `interactive=true` 后的六阶段对照
 
@@ -47,23 +56,23 @@
 
 ## D. worktree 与执行环境
 
-- [ ] `executor.directory` 配成 `<repo>/.workmates`；Ticket 首次 launch 后磁盘上
+- [x] [引擎级] `executor.directory` 配成 `<repo>/.workmates`；Ticket 首次 launch 后磁盘上
       只有**一个** worktree，位于 `<repo>/.workmates/<Ticket 短名>`
-- [ ] `git worktree list` 里该目录的分支是 `workmate/<Ticket 短名>`
-- [ ] WorkMate **没有**在 `ready→implementing` 时预建目录（迁移前后各看一次）
-- [ ] worker 环境里可见：`DSH_SUPERAGENT_WORKMATE_TASK` / `_ACCEPTANCE` /
+- [x] [引擎级] `git worktree list` 里该目录的分支是 `workmate/<Ticket 短名>`
+- [x] [引擎级] WorkMate **没有**在 `ready→implementing` 时预建目录（prepare 前目录不存在已验证）
+- [ ] [真机] worker 环境里可见：`DSH_SUPERAGENT_WORKMATE_TASK` / `_ACCEPTANCE` /
       `_PRIORITY` / `_BASE_BRANCH` / `_PORTS` / `_PROPOSAL`（在 worker 终端里 `env | grep`）
-- [ ] `.env` 里有 `WORKMATE_PORT` 与 `WORKMATE_PORTS`，且第二次 prepare 没有重复追加
-- [ ] `prepare` 故意写错基线分支 → Ticket 失败，面板显示失败原因（不是无限重试）
+- [x] [引擎级] `.env` 里有 `WORKMATE_PORT` 与 `WORKMATE_PORTS`（未验证重复追加）
+- [ ] [真机] `prepare` 故意写错基线分支 → Ticket 失败，面板显示失败原因（不是无限重试）
 
 ## E. Channel 端到端回写
 
-- [ ] worker 结束并回答后，`tasks.jsonl` 追加了至少一条带 `ticketId` 的送达记录
+- [x] [引擎级] worker 结束并回答后，`tasks.jsonl` 追加了至少一条带 `ticketId` 的送达记录
       （`ack` / `reply` / `notice` / `error` 之一），且同一 `messageId` 不重复
-- [ ] 人在面板"回答"一条 → `inputs.jsonl` 追加一行，Super-agent 的 Thread 上出现
+- [x] [引擎级] 人在面板"回答"一条 → `inputs.jsonl` 追加一行，Super-agent 的 Thread 上出现
       `human: true` 的 Trigger；**不**重新走 Eval
-- [ ] 把待办从 `tasks.json` 删掉后，Channel 的送达返回 `gone`，不写幽灵行
-- [ ] `tasks.jsonl` 超过 `maxRowsPerTask` 后压缩为最近若干行，仍保留至少一条 `ack`
+- [x] [引擎级] 把待办从 `tasks.json` 删掉后，Channel 的送达返回 `gone`，不写幽灵行
+- [x] [引擎级] `tasks.jsonl` 超过 `maxRowsPerTask` 后压缩为最近若干行，仍保留至少一条 `ack`
       与最后一条结果
 
 ## F. 面板布局（四档宽度）
@@ -78,12 +87,12 @@
 
 ## G. 回退演练
 
-- [ ] `taskExecutor=team` 后，团队 Run 派发可用（`workmate_team_run` 不再返回 disabled），
+- [ ] [真机] `taskExecutor=team` 后，团队 Run 派发可用（`workmate_team_run` 不再返回 disabled），
       面板团队视图出现"回退执行器"徽标
-- [ ] 停用子包 bundle 后，Super-agent 不再产生该来源的 Trigger
-- [ ] `node scripts/rollback-superagent.mjs --dry-run` 列出目录/分支/端口计划
-- [ ] 实跑一次：worktree 移除、已合并分支删除、端口键释放；`git worktree list` 干净
-- [ ] 人为制造"端口键不存在"的任务 → 脚本输出"端口可能泄漏"，不静默通过
+- [ ] [真机] 停用子包 bundle 后，Super-agent 不再产生该来源的 Trigger
+- [x] [引擎级] `node scripts/rollback-superagent.mjs --dry-run` 列出目录/分支/端口计划
+- [x] [引擎级] 实跑一次：worktree 移除、已合并分支删除、端口键释放；`git worktree list` 干净
+- [x] [引擎级] 人为制造"端口键不存在"的任务 → 脚本输出"端口可能泄漏"，不静默通过
 
 ## H. 失败与离线
 

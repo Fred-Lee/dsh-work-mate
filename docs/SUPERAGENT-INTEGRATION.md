@@ -213,6 +213,23 @@ node scripts/verify-source-install.mjs --profile <dir> --dsh none   # 离线：�
 
 `FAIL` 的项不修好，这个来源不会工作；排查见 §9。
 
+## 8.1 没有 GitHub 时的引擎级演练
+
+真机验收的最后一段（Ticket 生命周期、worktree、Channel 回写、回收）需要
+`gh auth login` 与一个可写仓库。没有这些时可以先跑进程内演练——它用的都是真代码：
+
+```bash
+node --experimental-transform-types scripts/verify-superagent-offline.mjs \
+     --superagent /path/to/dsh-superagent-prototype    # 或 pnpm verify:drill
+```
+
+覆盖：真实 `Engine` 的 accept/assignmentStarted/report/bindThread/threadClosed、
+真实 `settingsPolicy` 门禁（explicit）、真实 `scanOnce`/`Channel`/`PREPARE_SNIPPET`/
+`reclaimOne`，以及在真实 git 仓库上建出的 worktree、分支与 `.env` 端口。
+**不含**：DSH worker 会话真的执行工作、GitHub PR 归属与合并、面板 ↔ Execution 页对照。
+
+结果与逐项证据见 `openspec/changes/adopt-superagent-openspec-source/evidence.md`。
+
 ## 9. 故障排查
 
 | 现象 | 最可能的原因 | 处理 |

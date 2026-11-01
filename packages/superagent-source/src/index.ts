@@ -17,8 +17,12 @@ import {
   FIELDS,
   HEALTH_ENTRY,
   KIND,
+  POLICY_EXPLICIT,
+  POLICY_FIELDS,
   TITLE,
   factsOf,
+  policyRows,
+  policySchema,
   validateConfig,
   workmateConfigSchema,
   type WorkmateConfig,
@@ -104,6 +108,14 @@ export function apply(ctx: Context): void {
       repliesTo: (trigger) => {
         const replyTo = trigger.meta['replyTo']
         return typeof replyTo === 'string' ? replyTo : undefined
+      },
+      // 只声明"谁能发起工作"：`allowed` 里是 `workmate:<createdBy>`。接受规则属于部署方的
+      // `policy.rules`，本 kind 既不读也不写（design D9b）。
+      policy: {
+        schema: policySchema,
+        fields: POLICY_FIELDS,
+        explicit: POLICY_EXPLICIT,
+        rows: policyRows,
       },
       environment: { variables: VARIABLES, values: (input) => environmentValues(input) },
     }

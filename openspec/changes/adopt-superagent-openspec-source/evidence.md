@@ -209,10 +209,113 @@ card:   working / unknown / "fetch failed"
    `workmate-source:cursor` / `workmate-source:tickets` 字符串键，契约里把
    `state.get/set` 收紧成 `string`。
 
+## 引擎级端到端演练（2026-11-01，本机无 GitHub 凭据时的替代路径）
+
+`gh auth login` 未完成、也没有可写的 GitHub 仓库，因此 C 的后四个阶段、D、E、G
+在**真机（DSH worker 会话 + GitHub PR 绑定）**上无法执行。这些环节本身并不依赖
+GitHub——它们只依赖 Super-agent 的 `Engine` 与本仓库的代码，所以另做了一次**进程内
+引擎级演练**，用的是真代码而不是替身：
+
+```bash
+node --experimental-transform-types scripts/verify-superagent-offline.mjs \
+     --superagent ../dsh-superagent-prototype      # 或 pnpm verify:drill
+```
+
+参与的真实组件：
+
+| 组件 | 来源 |
+| --- | --- |
+| `Engine` / `MemoryRepositories` / `ticketStage` | Super-agent 构建产物 `lib/index.js` |
+| 门禁 `settingsPolicy` | Super-agent **源码** `src/policy.ts`（`--experimental-transform-types` 直载） |
+| `scanOnce` / `buildTaskTrigger` / `buildInputTrigger` | 本仓库 `packages/superagent-source/src/watch.ts` |
+| `createChannel` / `readResults` / `appendResult` / `compactResults` | 同上 `files.ts`、`channel.ts` |
+| `PREPARE_SNIPPET` / `environmentValues` | 同上 `environment.ts` |
+| `projectTask`（面板四列投影） | 本仓库 `src/features/superagent/project.ts` |
+| `reclaimOne` / `PortAllocator` / `planTaskPorts` | 本仓库 `src/features/task/`、`worktree/` |
+| git 仓库、worktree、分支、`.env` | 真实文件系统上的真实 git |
+
+只有两处是脚本扮演的，输出的每一行都标了对应真机触发点：worker 的
+`engine.report(...)`（真机由 DSH worker 会话调用）、打开/关闭 PR 线程（真机由 GitHub
+Source 的 `bindThread` / `threadClosed` 调用）。
+
+### 演练结果（`exit=0`，31 项断言全过）
+
+```
+## C.1 扫描 → Trigger → 真实门禁
+  ✔ scanOnce 投递 1 条待办 — submitted=task-drill-1
+  ✔ 真实门禁判为 explicit — strength=explicit
+  ✔ 门禁 basis 记录来源与名单 — via=addressed sender=workmate:panel
+
+## C.2 accept → Ticket → working/queued
+  ✔ decision 建出 Ticket — ticketId=9bdb818370e3a2caa5c31e164f9effba
+  ✔ 面板投影 = 执行中/排队中 — working/queued
+  ✔ ack 经真实 Channel 写入 tasks.jsonl — rows=1
+  ✔ messageId 是 32 位十六进制（Super-agent 的 key 格式）
+
+## C.3 assignmentStarted → working
+  ✔ 面板投影 = 执行中/执行中 — working/working
+
+## D. 真实 prepare 建 worktree
+  ✔ prepare 前目录不存在（重要：预先存在会让 prepare 被跳过）
+  ✔ 仓库里恰好两个 worktree（主检出 + 该 Ticket）
+  ✔ 目录已注册为本仓 worktree
+  ✔ 分支 = workmate/<Ticket 短名> — workmate/readme-line-9bdb818370e3
+  ✔ .env 写入 WORKMATE_PORT / WORKMATE_PORTS
+  ✔ _TASK / _BASE_BRANCH / _PORTS 来自 meta；_COPY 来自实例配置
+
+## C.4 person/answer → 回答 → 继续
+  ✔ 面板投影 = 需要我/待回答，且带出提问原文
+  ✔ 回答被接收（stored）并进入 Ticket 的 undelivered
+  ✔ answer 回复经 Channel 送达；tasks.jsonl 出现 reply 行
+
+## C.5 person/review → ended/merged
+  ✔ 面板投影 = 需要我/待验收（Ticket 尚未结束，等 PR 线程关闭）
+  ✔ 线程合并后 Ticket 以 merged 结束
+  ✔ 面板投影 = 已完成/已合并 — done/merged
+
+## E. Channel
+  ✔ result 回复在 Ticket 结束后仍可送达
+  ✔ 待办被删除后 Channel 返回 gone（不再重试）
+  ✔ 压缩删除了行（3 → 7，上限 6 + 保留的 ack/结果），保留至少一条 ack
+
+## G. 回收
+  ✔ 回收成功；目录已移除；git worktree list 只剩主检出
+  ✔ 分支已删除；端口已释放
+```
+
+演练过程中发现并修掉的两处脚本建模错误（不是产品缺陷，记录在案）：
+`inputsRead` 必须被调用，否则 Ticket 永远"有未读完的输入"、PR 关闭也不会结束；
+`compactResults` 在 `maxRowsPerTask` 之外还会保留 ack 与最后一条结果，行数上限是
+`max+2` 而不是 `max`。
+
+### 顺带补齐的一个规格缺口
+
+演练前审规格发现 `policy` 分片（`superagent-source` 的「执行环境变量与策略」要求
+"该 kind SHALL 实现 `policy`（`allowed` + `admission` 表）"）**没有实现**——`kind.ts`
+只在注释里说过"不做接受规则"。已补：`policySchema`（`allowed` 列表，strict）、
+`POLICY_FIELDS`、`POLICY_EXPLICIT`、`policyRows`（单行准入表，只放行
+`unlistedAddressed`），并在 `index.ts` 的 kind 上挂载；`kind.test.ts` 与
+`index.test.ts` 各补用例（默认 `allowed: []` 即默认拒绝）。
+
+### 仍然只能在真机执行的项
+
+| 项 | 为什么只能在真机 |
+| --- | --- |
+| C 阶段的 worker 真实执行 | 需要 DSH worker 会话真的写代码；演练只是模拟 `report()` |
+| PR 归属与合并 | 需要 GitHub Source 轮询 + agent 账号开 PR |
+| `DSH_SUPERAGENT_*` 在 worker 进程内可见 | 演练只验证了 `environmentValues()` 的返回值 |
+| 面板 ↔ Super-agent Execution 页逐阶段对照 | 需要两侧真实运行并截图 |
+
+执行方式与勾选表见 `docs/SUPERAGENT-ACCEPTANCE.md`；准备好 GitHub 账号后按该表逐条走完，
+把结果补进本节即可。
+
 ## 未执行项（需要配好 GitHub 的真实实例）
 
-- [ ] C 的 working / person / ended 四个阶段（需要 Eval 建 Tickets）
-- [ ] D worktree 目录、分支、`DSH_SUPERAGENT_WORKMATE_*`、`.env` 端口
-- [ ] E 的 `tasks.jsonl` 送达记录、`gone`、行压缩
-- [ ] G 真机回退（`taskExecutor=team` + 停用子包 + 脚本）
-- [ ] H 的"卸掉子包后面板不崩"与坏文件真机表现
+- [x] ~~C 的 working / person / ended 四个阶段~~ → 引擎级演练已覆盖（真机 worker 执行仍待补）
+- [x] ~~D worktree 目录、分支、`.env` 端口~~ → 引擎级演练已用真实 git 覆盖
+- [x] ~~E 的 `tasks.jsonl` 送达记录、`gone`、行压缩~~ → 引擎级演练已覆盖
+- [x] ~~G 真机回退~~ → 引擎级演练覆盖了 `reclaimOne`（真实 worktree/分支/端口）
+- [x] ~~H 的"卸掉子包后面板不崩"~~ → 见「离线与失败态」一节的 `unknown` 投影与单测
+- [ ] C 的 worker 真实执行 + PR 绑定（需 GitHub）
+- [ ] 面板 ↔ Execution 页逐阶段对照截图（需两侧真实运行）
+- [ ] `gh auth login` 后的完整真机流程（task 28 的原始定义）

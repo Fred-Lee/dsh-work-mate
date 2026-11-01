@@ -164,6 +164,11 @@ describe('插件入口形状', () => {
     expect(kind?.repliesTo).toBeTypeOf('function')
     expect(kind?.environment?.values).toBeTypeOf('function')
     expect(kind?.facts).toBeTypeOf('function')
+    // 规格要求实现 policy：只声明"谁能发起工作"，不声明接受规则。
+    expect(kind?.policy?.schema).toBeDefined()
+    expect(kind?.policy?.fields.map((field) => field.key)).toEqual(['allowed'])
+    expect(kind?.policy?.rows?.({})).toHaveLength(1)
+    expect(kind?.policy?.explicit.en.length).toBeGreaterThan(0)
   })
 })
 

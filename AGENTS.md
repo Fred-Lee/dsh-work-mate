@@ -177,7 +177,9 @@ node $DSH web                                                # http://127.0.0.1:
 - **面板**：默认视图是任务四列（待办/执行中/需要我/已完成）；团队视图在 superagent 模式下
   只读并把回答/重试链接回任务视图；`GET /api/config` 暴露 `taskExecutor`；
 - **接入手册**：`docs/SUPERAGENT-INTEGRATION.md`（安装、准入两步、prepare 模板、回滚、
-  排查表）；安装自检 `node scripts/verify-source-install.mjs --profile <dir>`。
+  排查表）；安装自检 `node scripts/verify-source-install.mjs --profile <dir>`；
+  无 GitHub 凭据时的引擎级演练 `pnpm verify:drill`（真实 `Engine` + 真实门禁 + 真实
+  Source/Channel/prepare/reclaim + 真实 git，只缺 DSH worker 执行与 PR 绑定）。
 
 ## 多项目 target（2026-10-19，`multiproject-branch-workbench`）
 

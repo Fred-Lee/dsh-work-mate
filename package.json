@@ -38,7 +38,8 @@
     "verify:client": "node scripts/check-client-factory.mjs",
     "verify:test": "node scripts/check-test-integrity.mjs",
     "verify:built": "node scripts/check-built-tools.mjs",
-    "verify:source": "node scripts/check-source-bundle.mjs"
+    "verify:source": "node scripts/check-source-bundle.mjs",
+    "verify:drill": "node --experimental-transform-types scripts/verify-superagent-offline.mjs --superagent ${SUPERAGENT_ROOT:-../dsh-superagent-prototype}"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",

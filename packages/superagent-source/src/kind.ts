@@ -88,6 +88,58 @@ export const FIELDS: FieldSpec[] = [
 ]
 
 /**
+ * 来源的 policy 分片（`allowed` + `admission`）。
+ *
+ * 这里**只**声明"谁可以发起工作"：接受规则属于部署方的 `policy.rules`，本 kind 既读不到
+ * 也不该写。`admission` 由 Super-agent 的 `AdmissionTableSchema` 单独校验（`registry.ts`
+ * 的 `validatePolicy` 会把它摘出来），所以这个 schema 只覆盖 `allowed` 与其它自有键。
+ */
+export const policySchema = z
+  .object({
+    allowed: z
+      .array(z.object({ id: z.string().trim().min(1).max(200), name: z.string().trim().max(100).optional() }).strict())
+      .default([]),
+  })
+  .strict()
+
+export const POLICY_FIELDS: FieldSpec[] = [
+  {
+    key: 'allowed',
+    type: 'rows',
+    label: { zh: '能发起工作的创建者', en: 'Creators that may originate work' },
+    hint: {
+      zh: '填 `workmate:<createdBy>`（面板默认就是 `workmate:panel`）。列入的人发出的待办才算明确请求；不在名单里的人要靠准入表放行。',
+      en: 'Use `workmate:<createdBy>` (the panel writes `workmate:panel`). Todos from listed creators are explicit requests; anyone else depends on the admission table.',
+    },
+    columns: [{ key: 'id', type: 'text', label: { zh: '创建者', en: 'Creator' }, pattern: '[A-Za-z0-9:.\\-]+' }],
+  },
+]
+
+export const POLICY_EXPLICIT = {
+  zh: '名单里的创建者在任务文件里建的待办，就是对本来源的明确请求。',
+  en: "A todo a listed creator wrote in the task file is an explicit request to this Source.",
+} as const
+
+/**
+ * 准入表的行：本来源只有一个观察范围（任务文件），所以只有一行。
+ * `unlistedAddressed` 是唯一可能被用到的格子——本来源的 Trigger 恒为 `mention`。
+ */
+export const policyRows = (_stored: Record<string, unknown>): Array<{
+  id: string
+  label: { zh: string; en: string } | string
+  note: { zh: string; en: string }
+  cells: { listedUnaddressed: boolean; unlistedAddressed: boolean; unlistedUnaddressed: boolean }
+}> => [
+  {
+    id: 'tasks',
+    label: { zh: '任务文件', en: 'Task file' },
+    note: { zh: '唯一观察范围', en: 'The only scope' },
+    // 未列入的人发出的待办总是带 `addressed: 'mention'`：只影响这一个格子。
+    cells: { listedUnaddressed: false, unlistedAddressed: true, unlistedUnaddressed: false },
+  },
+]
+
+/**
  * 健康条目只能报本 kind 声明过的名字。四个状态里 `error` 只在"连续多轮失败"时才用
  * （沿用 Super-agent 对 Source 失败的纪律：单次读盘失败记在 Thread 上，不报警）。
  */
