@@ -7,3 +7,5 @@ coverage/
 .claude/settings.local.json
 
 .workmates/
+
+.dsh-vision-router/
