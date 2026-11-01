@@ -668,8 +668,9 @@ export function apply(ctx: Context, config: Config = {}): void {
           })()
           const entries = boarded.cards
             .map((card) => {
-              const ticketId = ticketIds[card.task.id] ?? card.ticket?.id
-              const directory = card.ticket?.directory
+              const ticketId = ticketIds[card.task.id] ?? card.ticket?.id ?? card.task.ticketId
+              // 执行器离线时只有任务记录里的缓存目录可读（task 22 的第一级定位）。
+              const directory = card.ticket?.directory ?? card.task.directory
               if (ticketId === undefined || directory === undefined) return undefined
               if (card.lane !== 'done') return undefined
               return { taskId: card.task.id, repo: card.task.repo, directory, ticketId }
@@ -683,8 +684,8 @@ export function apply(ctx: Context, config: Config = {}): void {
           const card = boarded.cards.find((entry) => entry.task.id === taskId)
           if (card === undefined) throw new Error(`任务不存在：${taskId}`)
           const ticketIds = await ticketIdsFromResults(join(store.rootDir, 'tasks.jsonl'))
-          const ticketId = ticketIds[taskId] ?? card.ticket?.id
-          const directory = card.ticket?.directory
+          const ticketId = ticketIds[taskId] ?? card.ticket?.id ?? card.task.ticketId
+          const directory = card.ticket?.directory ?? card.task.directory
           if (directory === undefined) throw new Error(`任务 ${taskId} 没有已观察到的 Ticket 目录 — 先等待执行器创建 worktree`)
           return await reclaimOne(
             {

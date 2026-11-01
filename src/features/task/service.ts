@@ -260,6 +260,10 @@ export class TaskServiceImpl {
       }
     })
 
+    // 缓存观察到的 Ticket（id + 目录）到任务记录：回滚脚本的第一级定位。
+    // 执行器卸载后读不到投影，只有这份记录还在。
+    await this.cacheObservedTickets(cards);
+
     // 观察到带目录的 Ticket 就回写 target 分支（幂等；冲突不覆盖，只在 notes 里报）。
     if (this.deps.onTicketObserved !== undefined) {
       const observed: TicketObservation[] = cards
@@ -298,6 +302,38 @@ export class TaskServiceImpl {
     const repo = this.deps.executorRepo
     if (repo === undefined || repo === '') return true
     return task.repo === repo
+  }
+
+  /**
+   * 把观察到的 Ticket 缓存进任务记录。
+   *
+   * `board()` 是读路径，但这次写是必须的：执行器卸载后回滚只能靠这份缓存。
+   * 两处纪律：① 没有变化不写（免掉每轮 5 秒的重写）；② **重新读盘后再合并**——
+   * 从 load 到 save 之间面板可能刚建了一条待办，直接落盘会把那条覆盖掉。
+   */
+  private async cacheObservedTickets(cards: ReadonlyArray<TaskCard>): Promise<void> {
+    const observed = cards.filter(
+      (card): card is TaskCard & { ticket: TicketView } =>
+        card.ticket !== undefined &&
+        (card.task.ticketId !== card.ticket.id ||
+          (card.ticket.directory !== undefined && card.task.directory !== card.ticket.directory)),
+    )
+    if (observed.length === 0) return
+    const latest = await this.deps.store.load()
+    let dirty = false
+    for (const card of observed) {
+      const saved = latest.tasks.find((task) => task.id === card.task.id)
+      if (saved === undefined) continue
+      if (saved.ticketId !== card.ticket.id) {
+        saved.ticketId = card.ticket.id
+        dirty = true
+      }
+      if (card.ticket.directory !== undefined && saved.directory !== card.ticket.directory) {
+        saved.directory = card.ticket.directory
+        dirty = true
+      }
+    }
+    if (dirty) await this.deps.store.save(latest)
   }
 
   private assertConnectable(task: TaskRecord): void {

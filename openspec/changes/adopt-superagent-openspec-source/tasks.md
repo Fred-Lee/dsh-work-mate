@@ -141,7 +141,7 @@
   `team` 模式下扫描遗留 `running`/`dispatched` 标 `abandoned` 并写恢复事件。附 `index.test.ts`
   <!-- writes: src/index.ts, src/index.test.ts -->
 
-- [ ] 18. 文档 `docs/SUPERAGENT-INTEGRATION.md`（安装子包 bundle、allowed 列表、
+- [x] 18. 文档 `docs/SUPERAGENT-INTEGRATION.md`（安装子包 bundle、allowed 列表、
   explicit 准入的两步（把 `workmate:<createdBy>` 加入 allowed；无需写规则）、
   `repoRoot`/`openspecRoot`、`taskFile` 必须两侧同一绝对路径、轮询、
   `interactive=false` 的首跑建议、
@@ -168,7 +168,7 @@
   子包测试。附 `test:toolchain` 用例
   <!-- writes: vitest.config.ts, tsconfig.json, tsconfig.packages.json, scripts/check-test-integrity.mjs, package.json -->
 
-- [ ] 22. 回滚脚本 `scripts/rollback-superagent.mjs`：**不依赖 Super-agent 在线**，按
+- [x] 22. 回滚脚本 `scripts/rollback-superagent.mjs`：**不依赖 Super-agent 在线**，按
   三级定位（任务记录缓存的 `directory` → 命名推导 `<repo>/.workmates/workmate-*` →
   扫描目录）清理 worktree 与分支，释放 `${proposalId}--${project}--${taskId}` 端口键，
   找不到端口时输出"可能泄漏"清单；输出逐项结果。演练一次，并在
@@ -190,14 +190,14 @@
   超限压缩、保留规则、并发扫描不丢行
   <!-- writes: packages/superagent-source/src/compact.ts, packages/superagent-source/src/compact.test.ts -->
 
-- [ ] 25. 跨仓交付验证 `docs/SUPERAGENT-INTEGRATION.md` + `scripts/verify-source-install.mjs`：
+- [x] 25. 跨仓交付验证 `docs/SUPERAGENT-INTEGRATION.md` + `scripts/verify-source-install.mjs`：
   写一个可执行检查——给定 Super-agent profile 目录，断言 ① 包已安装且版本可读、
   ② `dsh.profile.bundles` 含 `workmate-superagent-source`、③ 该 bundle 的 patch 只有一条
   entry、④ `workmate` 来源出现在 `--dump-config` 且 `status: schema`。附安装步骤与
   失败排查表
   <!-- writes: scripts/verify-source-install.mjs, scripts/verify-source-install.test.mjs, docs/SUPERAGENT-INTEGRATION.md -->
 
-- [ ] 26. 验收清单 `docs/SUPERAGENT-ACCEPTANCE.md`：把只能真机验证的项写成勾选表——
+- [x] 26. 验收清单 `docs/SUPERAGENT-ACCEPTANCE.md`：把只能真机验证的项写成勾选表——
   装即启用、`prepare` 建出 `<repo>/.workmates/workmate-*`、`DSH_SUPERAGENT_WORKMATE_*`
   在 worker 可见、Channel 端到端回写、stop/retry、面板与 Execution 页阶段逐项对照
   （列出六个阶段各自的期望文案）、面板 320/760/1180/1440 四档截图。任务 28 按此表执行
@@ -205,7 +205,7 @@
 
 ## 阶段 4 — 验收
 
-- [ ] 27. 门禁：`pnpm typecheck && pnpm test && pnpm build && pnpm verify` 全绿；
+- [x] 27. 门禁：`pnpm typecheck && pnpm test && pnpm build && pnpm verify` 全绿；
   `pnpm verify:source`（任务 11 新增）通过；`node scripts/verify-source-install.mjs`
   （任务 25 新增）在"正常安装 / 已装未启用 / 未安装"三种夹具下分别给出正确结论；
   `taskExecutor=superagent` 下确认 `workmate_team_run` 返回 disabled 且无 dispatch

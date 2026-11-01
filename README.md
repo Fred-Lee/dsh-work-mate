@@ -626,7 +626,13 @@ Git 关联、worktree 信息、决策日志、卡点、审查报告与 Wiki 引�
   注册同名 id 的左栏图标——这是宿主自带的工作台模型（`plugins` / `schedules` /
   `mnemon` 同款）。左栏点一下，中央就从对话切成 WorkMate；better-sidebar 的 dock 标签
   仍然保留（两条路并存）。
-- **三个视图**：`看板`（提案卡）/ `控制台` / `知识图谱`。
+- **四个视图**：`任务`（待办四列，默认）/ `看板`（提案卡）/ `控制台` / `知识图谱`。
+- **任务视图**（`adopt-superagent-openspec-source`）：四列 `待办 / 执行中 / 需要我 /
+  已完成`，卡片状态**只来自 Super-agent 的 Ticket 投影**，面板不自己算阶段；
+  新建待办写 `tasks.json`，指派/回答/停止分别对应"写意图 / 追加 `inputs.jsonl` /
+  代理执行器 stop"。执行交给 [Super-agent](docs/SUPERAGENT-INTEGRATION.md) 里的
+  `workmate-superagent-source` 来源，`taskExecutor=team` 可退回旧团队派发。
+  执行器离线时待办仍可记录，卡片显示"执行器离线"，不假装已投递。
 - **控制台**（跨提案只读视图）：聚合 KPI（提案数、返工率、首次通过率、周期时间中位数、
   近 7/30 天归档数、agent/人 触发占比）+ 每提案行（状态、该状态停留、周期、返工、门禁
   失败、未决卡点）+ 控制带表（指标 / 档位 / 当前 / 基线 / σ / 偏离 / 样本）。

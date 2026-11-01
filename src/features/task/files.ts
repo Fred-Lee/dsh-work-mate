@@ -29,6 +29,13 @@ export interface TaskRecord {
   createdBy: string
   proposalId?: string
   ports?: number[]
+  /**
+   * 观察到的 Ticket（面板视角缓存）。回滚脚本的第一级定位就靠这两项：
+   * Super-agent 被卸载后读不到投影，但任务记录仍在。
+   */
+  ticketId?: string
+  /** Ticket 的执行目录（只记录，不创建）；回滚用它做 `git worktree remove`。 */
+  directory?: string
   createdAt: string
   updatedAt: string
 }

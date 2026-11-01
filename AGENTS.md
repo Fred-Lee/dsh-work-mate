@@ -151,6 +151,34 @@ node $DSH web                                                # http://127.0.0.1:
 - 归档证据：`teamEvidenceGate`（默认 block）在 `merging→archiving` 前检查 team-managed
   变更的 `TEST.md`/`TEAM-REVIEW.md` 段头；`SUMMARY.md` 会映射进归档 manifest 的 `team` 段。
 
+## Super-agent 执行层（2026-11-01，`adopt-superagent-openspec-source`）
+
+**执行交给 Super-agent，WorkMate 保留治理与知识**。待办板是一个真正的
+`SourceKind`（包 `packages/superagent-source`，包名 `workmate-superagent-source`），
+独立安装进 Super-agent 的 profile，装即启用；根包**不要**装进 Super-agent 的 profile。
+
+- **定位**：面板建待办 → Source 扫描成 Trigger → Super-agent 的 Eval/Ticket → worker；
+  提案、OpenSpec、G2、写域机检、归档门、知识桥接仍在 WorkMate，作用于 `ready` 之后；
+- **`taskExecutor`**：默认 `superagent`；`team` 是显式回退（团队 Run 派发恢复），
+  面板标注「回退执行器」。`superagent` 模式下不建 Run、`workmate_team_run` 返回 disabled、
+  `ready→implementing` 只校验基线分支存在，**不预建 worktree**；
+- **三份文件、三个单写者**：`tasks.json`（面板写，原子 + fail-closed）、
+  `inputs.jsonl`（面板追加）、`tasks.jsonl`（Source 追加）。执行阶段一律读 Ticket 投影，
+  **不镜像**到第四份文件；
+- **worktree 所有权**：WorkMate 规划（目标仓库/基线/分支名/端口段/任务 ID），
+  Super-agent 的 `executor.prepare` 在 `<repo>/.workmates` 下创建目录；
+  面板只从 Ticket 投影的顶层 `directory` 读取，归档时回收；
+- **准入走 explicit**：Trigger `actor = { source: 'workmate', id: 'workmate:<createdBy>' }`、
+  `human: true`、`addressed: 'mention'`；部署方把该身份加入来源 `workmate` 的
+  `policy.allowed` 即可，**不需要接受规则**（explicit 绕过 `assessmentOutcome`）；
+- **回滚三件事，缺一泄漏**：① `taskExecutor=team`；② 停用子包 bundle；
+  ③ `node scripts/rollback-superagent.mjs`（不依赖执行器在线，三级定位目录，
+  端口找不到时明确输出"可能泄漏"）；
+- **面板**：默认视图是任务四列（待办/执行中/需要我/已完成）；团队视图在 superagent 模式下
+  只读并把回答/重试链接回任务视图；`GET /api/config` 暴露 `taskExecutor`；
+- **接入手册**：`docs/SUPERAGENT-INTEGRATION.md`（安装、准入两步、prepare 模板、回滚、
+  排查表）；安装自检 `node scripts/verify-source-install.mjs --profile <dir>`。
+
 ## 多项目 target（2026-10-19，`multiproject-branch-workbench`）
 
 `Proposal.targets: ProposalTarget[]` 是多仓/多基线提案的权威形状；旧字段
@@ -159,6 +187,9 @@ node $DSH web                                                # http://127.0.0.1:
 - `effectiveTargets()`：无 `targets` 时按第一个 project + 标量字段生成 legacy target；
 - `ready→implementing` 为每个 target 建 worktree：路径 `<root>/.workmates/<proposalId>`、
   分支 `feature/<proposalId>`、端口键 `${proposalId}--${project}`，失败整体回滚；
+  **这一条只适用于 `taskExecutor=team`**——`superagent` 模式下目录由 Super-agent 的
+  `prepare` 创建（分支 `workmate/<Ticket 短名>`、端口键
+  `${proposalId}--${project}--${taskId}`），见上一节；
 - `archiving` 逐 target 校验 `featureBranch → baseBranch` 已合并，归档后逐 target 回收；
 - 面板的详情抽屉按 target 展示 base/feature/worktree/端口；`/api/isolation` 暴露分支占用，
   `/api/isolation/writes` 暴露声明写域冲突，`/api/isolation/drift` 暴露基线漂移；
@@ -264,7 +295,9 @@ fix(store): 修复原子写中断后残留 tmp 文件
 | `docs/DESIGN.md` | 技术设计文档 0.1.0-draft（架构、模块、里程碑） |
 | `docs/DSH-INTEGRATION-NOTES.md` | DSH 宿主集成契约（Origin 围栏、bundle 声明、link 安装、证据等级） |
 | `docs/DSH-FIT-AUDIT.md` | DSH 适配度评估（P0/P1/P2 清单、证据、落地进度） |
-| `docs/TEAM-SETUP.md` | 团队角色 preset、工件准备、首次 Run 与证据门操作手册 |
+| `docs/TEAM-SETUP.md` | 团队角色 preset、工件准备、首次 Run 与证据门操作手册（`taskExecutor=team` 回退线） |
+| `docs/SUPERAGENT-INTEGRATION.md` | 子包安装、explicit 准入两步、prepare 模板、回滚与排查表 |
+| `docs/SUPERAGENT-ACCEPTANCE.md` | 只能真机验证的项：勾选表与阶段对照 |
 | `openspec/specs/` | 已归档能力规格 |
 
 <!-- gitnexus:start -->

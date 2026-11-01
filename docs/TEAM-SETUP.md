@@ -1,6 +1,12 @@
 # 团队编排部署与首次运行
 
 > 适用：`autonomous-agent-team` 之后。团队 Run 是提案之上的执行层，不替代八态生命周期。
+>
+> **2026-11-01 起这是回退线**：默认执行器是 `superagent`，待办交给
+> `workmate-superagent-source`（见 `docs/SUPERAGENT-INTEGRATION.md`）。只有在
+> `cordis.patch.yml` 的 workmate 条目里显式写 `taskExecutor: team` 时，本手册描述的
+> 角色 preset、Run 派发与 inbox 回答才生效；`superagent` 模式下不建 Run，
+> `workmate_team_run` 返回 disabled，团队视图是只读投影。
 
 ## 1. 角色 preset（必须）
 

@@ -224,6 +224,69 @@ describe('TaskServiceImpl.board', () => {
     expect(board.lanes.working[0]?.substate).toBe('unknown')
   })
 
+  it('观察到 Ticket 时把 id 与目录缓存进任务记录（回滚的第一级定位）', async () => {
+    const { client } = fakeClient({
+      tickets: [{ id: 't1', title: '做', stage: 'working', directory: '/repo/.workmates/workmate-x-abcdef123456' }],
+    })
+    const svc = service(client)
+    const created = await svc.create({ intent: '做', repo: 'r', mode: 'superagent' })
+    await svc.board()
+    const saved = (await svc.list()).find((task) => task.id === created.id)
+    expect(saved?.ticketId).toBe('t1')
+    expect(saved?.directory).toBe('/repo/.workmates/workmate-x-abcdef123456')
+
+    // 未变化的第二轮不重写；再观察到一个新目录才更新。
+    await svc.board()
+    expect((await svc.list()).find((task) => task.id === created.id)?.directory).toBe('/repo/.workmates/workmate-x-abcdef123456')
+  })
+
+  it('执行器离线时保留已缓存的 Ticket 与目录（不被清空）', async () => {
+    const { client } = fakeClient({
+      tickets: [{ id: 't1', title: '做', stage: 'working', directory: '/repo/.workmates/workmate-x-abcdef123456' }],
+    })
+    const svc = service(client)
+    await svc.create({ intent: '做', repo: 'r', mode: 'superagent' })
+    await svc.board()
+
+    const offline = fakeClient({ online: false, reason: '连接被拒' })
+    const offlineSvc = service(offline.client)
+    await offlineSvc.board()
+    expect((await offlineSvc.list())[0]?.directory).toBe('/repo/.workmates/workmate-x-abcdef123456')
+  })
+
+  it('缓存回写用重读合并，不会覆盖同时在面板新建的待办', async () => {
+    const { client } = fakeClient({ tickets: [{ id: 't1', title: '做', stage: 'working', directory: '/d' }] })
+    // create 一次、board 读一次、缓存回写前重读一次：第三次 load 才是"合并前的最新快照"。
+    let loads = 0
+    const racing = {
+      paths: store.paths,
+      async load() {
+        loads += 1
+        const file = await store.load()
+        if (loads === 3) {
+          file.tasks.push({
+            ...file.tasks[0]!,
+            id: 'task-concurrent',
+            title: '同时新建的',
+            intent: '同时新建的',
+            attempt: 0,
+            assigned: false,
+            mode: 'record' as const,
+          })
+        }
+        return file
+      },
+      save: (file: { version: 1; tasks: unknown[] }) => store.save(file as never),
+      appendInput: (row: never) => store.appendInput(row),
+      maxInputSeq: () => store.maxInputSeq(),
+    }
+    const svc = new TaskServiceImpl({ store: racing as unknown as TaskFileStore, superagent: client })
+    await svc.create({ intent: '做', repo: 'r', mode: 'superagent' })
+    await svc.board()
+    const ids = (await svc.list()).map((task) => task.id)
+    expect(ids).toContain('task-concurrent')
+  })
+
   it('四列互斥：一张卡只出现在一列', async () => {
     const { client } = fakeClient()
     const svc = service(client)
