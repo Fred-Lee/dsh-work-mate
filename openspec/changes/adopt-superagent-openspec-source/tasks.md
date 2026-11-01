@@ -12,7 +12,7 @@
 
 ## 阶段 0 — 子包地基
 
-- [ ] 1. 工作区骨架：新增 `pnpm-workspace.yaml`（`packages/*`）；新增
+- [x] 1. 工作区骨架：新增 `pnpm-workspace.yaml`（`packages/*`）；新增
   `packages/superagent-source/{package.json,cordis.patch.yml,tsconfig.json}`：
   包名 `workmate-superagent-source`、`dsh.bundle.patch: './cordis.patch.yml'`、
   `exports['./source-watch']`、运行期 `dependencies: { zod: '^4.4.3' }`、
@@ -20,19 +20,19 @@
   `- id: workmate-superagent-source / name: workmate-superagent-source`
   <!-- writes: pnpm-workspace.yaml, packages/superagent-source/package.json, packages/superagent-source/cordis.patch.yml, packages/superagent-source/tsconfig.json -->
 
-- [ ] 2. 结构契约 `packages/superagent-source/src/contract.ts`：以结构类型描述
+- [x] 2. 结构契约 `packages/superagent-source/src/contract.ts`：以结构类型描述
   `SourceKind` / `SourceContext` / `Trigger` / `Thread` / `Ticket` / `OutboundMessage`
   的最小字段（不 import 原型包）；附 `contract.test.ts` 用固定夹具断言字段存在，
   缺失时抛可读错误
   <!-- writes: packages/superagent-source/src/contract.ts, packages/superagent-source/src/contract.test.ts -->
 
-- [ ] 3. 任务文件 `packages/superagent-source/src/files.ts`：读 `tasks.json`（容忍不存在）、
+- [x] 3. 任务文件 `packages/superagent-source/src/files.ts`：读 `tasks.json`（容忍不存在）、
   读 `inputs.jsonl` 按 `seq` 游标取未消费行（容忍撕裂尾行与非法行）、追加
   `tasks.jsonl`（`ack`/`result`/`notice`/`error`，按 `messageId` 去重）。
   附 `files.test.ts`：撕裂尾行、非法行、重复 messageId、并发追加
   <!-- writes: packages/superagent-source/src/files.ts, packages/superagent-source/src/files.test.ts -->
 
-- [ ] 4. 依赖门控 `packages/superagent-source/src/gate.ts`：纯函数
+- [x] 4. 依赖门控 `packages/superagent-source/src/gate.ts`：纯函数
   `readyTasks(tasks, results) → { ready, waiting }`，只有全部 `dependsOn` 在结果集中
   且结果为已完成时才 ready；`abandoned` 与依赖自身的 `abandoned` 处理明确。
   附 `gate.test.ts` 覆盖链式依赖、环、缺失依赖、放弃节点
@@ -40,7 +40,7 @@
 
 ## 阶段 1 — SourceKind 行为
 
-- [ ] 5. kind 元数据与配置 `packages/superagent-source/src/kind.ts`：`kind: 'workmate'`、
+- [x] 5. kind 元数据与配置 `packages/superagent-source/src/kind.ts`：`kind: 'workmate'`、
   `title`/`description` 双语、`schema`（zod：`taskFile` / `pollSeconds` / `maxPerScan` / `interactive` /
   `repoRoot?` / `openspecRoot?`）、`fields`（含 `rows` 与 `fact` 字段）、`health: ['workmate']`、
   `facts(deployment)`（签名无 config 参数）、`copyFiles` 默认 `['.env','.env.local']`。
