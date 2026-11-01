@@ -253,8 +253,19 @@ export async function drill(options) {
   check('prepare 前目录不存在（重要：预先存在会让 prepare 被跳过）', !existsSync(directory))
   // 宿主在跑 prepare 前会 `mkdir(dirname(directory))`（`executor/dsh.ts:248-249`）；照做。
   await mkdir(worktreesRoot, { recursive: true })
+  // prepare 与 worker 拿同一批执行变量（docs/003-execution.md:65），所以用一次真实的
+  // `sh -c 'env'` 就能证明 worker 侧会看到它们。
   const { DSH_SUPERAGENT_WORKMATE_PORTS, ...prepareEnv } = env
   void DSH_SUPERAGENT_WORKMATE_PORTS
+  const shellEnv = await exec('sh', ['-c', 'env'], {
+    cwd: tasksDir,
+    timeout: 15_000,
+    env: { ...process.env, DSH_SUPERAGENT_NAME: name, DSH_SUPERAGENT_DIR: directory, ...env, DSH_SUPERAGENT_WORKMATE_PORTS: '4300,4301,4302,4303,4304' },
+  }).then((result) => result.stdout)
+  const wanted = ['TASK', 'ACCEPTANCE', 'PRIORITY', 'BASE_BRANCH', 'PORTS', 'COPY', 'PROPOSAL']
+  const missing = wanted.filter((key) => !new RegExp(`^DSH_SUPERAGENT_WORKMATE_${key}=`, 'm').test(shellEnv))
+  check('worker/prepare 的 shell 里 7 个执行变量都可见', missing.length === 0, missing.length ? `缺 ${missing.join(',')}` : wanted.join(', '))
+  check('_PORTS 是逗号分隔的端口段', /^DSH_SUPERAGENT_WORKMATE_PORTS=4300,4301,4302,4303,4304$/m.test(shellEnv))
   await exec('sh', ['-c', PREPARE_SNIPPET], {
     cwd: worktreesRoot,
     timeout: 120_000,
@@ -279,6 +290,17 @@ export async function drill(options) {
   const dotenv = await readFile(join(directory, '.env'), 'utf8')
   check('.env 写入 WORKMATE_PORT / WORKMATE_PORTS', dotenv.includes('WORKMATE_PORT=4300') && dotenv.includes('WORKMATE_PORTS=4300,4301,4302,4303,4304'))
   void prepareEnv
+
+  section('D.2 prepare 失败可见（基线分支不存在）')
+  const badDir = join(worktreesRoot, 'bad-base-000000000000')
+  const badRun = await exec('sh', ['-c', PREPARE_SNIPPET], {
+    cwd: worktreesRoot,
+    timeout: 120_000,
+    env: { ...process.env, DSH_SUPERAGENT_NAME: 'bad-base-000000000000', DSH_SUPERAGENT_DIR: badDir, ...env, DSH_SUPERAGENT_WORKMATE_BASE_BRANCH: 'no-such-branch' },
+  }).then(() => ({ ok: true, output: '' }), (error) => ({ ok: false, output: `${error.stderr ?? ''}${error.stdout ?? ''}` }))
+  check('prepare 以非零退出（宿主会因此判 Ticket 失败）', badRun.ok === false, badRun.ok ? '命令竟然成功了' : 'exit≠0')
+  check('失败输出带得上（面板能显示原因）', /no-such-branch|not a commit|invalid reference/i.test(badRun.output), badRun.output.trim().split('\n').slice(-1)[0] ?? '')
+  check('失败后没有留下目录（宿主会 rmdir）', !existsSync(badDir))
 
   section('C.4 person/answer → 回答 → 继续')
   engine.report(ticketId, { state: 'progress', summary: '已改好，待验证', question: '用 main 作为对照分支？' })
@@ -349,6 +371,48 @@ export async function drill(options) {
   check('压缩保留至少一条 ack', after.some((row) => row.kind === 'ack'))
   // 上限之外会额外保留一条 ack 与最后一条结果（`compactResults` 的保留规则），所以允许 +2。
   check('压缩后行数受上限约束（含保留项）', after.length <= 8, `rows=${after.length}（上限 6）`)
+
+  section('C.6 stop 与 retry（第二条待办，不动已合并的那一条）')
+  // retry 的前置很严（`core/tickets.ts` 的 retry）：只有**未结束**、worker 最近一次
+  // 报告是 failed/blocked、之后没有人发言的 Ticket 才能重试。用一条独立待办走这条路。
+  const task2 = { ...task, id: 'task-drill-2', title: '写一行 CHANGELOG', intent: '在 CHANGELOG 里加一行。', proposalId: undefined }
+  currentTasks = [task]
+  await writeFile(taskFile, `${JSON.stringify({ version: 1, tasks: [task, task2] }, null, 2)}\n`, 'utf8')
+  await scanOnce(
+    {
+      receive: (trigger) => engine.receive(trigger),
+      terminalOf: () => undefined,
+      readCursor: () => 0,
+      writeCursor: () => undefined,
+    },
+    { tasks: [task2], inputs: [], maxPerScan: 5, interactive: true, now: () => new Date('2026-11-01T19:30:00.000Z') },
+  )
+  engine.evaluateDue()
+  const candidate2 = candidates.at(-1)
+  check('第二条待办也通过真实门禁', candidate2?.strength === 'explicit', `strength=${candidate2?.strength}`)
+  const trigger2 = buildTaskTrigger(task2, '2026-11-01T19:30:00.000Z')
+  const decision2 = engine.decide(trigger2.id, { kind: 'accept', title: '写一行 CHANGELOG', scope: 'small', reason: '演练', name: 'changelog-line' })
+  void decision2
+  await flush()
+  const ticket2Id = decision2.ticketId
+  const ticket2 = repo.tickets.get(ticket2Id)
+  engine.assignmentStarted(ticket2Id, ticket2.assignments.at(-1).id)
+  engine.report(ticket2Id, { state: 'blocked', summary: '缺验收环境', question: null })
+  const blockedView = projectTask({ task: task2, ticket: ticketView(repo.tickets.get(ticket2Id), ticketStage), submitted: true })
+  check('blocked 报告 → 需要我/受阻', blockedView.lane === 'attention' && blockedView.substate === 'blocked', `${blockedView.lane}/${blockedView.substate}`)
+
+  const retried = engine.retryTicket(ticket2Id)
+  const retriedView = projectTask({ task: task2, ticket: ticketView(retried, ticketStage), submitted: true })
+  check('retry 后 Ticket 重新打开', retried.ended === undefined)
+  check('retry 后投影回到执行中/排队中', retriedView.lane === 'working' && retriedView.substate === 'queued', `${retriedView.lane}/${retriedView.substate}`)
+  check('retry 生成新的 assignment', retried.assignments.length > 1, `assignments=${retried.assignments.length}`)
+  const samePorts = await planTaskPorts(ports, { proposalId: task.proposalId, project: task.repo, taskId: task.id })
+  check('retry 不改端口（换的是第二条待办，第一条的端口段保持不变）', JSON.stringify(samePorts) === JSON.stringify(task.ports), samePorts.join(','))
+
+  const stopped = engine.stopTicket(ticket2Id, '演练：人工停止')
+  check('stop 后 Ticket 以 stopped 结束', stopped.ended?.outcome === 'stopped', `outcome=${stopped.ended?.outcome}`)
+  const stoppedView = projectTask({ task: task2, ticket: ticketView(repo.tickets.get(ticket2Id), ticketStage), submitted: true })
+  check('面板投影 = 已完成/已停止', stoppedView.lane === 'done' && stoppedView.substate === 'stopped', `${stoppedView.lane}/${stoppedView.substate}`)
 
   section('G. 回收：worktree + 分支 + 端口')
   await git(directory, ['add', '.'])

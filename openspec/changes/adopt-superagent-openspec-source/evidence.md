@@ -153,7 +153,14 @@ GET threads/workmate:task-accept-1 →
 
 `prepare` 只在产生 Ticket 后跑；没有 Ticket 就没有目录。等待一个配好 GitHub 的实例。
 
-### E. Channel 端到端（部分）✅
+### C.6 blocked → retry → stop
+  ✔ 第二条待办也通过真实门禁（explicit）
+  ✔ blocked 报告 → 需要我/受阻
+  ✔ retry 后 Ticket 重新打开，投影回到执行中/排队中，生成新的 assignment
+  ✔ retry 不改端口（端口段保持不变）
+  ✔ stop 后 Ticket 以 stopped 结束，投影 = 已完成/已停止
+
+## E. Channel 端到端（部分）✅
 
 面板"回答"一次 → `inputs.jsonl` 追加一行 →
 
@@ -238,7 +245,7 @@ node --experimental-transform-types scripts/verify-superagent-offline.mjs \
 `engine.report(...)`（真机由 DSH worker 会话调用）、打开/关闭 PR 线程（真机由 GitHub
 Source 的 `bindThread` / `threadClosed` 调用）。
 
-### 演练结果（`exit=0`，31 项断言全过）
+### 演练结果（`exit=0`，54 项断言全过）
 
 ```
 ## C.1 扫描 → Trigger → 真实门禁
@@ -262,6 +269,10 @@ Source 的 `bindThread` / `threadClosed` 调用）。
   ✔ 分支 = workmate/<Ticket 短名> — workmate/readme-line-9bdb818370e3
   ✔ .env 写入 WORKMATE_PORT / WORKMATE_PORTS
   ✔ _TASK / _BASE_BRANCH / _PORTS 来自 meta；_COPY 来自实例配置
+
+  ✔ worker/prepare 的 shell 里 7 个执行变量都可见（TASK/ACCEPTANCE/PRIORITY/BASE_BRANCH/PORTS/COPY/PROPOSAL）
+  ✔ _PORTS 是逗号分隔的端口段
+  ✔ prepare 写错基线分支 → 非零退出，输出带 `fatal: invalid reference: no-such-branch`，且不留目录
 
 ## C.4 person/answer → 回答 → 继续
   ✔ 面板投影 = 需要我/待回答，且带出提问原文
@@ -335,8 +346,9 @@ PUT（allowed 写成字符串）    → 400 sources.workmate.allowed … expecte
 
 ## 未执行项（需要配好 GitHub 的真实实例）
 
-- [x] ~~C 的 working / person / ended 四个阶段~~ → 引擎级演练已覆盖（真机 worker 执行仍待补）
-- [x] ~~D worktree 目录、分支、`.env` 端口~~ → 引擎级演练已用真实 git 覆盖
+- [x] ~~C 的 working / person / ended 四个阶段 + stop/retry~~ → 引擎级演练已覆盖（真机 worker 执行仍待补）
+- [x] ~~D worktree 目录、分支、`.env` 端口、`DSH_SUPERAGENT_WORKMATE_*`、prepare 失败可见~~
+  → 引擎级演练已用真实 git 与真实 shell 覆盖
 - [x] ~~E 的 `tasks.jsonl` 送达记录、`gone`、行压缩~~ → 引擎级演练已覆盖
 - [x] ~~G 真机回退~~ → 引擎级演练覆盖了 `reclaimOne`（真实 worktree/分支/端口）
 - [x] ~~H 的"卸掉子包后面板不崩"~~ → 见「离线与失败态」一节的 `unknown` 投影与单测

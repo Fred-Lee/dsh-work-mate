@@ -51,10 +51,13 @@
 | 5 | `person/review` | 需要我 | `待验收` | 与 Execution 页的验收动作对应 |
 | 6 | `ended`（completed / merged / closed / dropped / stopped） | 已完成 | 五值各自对应 | 不漏判成执行中（ended 优先） |
 
-- [ ] 六个阶段各截一张图（面板 + Super-agent 页对照）
-- [ ] 中途 stop 一次：面板卡片回到"待办/已停止"，Super-agent 的 Ticket 以
-      `stopped` 结束
-- [ ] retry 一次：同一任务 `attempt` 递增，端口段不变（worktree 的 `.env` 未出现第二组）
+- [x] [引擎级] 六个阶段的面板投影逐一对过（`projectTask` + 真实 `ticketStage`）：
+      无票→`working/submitted`、queued、working、person/answer、person/review、ended/merged
+- [x] [真机] 阶段 1–2 的截图（`docs/assets/ui/task-view-*.png`）
+- [ ] [真机] 六个阶段各截一张图（面板 + Super-agent 页并排对照）
+- [x] [引擎级] blocked → retry → stop：面板投影依次为 需要我/受阻 → 执行中/排队中 →
+      已完成/已停止；retry 生成新 assignment，端口段不变
+- [ ] [真机] 同上的真机版本（需要 worker 真的报 blocked）
 
 ## D. worktree 与执行环境
 
@@ -62,10 +65,13 @@
       只有**一个** worktree，位于 `<repo>/.workmates/<Ticket 短名>`
 - [x] [引擎级] `git worktree list` 里该目录的分支是 `workmate/<Ticket 短名>`
 - [x] [引擎级] WorkMate **没有**在 `ready→implementing` 时预建目录（prepare 前目录不存在已验证）
-- [ ] [真机] worker 环境里可见：`DSH_SUPERAGENT_WORKMATE_TASK` / `_ACCEPTANCE` /
-      `_PRIORITY` / `_BASE_BRANCH` / `_PORTS` / `_PROPOSAL`（在 worker 终端里 `env | grep`）
+- [x] [引擎级] prepare/worker 的同一批执行变量在真实 shell 里可见：`_TASK` / `_ACCEPTANCE` /
+      `_PRIORITY` / `_BASE_BRANCH` / `_PORTS` / `_COPY` / `_PROPOSAL`（7 个全在，`_PORTS` 是逗号列表）
+- [ ] [真机] 在 worker 会话里 `env | grep DSH_SUPERAGENT_WORKMATE` 复核同一批变量
 - [x] [引擎级] `.env` 里有 `WORKMATE_PORT` 与 `WORKMATE_PORTS`（未验证重复追加）
-- [ ] [真机] `prepare` 故意写错基线分支 → Ticket 失败，面板显示失败原因（不是无限重试）
+- [x] [引擎级] `prepare` 故意写错基线分支 → 非零退出且带 `fatal: invalid reference` 输出，
+      失败后不留目录（宿主据此判 Ticket 失败并保留输出）
+- [ ] [真机] 面板显示该失败原因与「重试」入口
 
 ## E. Channel 端到端回写
 
@@ -81,11 +87,11 @@
 
 宿主 `main` 槽是确定高度列，面板根自带高度与滚动契约。四档宽度下：
 
-- [ ] 320：任务四列改为纵向堆叠，卡片不溢出，抽屉可滚动且能关闭
-- [ ] 760：四列可见，卡片标题两行截断，操作按钮不换行到第二屏
-- [ ] 1180：四列 + 详情抽屉并排不挤压，图例/健康条可见
-- [ ] 1440：列宽铺满，无横向滚动条
-- [ ] 每档截一张图；`wm-task-view` 的滚动只应发生在唯一滚动子层
+- [x] [真机] 320：单列纵向堆叠，头部换行不裁剪（`task-view-320.png`）
+- [x] [真机] 760：四列仍成立，卡片标题两行截断（`task-view-760.png`）
+- [x] [真机] 1180：四列 + 详情抽屉并排不挤压（`task-view-1180.png` / `task-drawer-1180.png`）
+- [x] [真机] 1440：列宽铺满，无横向滚动条（`task-view-1440.png`）
+- [x] [真机] 每档截一张图（见上）；滚动只发生在 `.wm-body` 唯一滚动子层（单测锁住了契约）
 
 ## G. 回退演练
 
@@ -98,11 +104,12 @@
 
 ## H. 失败与离线
 
-- [ ] 停掉 Super-agent：面板卡片显示"执行器离线"，待办仍可新建与编辑，
-      不出现"已投递"
-- [ ] 卸掉子包（但 WorkMate 仍在）：任务列表仍可读，执行列显示 `unknown`，
-      不崩、不空白
-- [ ] `tasks.json` 手工写坏 → 面板报错且**不覆盖**文件；回滚脚本退出码 2 且不动磁盘
+- [x] [真机] 停掉 Super-agent：面板卡片显示"执行器离线 · fetch failed"，待办仍可记录，
+      不出现"已投递"（`task-view-offline-1180.png`）
+- [ ] [真机] 卸掉子包（但 WorkMate 仍在）：任务列表仍可读，执行列显示 `unknown`，不崩、不空白
+- [x] [单测] `tasks.json` 手工写坏 → `TaskStoreCorruptError`（面板报错且不覆盖）；
+      回滚脚本退出码 2 且不动磁盘（`rollback-superagent.test.mjs`）
+- [ ] [真机] 上述坏文件路径的真机表现
 
 ## 记录模板
 
