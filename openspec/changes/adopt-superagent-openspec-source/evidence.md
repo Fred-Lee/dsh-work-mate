@@ -288,6 +288,30 @@ Source 的 `bindThread` / `threadClosed` 调用）。
 `compactResults` 在 `maxRowsPerTask` 之外还会保留 ack 与最后一条结果，行数上限是
 `max+2` 而不是 `max`。
 
+### policy 分片的真机验证（2026-11-01）
+
+补完之后把它装进一个真实的 Super-agent profile（3094）验证，不只是单测：
+
+```jsonc
+// GET /orchestrator/api/settings → sources[workmate].policy
+{"fields":[{"key":"allowed","type":"rows", …}],
+ "explicit":{"zh":"名单里的创建者在任务文件里建的待办，就是对本来源的明确请求。", …},
+ "rows":[{"id":"tasks","cells":{"listedUnaddressed":false,"unlistedAddressed":true,"unlistedUnaddressed":false}}]}
+```
+
+保存与拒绝都符合预期：
+
+```
+PUT settings/policy {"sources":{"workmate":{"allowed":[{"id":"workmate:panel"}]}}}
+→ {"saved":true,"revision":1,"policy_changed":true}，回读 value 里确有该条 allowed
+
+PUT（多一个 acceptedRule 键）→ 400 Unrecognized key: "acceptedRule"
+PUT（allowed 写成字符串）    → 400 sources.workmate.allowed … expected array
+```
+
+也就是说"配置里没有接受规则开关、不能靠改配置绕过授权"这条不只是写在文档里，
+在真机上也会被拒绝。
+
 ### 顺带补齐的一个规格缺口
 
 演练前审规格发现 `policy` 分片（`superagent-source` 的「执行环境变量与策略」要求

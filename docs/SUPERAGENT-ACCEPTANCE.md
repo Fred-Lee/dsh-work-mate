@@ -21,10 +21,12 @@
 - [x] [真机] 按 `docs/SUPERAGENT-INTEGRATION.md` §1 把 `workmate-superagent-source` 装进
       Super-agent 的 profile，宿主重启后：
       - [x] [真机] `node scripts/verify-source-install.mjs --profile <dir>` 四条全绿
-      - [ ] `--dump-config` 里出现 `- id: workmate-superagent-source`
-      - [ ] `--dump-config-schema` 里该条目 `status` 不是 `error` / `unsupported`
+      - [x] [真机] `--dump-config` 里出现 `- id: workmate-superagent-source`
+      - [x] [真机] `--dump-config-schema` 里该条目 `status` 不是 `error` / `unsupported`
 - [x] [真机] Source 页能看到来源 `workmate`，配置项含 `taskFile` / `interactive` /
       `pollSeconds` / `maxPerScan` / `maxRowsPerTask` / `repoRoot` / `openspecRoot`
+- [x] [真机] Source 设置页能看到「能发起工作的创建者」`allowed` 表与准入行；非法策略被拒
+      （`acceptedRule` → 400 Unrecognized key；`allowed` 写成字符串 → 400 expected array）
 - [x] [真机] 把 `taskFile` 填成**与 WorkMate 配置相同的绝对路径**后，健康条目从错误变为
       `ready`（或 `starting` 后转 `ready`）
 
