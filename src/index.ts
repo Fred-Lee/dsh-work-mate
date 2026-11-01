@@ -201,6 +201,15 @@ export function apply(ctx: Context, config: Config = {}): void {
     mainBranch: resolved.lifecycleMainBranch,
     approvalsRequired: resolved.approvalsRequired,
     allowAgentApproval: resolved.allowAgentApproval,
+    taskExecutor: resolved.taskExecutor === 'team' ? 'team' : 'superagent',
+    onImplementing: async (proposal, targets) => {
+      const result = await tasks.ensureImplementationTasks({
+        proposalId: proposal.id,
+        title: proposal.title,
+        targets,
+      })
+      return result
+    },
     planDriftGate: resolved.planDriftGate,
     allowAgentForceArchive: resolved.allowAgentForceArchive,
     reviewerIndependence: resolved.reviewerIndependence as 'off' | 'warn' | 'block',
@@ -288,6 +297,50 @@ export function apply(ctx: Context, config: Config = {}): void {
           `[workmate] proposals store unreadable: ${error instanceof Error ? error.message : String(error)}`,
         ),
     )
+
+  // 启动恢复边界（change `adopt-superagent-openspec-source`, task 17）：
+  // `superagent` 模式下不创建 Run、不装任何定时器（执行由 Super-agent 承担）；
+  // `team` 模式（回退）才扫描遗留 running/dispatched 的 Run，把它标成 abandoned
+  // 并写恢复事件——否则重启后它们会永远停在 "running"。
+  if ((resolved.taskExecutor === 'team')) {
+    void teamRuns
+      .list()
+      .then(async (runs) => {
+        const stale = runs.filter((run) => run.status === 'running')
+        for (const run of stale) {
+          const timestamp = new Date().toISOString()
+          const tasks = run.tasks.map((task) =>
+            task.status === 'dispatched' || task.status === 'running'
+              ? { ...task, status: 'failed' as const }
+              : task,
+          )
+          const dispatches = (run.dispatches ?? []).map((dispatch) =>
+            dispatch.status === 'dispatched' || dispatch.status === 'running'
+              ? { ...dispatch, status: 'abandoned' as const, endedAt: timestamp, outcome: '宿主重启：原有 Dispatch 中断' }
+              : dispatch,
+          )
+          await teamRuns.patch(run.id, { status: 'aborted', tasks, dispatches }, () => new Date())
+          await events
+            .append({
+              at: timestamp,
+              proposalId: run.proposalId,
+              kind: 'team-run',
+              actor: 'system',
+              runId: run.id,
+              detail: 'host-restart: 标记为 aborted（回退执行器）',
+            })
+            .catch(() => undefined)
+        }
+        if (stale.length > 0) {
+          console.error(`[workmate] 回退执行器：${stale.length} 个遗留 Run 已标为 aborted（宿主重启）`)
+        }
+      })
+      .catch((error: unknown) => {
+        console.error(
+          `[workmate] team-runs store unreadable: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      })
+  }
 
   ctx.provide('workmate.proposal', proposals)
   ctx.provide('workmate.archive', archive)
@@ -531,6 +584,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     requireRolePresets: resolved.teamRequireRolePresets,
     roleModels: resolved.teamRoleModels,
+    taskExecutor: resolved.taskExecutor === 'team' ? 'team' : 'superagent',
   })
   // Native guidance surfaces: two runtime skills + one flow section. Lazy, so
   // a composition without those services keeps the plugin ACTIVE.

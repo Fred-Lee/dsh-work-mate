@@ -38,7 +38,18 @@ export interface TeamToolDeps {
   requireRolePresets: boolean
   /** Raw JSON role→model map (Config.teamRoleModels). */
   roleModels: string
+  /**
+   * 执行器选择（Config.taskExecutor）。`superagent`（默认）时派发工具返回 disabled：
+   * 实现工作由 Super-agent 的 Ticket 承担，团队路径只作回退
+   * （change `adopt-superagent-openspec-source`）。
+   */
+  taskExecutor?: 'superagent' | 'team'
 }
+
+/** `superagent` 模式下的统一拒绝文案：指明改哪个开关，而不是只说"不行"。 */
+export const DISPATCH_DISABLED_MESSAGE =
+  '团队派发默认关闭：当前 taskExecutor=superagent，实现工作请用任务面板派给 Super-agent。' +
+  '确实要走回退执行器时，把配置 taskExecutor 设为 team 后重试。'
 
 const json = (value: unknown) => [{ type: 'text' as const, text: JSON.stringify(value, null, 2) }]
 const asJson = (value: unknown): never => JSON.parse(JSON.stringify(value)) as never
@@ -49,6 +60,9 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
     runId: string,
     options: { provider?: string; projectRoot?: string; maxWaves?: number } = {},
   ): Promise<unknown> => {
+    if ((deps.taskExecutor ?? 'superagent') !== 'team') {
+      throw new Error(DISPATCH_DISABLED_MESSAGE)
+    }
     const run = await deps.runner.get(runId)
     const subagents = deps.subagents()
     if (subagents === undefined) throw new Error('宿主未提供 subagents 服务 — 无法派发团队 worker')
@@ -200,6 +214,14 @@ export function registerTeamTools(ctx: Context, deps: TeamToolDeps): void {
           tasks,
         })
         const waves = planTeamWaves(tasks, run.budget.maxParallel).map((wave) => wave.map((task) => task.id))
+        if (args.start === true && (deps.taskExecutor ?? 'superagent') !== 'team') {
+          return asJson({
+            entry: { gate: 'G2', reason: '工件完整，已建立 planned Run' },
+            run,
+            waves,
+            dispatch: { disabled: true, reason: DISPATCH_DISABLED_MESSAGE },
+          })
+        }
         if (args.start !== true) {
           return asJson({ entry: { gate: 'G2', reason: entryOverride === 'G2' ? (args.entryReason ?? '调用方指定 G2') : '工件完整，直接进入方案确认' }, run, waves })
         }

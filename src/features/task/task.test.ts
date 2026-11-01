@@ -261,3 +261,102 @@ describe('REST 路由（与既有 api.test 同一套 Router）', () => {
     expect(board.cards[0]?.task.id).toBe(created.id)
   })
 })
+
+describe('端口规划（任务维度）', () => {
+  it('键包含提案、项目与任务；无提案时用项目维度', async () => {
+    const { portKeyOf } = await import('./plan.ts')
+    expect(portKeyOf({ proposalId: 'p1', project: 'repo', taskId: 't1' })).toBe('p1--repo--t1')
+    expect(portKeyOf({ project: 'repo', taskId: 't1' })).toBe('repo--t1')
+  })
+
+  it('同一任务重复分配拿到同一段；不同任务互不相同', async () => {
+    const { PortAllocator } = await import('../worktree/port-allocator.ts')
+    const { planTaskPorts } = await import('./plan.ts')
+    const allocator = new PortAllocator({ rootDir: dir, subdir: 'workmate' } as never, 3000, 10)
+    const first = await planTaskPorts(allocator, { proposalId: 'p1', project: 'repo', taskId: 't1' })
+    const again = await planTaskPorts(allocator, { proposalId: 'p1', project: 'repo', taskId: 't1' })
+    const other = await planTaskPorts(allocator, { proposalId: 'p1', project: 'repo', taskId: 't2' })
+    expect(again).toEqual(first)
+    expect(other).not.toEqual(first)
+  })
+
+  it('释放后再次分配不复用旧段（避免与仍在运行的服务撞端口）', async () => {
+    const { PortAllocator } = await import('../worktree/port-allocator.ts')
+    const { planTaskPorts, releaseTaskPorts } = await import('./plan.ts')
+    const allocator = new PortAllocator({ rootDir: dir, subdir: 'workmate' } as never, 3000, 10)
+    const first = await planTaskPorts(allocator, { project: 'repo', taskId: 't1' })
+    expect(await releaseTaskPorts(allocator, { project: 'repo', taskId: 't1' })).toBe(true)
+    const second = await planTaskPorts(allocator, { project: 'repo', taskId: 't2' })
+    expect(second).not.toEqual(first)
+  })
+
+  it('旧提案级键可单独释放', async () => {
+    const { PortAllocator } = await import('../worktree/port-allocator.ts')
+    const { releaseLegacyPorts } = await import('./plan.ts')
+    const allocator = new PortAllocator({ rootDir: dir, subdir: 'workmate' } as never, 3000, 10)
+    await allocator.allocate('p1--repo')
+    expect(await releaseLegacyPorts(allocator, { proposalId: 'p1', project: 'repo' })).toBe(true)
+  })
+})
+
+describe('G2 交接：ensureImplementationTasks', () => {
+  it('每个 target 一条待办，带提案 id 与基线分支', async () => {
+    const { client } = fakeClient()
+    const svc = service(client)
+    const result = await svc.ensureImplementationTasks({
+      proposalId: 'add-thing',
+      title: '异步化 Run',
+      targets: [
+        { project: 'repo-a', baseBranch: 'main' },
+        { project: 'repo-b', baseBranch: 'test' },
+      ],
+    })
+    expect(result.created).toHaveLength(2)
+    expect(result.created[0]?.proposalId).toBe('add-thing')
+    expect(result.created[1]?.baseBranch).toBe('test')
+    expect(result.created.every((task) => task.assigned && task.mode === 'superagent')).toBe(true)
+  })
+
+  it('幂等：重复交接不重复建单', async () => {
+    const { client } = fakeClient()
+    const svc = service(client)
+    const first = await svc.ensureImplementationTasks({
+      proposalId: 'add-thing',
+      title: 'T',
+      targets: [{ project: 'repo-a', baseBranch: 'main' }],
+    })
+    const second = await svc.ensureImplementationTasks({
+      proposalId: 'add-thing',
+      title: 'T',
+      targets: [{ project: 'repo-a', baseBranch: 'main' }],
+    })
+    expect(first.created).toHaveLength(1)
+    expect(second.created).toHaveLength(0)
+    expect(second.existing).toHaveLength(1)
+  })
+
+  it('放弃的旧待办不阻止新建', async () => {
+    const { client } = fakeClient()
+    const svc = service(client)
+    await svc.ensureImplementationTasks({ proposalId: 'p', title: 'T', targets: [{ project: 'r', baseBranch: 'main' }] })
+    const file = await store.load()
+    const first = file.tasks[0] as (typeof file.tasks)[number]
+    first.abandoned = true
+    await store.save(file)
+    const again = await svc.ensureImplementationTasks({ proposalId: 'p', title: 'T', targets: [{ project: 'r', baseBranch: 'main' }] })
+    expect(again.created).toHaveLength(1)
+  })
+
+  it('配置了端口分配器时分配任务级端口段', async () => {
+    const { PortAllocator } = await import('../worktree/port-allocator.ts')
+    const { client } = fakeClient()
+    const allocator = new PortAllocator({ rootDir: dir, subdir: 'workmate' } as never, 3000, 10)
+    const svc = service(client, { ports: allocator })
+    const result = await svc.ensureImplementationTasks({
+      proposalId: 'p1',
+      title: 'T',
+      targets: [{ project: 'repo', baseBranch: 'main' }],
+    })
+    expect(result.created[0]?.ports).toHaveLength(5)
+  })
+})

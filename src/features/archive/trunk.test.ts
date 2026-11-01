@@ -47,6 +47,7 @@ function lifecycleFor(mainBranch?: string): LifecycleServiceImpl {
     resolveProjectRoots: async () => [{ project: 'demo', root: project }],
     approvalsRequired: [],
     orchestrate: async () => ({ ok: true, steps: [] }),
+    taskExecutor: 'team',
   })
 }
 

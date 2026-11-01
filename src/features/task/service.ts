@@ -9,6 +9,8 @@ import type { EventLog } from '../proposal/events.ts'
 import type { TaskFileStore, TaskRecord } from './files.ts'
 import { projectTask, type PanelLane, type PanelSubstate, type Projection, type TicketView } from '../superagent/project.ts'
 import type { SuperagentClient } from '../superagent/client.ts'
+import type { PortAllocator } from '../worktree/port-allocator.ts'
+import { planTaskPorts } from './plan.ts'
 
 export interface TaskServiceDeps {
   store: TaskFileStore
@@ -18,6 +20,8 @@ export interface TaskServiceDeps {
   executorRepo?: string
   /** 默认操作者。 */
   operator?: string
+  /** 端口分配器；给了就在建实现待办时分配任务级端口段。 */
+  ports?: PortAllocator
   now?: () => Date
 }
 
@@ -153,6 +157,64 @@ export class TaskServiceImpl {
     })
     await this.event(task, 'task-reply', `seq=${seq}`)
     return { seq }
+  }
+
+  /**
+   * G2 交接：为一个提案的每个 target 建一条实现待办（幂等）。
+   *
+   * 同一提案 + 同一项目已存在未放弃的待办时不重复创建；这样 G2 重复确认、
+   * 或提案回退再前进，都不会在任务表里堆出一串重复项。
+   */
+  async ensureImplementationTasks(input: {
+    proposalId: string
+    title: string
+    targets: ReadonlyArray<{ project: string; baseBranch: string }>
+    acceptance?: string
+  }): Promise<{ created: TaskRecord[]; existing: TaskRecord[] }> {
+    const file = await this.deps.store.load()
+    const created: TaskRecord[] = []
+    const existing: TaskRecord[] = []
+    for (const target of input.targets) {
+      const found = file.tasks.find(
+        (task) => task.proposalId === input.proposalId && task.repo === target.project && !task.abandoned,
+      )
+      if (found !== undefined) {
+        existing.push(found)
+        continue
+      }
+      const now = this.now()
+      const id = idOf(now, file.tasks.length + created.length + 1)
+      const task: TaskRecord = {
+        id,
+        title: `${input.title}（${target.project}）`.slice(0, 200),
+        intent: `实现提案 ${input.title} 的 ${target.project} 部分（OpenSpec: ${input.proposalId}）`,
+        repo: target.project,
+        baseBranch: target.baseBranch,
+        acceptance: input.acceptance ?? '',
+        priority: 'P1',
+        mode: 'superagent',
+        dependsOn: [],
+        assigned: true,
+        abandoned: false,
+        attempt: 1,
+        createdBy: this.deps.operator ?? 'workmate:panel',
+        proposalId: input.proposalId,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      }
+      if (this.deps.ports !== undefined) {
+        const ports = await planTaskPorts(this.deps.ports, {
+          proposalId: input.proposalId,
+          project: target.project,
+          taskId: id,
+        })
+        task.ports = ports
+      }
+      file.tasks.push(task)
+      created.push(task)
+    }
+    if (created.length > 0) await this.deps.store.save(file)
+    return { created, existing }
   }
 
   /** 面板视图：任务表 + Ticket 投影 + 连接状态。 */

@@ -50,6 +50,8 @@ const lifecycleWith = (
       { project: 'b', root: '/repo/b' },
     ],
     orchestrate: async () => ({ ok: true, steps: [] }),
+    // 这些用例覆盖的是**回退执行器**的建目录行为；默认 taskExecutor 已是 superagent。
+    taskExecutor: 'team',
   })
 
 describe('multi-target implementing', () => {

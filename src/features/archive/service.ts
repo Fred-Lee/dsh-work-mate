@@ -78,6 +78,20 @@ export interface LifecycleDeps {
   ): Promise<OrchestrationResult>
   /** Resolves the proposal's associated project names into per-project roots. */
   resolveProjectRoots?(proposal: Proposal): Promise<OrchestrationTarget[]>
+  /**
+   * 执行器选择（Config.taskExecutor）。`superagent`（默认）时 `ready→implementing`
+   * 只做规划（校验项目根与基线分支、保留 targets），不创建 worktree——目录由
+   * Super-agent 的 prepare 在首次 launch 时创建。`team` 保持原有创建行为。
+   */
+  taskExecutor?: 'superagent' | 'team'
+  /**
+   * `ready→implementing`（superagent 模式）的交接钩子：写实现待办。
+   * 由 index.ts 注入，避免生命周期服务直接依赖任务存储。
+   */
+  onImplementing?(
+    proposal: Proposal,
+    targets: ReadonlyArray<{ project: string; baseBranch: string }>,
+  ): Promise<unknown>
   /** OpenSpec root relative to the target project (`Config.openspecRoot`). @default 'openspec' */
   openspecRoot?: string
   /**
@@ -491,6 +505,32 @@ export class LifecycleServiceImpl {
       const missing = targets.filter((target) => !rootByProject.has(target.project)).map((target) => target.project)
       if (missing.length > 0) {
         throw new InvalidTransitionError(`项目根未注册：${missing.join(', ')} — 先在面板注册项目`)
+      }
+
+      if ((this.deps.taskExecutor ?? 'superagent') !== 'team') {
+        // superagent 模式：只校验，不建目录。分支与基线由 Ticket 投影回写（task 20），
+        // 目录由 prepare 创建；这里若抢建，prepare 会因"目录已存在"而跳过初始化。
+        const planned: ProposalTarget[] = []
+        for (const target of targets) {
+          const projectRoot = rootByProject.get(target.project) as string
+          const exists = await branchExists(projectRoot, target.baseBranch)
+          if (!exists) {
+            throw new InvalidTransitionError(
+              `基线分支不存在：${target.project}@${target.baseBranch} — 先创建或改选基线分支`,
+            )
+          }
+          planned.push({ ...target })
+        }
+        await this.deps.proposals.patchFields(proposal.id, { targets: planned })
+        // G2 交接：写实现待办（幂等）。失败不回滚状态——待办只是人的意图，
+        // 真实执行由 Super-agent 的 Eval 决定；写失败时把原因抛给调用方。
+        await this.deps.onImplementing?.(proposal, planned)
+        return {
+          worktreePath: '',
+          portRange: [],
+          install: 'skipped',
+          targets: planned,
+        }
       }
 
       const created: ProposalTarget[] = []

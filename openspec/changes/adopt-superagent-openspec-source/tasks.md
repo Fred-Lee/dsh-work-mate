@@ -106,7 +106,7 @@
 
 ## 阶段 2b — worktree 规划与回收
 
-- [ ] 12. 规划落盘 `src/features/task/plan.ts` + `src/features/worktree/port-allocator.ts`：
+- [x] 12. 规划落盘 `src/features/task/plan.ts` + `src/features/worktree/port-allocator.ts`：
   端口键改为 `${proposalId}--${project}--${taskId}`（无提案 `${repo}--${taskId}`），
   `attempt` 复用同段；规划结果（`baseBranch`、`branchHint`、`ports`）写入任务记录。
   `ready→implementing` 在 `taskExecutor=superagent` 时 SHALL NOT 调用 `worktree.createTarget`；
@@ -128,7 +128,7 @@
 
 ## 阶段 3 — 降级与文档
 
-- [ ] 15. 团队工具降级 `src/features/team/tools.ts`：`workmate_team_run` /
+- [x] 15. 团队工具降级 `src/features/team/tools.ts`：`workmate_team_run` /
   `workmate_team_plan(start=true)` 在 `taskExecutor !== 'team'` 时返回 `disabled` 与
   "改用任务视图或显式设 taskExecutor=team"；工具签名不变。附 `tools.test.ts`
   <!-- writes: src/features/team/tools.ts, src/features/team/tools.test.ts -->
@@ -137,7 +137,7 @@
   重试并链接任务视图；运行态读 Ticket 投影；fallback 时显示「回退执行器」。附 `app.test.tsx`
   <!-- writes: src/client/App.tsx, src/client/app.test.tsx -->
 
-- [ ] 17. 启动恢复边界 `src/index.ts`：`taskExecutor=superagent` 时不创建 Run、不装定时器；
+- [x] 17. 启动恢复边界 `src/index.ts`：`taskExecutor=superagent` 时不创建 Run、不装定时器；
   `team` 模式下扫描遗留 `running`/`dispatched` 标 `abandoned` 并写恢复事件。附 `index.test.ts`
   <!-- writes: src/index.ts, src/index.test.ts -->
 
@@ -151,7 +151,7 @@
 
 ## 阶段 3b — 审查补充
 
-- [ ] 19. G2 交接 `src/features/archive/service.ts` + `src/features/task/service.ts`：
+- [x] 19. G2 交接 `src/features/archive/service.ts` + `src/features/task/service.ts`：
   `reviewing→ready` 的 G2 批准与 `ready→implementing` 在 `taskExecutor=superagent` 时
   SHALL 写入实现待办（`assigned=true`，一条 target 一条），SHALL NOT 创建 Run；
   `team` 模式下保持原行为。附用例：批准后 tasks.json 出现待办、无 Run、无 dispatch
