@@ -160,11 +160,13 @@ Super-agent 已经做得更好的一层（并发、重试、会话、提问）�
 - **准入走 explicit**：Trigger `actor = { source: 'workmate', id: 'workmate:<createdBy>' }`、
   `human: true`、`addressed: 'mention'`；部署方把该身份加入来源 `workmate` 的
   `policy.allowed` 即可，**不需要接受规则**（explicit 绕过 `assessmentOutcome`）；
-- **回滚三件事，缺一泄漏**：① `taskExecutor=team`；② 停用子包 bundle；
-  ③ `node scripts/rollback-superagent.mjs`（不依赖执行器在线，三级定位目录，
-  端口找不到时明确输出"可能泄漏"）；
-- **面板**：默认视图是任务四列（待办/执行中/需要我/已完成），另有活动视图（历史 + 搜索）；
-  `GET /api/config` 仍返回常量 `taskExecutor: 'superagent'` 给旧客户端读取；
+- **回滚两件事，缺一泄漏**：① 停用子包 bundle；② `node scripts/rollback-superagent.mjs`
+  （不依赖执行器在线，三级定位目录，端口找不到时明确输出"可能泄漏"）。
+  `taskExecutor` 配置已随 `remove-team-executor` 删除，没有第三条可关。
+- **面板**：默认视图是任务四列（待办/执行中/需要我/已完成），其余是提案看板 / 列表 /
+  知识图谱 / 控制台；没有独立的「活动」视图（原型稿里的活动视图未落地，历史检索目前走
+  `workmate_metrics` 与事件流）。`GET /api/config` 仍返回常量 `taskExecutor: 'superagent'`
+  给旧客户端读取；
 - **接入手册**：`docs/SUPERAGENT-INTEGRATION.md`（安装、准入两步、prepare 模板、回滚、
   排查表）；安装自检 `node scripts/verify-source-install.mjs --profile <dir>`；
   无 GitHub 凭据时的引擎级演练 `pnpm verify:drill`（真实 `Engine` + 真实门禁 + 真实
@@ -176,11 +178,10 @@ Super-agent 已经做得更好的一层（并发、重试、会话、提问）�
 `projects`/`featureBranch`/`worktreePath`/`portRange` 只做兼容投影：
 
 - `effectiveTargets()`：无 `targets` 时按第一个 project + 标量字段生成 legacy target；
-- `ready→implementing` 为每个 target 建 worktree：路径 `<root>/.workmates/<proposalId>`、
-  分支 `feature/<proposalId>`、端口键 `${proposalId}--${project}`，失败整体回滚；
-  **这一条只适用于 `taskExecutor=team`**——`superagent` 模式下目录由 Super-agent 的
-  `prepare` 创建（分支 `workmate/<Ticket 短名>`、端口键
-  `${proposalId}--${project}--${taskId}`），见上一节；
+- `ready→implementing` **不建 worktree**：只校验每个 target 的基线分支存在、分配任务级端口段
+  并写实现待办；目录由 Super-agent 的 `prepare` 创建（分支 `workmate/<Ticket 短名>`、
+  端口键 `${proposalId}--${project}--${taskId}`），见上一节。
+  旧的「每 target 建一条 `feature/<proposalId>`」只存在于团队执行器时代，代码已删除；
 - `archiving` 逐 target 校验 `featureBranch → baseBranch` 已合并，归档后逐 target 回收；
 - 面板的详情抽屉按 target 展示 base/feature/worktree/端口；`/api/isolation` 暴露分支占用，
   `/api/isolation/writes` 暴露声明写域冲突，`/api/isolation/drift` 暴露基线漂移；

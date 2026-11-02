@@ -94,7 +94,6 @@ export interface ApiDeps {
   reviewBlockingSeverities?: string[]
   /** 任务簿与 Super-agent 投影（change `adopt-superagent-openspec-source`）。 */
   tasks?: TaskServiceImpl
-  /** 执行器选择：`superagent` 时团队派发默认关闭。 */
   /** worktree 回收与遗留清单（change `adopt-superagent-openspec-source`）。 */
   worktreeReclaim?: {
     leftover(): Promise<{ entries: Array<{ taskId: string; repo: string; directory: string; ticketId?: string }> }>
@@ -164,6 +163,90 @@ export function mountWorkmateApi(webServer: WebServerLike, deps: ApiDeps): void 
 }
 
 export function registerApiRoutes(router: Router, deps: ApiDeps): void {
+
+  // 任务面板的写侧与回收入口（change `adopt-superagent-openspec-source`）。
+  // 它们与团队路由不是同一件事：`remove-team-executor` 曾把这一段连同
+  // `/api/team/*` 一起删掉，导致面板主视图整体 404（真机复核发现）。
+  router.get('/api/worktrees/leftover', async () => {
+    if (deps.worktreeReclaim === undefined) return { entries: [], note: '回收服务未装配' }
+    return await deps.worktreeReclaim.leftover()
+  })
+
+  router.post('/api/worktrees/reclaim', async (r) => {
+    if (deps.worktreeReclaim === undefined) throw new Error('回收服务未装配：本 profile 缺少 worktree 回收依赖')
+    const body = await readJsonBody<{ taskId?: string; force?: boolean }>(r.req)
+    const taskId = (body.taskId ?? '').trim()
+    if (taskId === '') throw new Error('taskId 必填 — 一次只回收一个任务，避免误删')
+    return await deps.worktreeReclaim.reclaim(taskId, { force: body.force === true })
+  })
+
+  // 执行器只有一个（Super-agent）；保留该端点供旧客户端读取。
+  router.get('/api/config', async () => ({ taskExecutor: 'superagent' as const }))
+
+  router.get('/api/tasks', async () => {
+    if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')
+    return deps.tasks.board()
+  })
+
+  router.post('/api/tasks', async (r) => {
+    if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')
+    const body = await readJsonBody<{
+      intent?: string
+      repo?: string
+      baseBranch?: string
+      acceptance?: string
+      priority?: string
+      mode?: string
+      proposalId?: string
+      dependsOn?: string[]
+    }>(r.req)
+    const intent = (body.intent ?? '').trim()
+    if (intent === '') throw new Error('目标不能为空')
+    const priority = body.priority === 'P0' || body.priority === 'P1' ? body.priority : 'P2'
+    const mode = body.mode === 'superagent' || body.mode === 'proposal' ? body.mode : 'record'
+    return {
+      task: await deps.tasks.create({
+        intent,
+        repo: (body.repo ?? deps.projectRoot ?? '').trim(),
+        ...(body.baseBranch !== undefined ? { baseBranch: body.baseBranch } : {}),
+        ...(body.acceptance !== undefined ? { acceptance: body.acceptance } : {}),
+        priority,
+        mode,
+        ...(body.proposalId !== undefined ? { proposalId: body.proposalId } : {}),
+        ...(body.dependsOn !== undefined ? { dependsOn: body.dependsOn } : {}),
+      }),
+    }
+  })
+
+  router.post('/api/tasks/:id/assign', async (r) => {
+    if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')
+    return { task: await deps.tasks.assign(r.params['id'] ?? '') }
+  })
+
+  router.post('/api/tasks/:id/retry', async (r) => {
+    if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')
+    return { task: await deps.tasks.assign(r.params['id'] ?? '', { retry: true }) }
+  })
+
+  router.post('/api/tasks/:id/reply', async (r) => {
+    if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')
+    const body = await readJsonBody<{ text?: string; replyTo?: string }>(r.req)
+    const text = (body.text ?? '').trim()
+    if (text === '') throw new Error('回答不能为空')
+    return await deps.tasks.reply(r.params['id'] ?? '', text, {
+      ...(body.replyTo !== undefined ? { replyTo: body.replyTo } : {}),
+    })
+  })
+
+  router.post('/api/tasks/:id/stop', async (r) => {
+    if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')
+    return await deps.tasks.stop(r.params['id'] ?? '')
+  })
+
+  router.post('/api/tasks/:id/reopen', async (r) => {
+    if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')
+    return { task: await deps.tasks.reopen(r.params['id'] ?? '') }
+  })
 
   router.get('/api/proposals', async () => {
     const proposals = await deps.proposals.list()

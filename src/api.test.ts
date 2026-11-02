@@ -13,6 +13,9 @@ import { registerApiRoutes } from './api.ts'
 import { ProjectRegistry } from './features/project/registry.ts'
 import { EventLog } from './features/proposal/events.ts'
 import { DecisionService } from './features/decision/service.ts'
+import { TaskFileStore } from './features/task/files.ts'
+import { TaskServiceImpl } from './features/task/service.ts'
+import type { SuperagentClient } from './features/superagent/client.ts'
 
 let home: string
 let store: ProposalStore
@@ -732,4 +735,117 @@ describe('project registry REST API', () => {
     ).rejects.toThrow(/targets/)
   })
 
+})
+
+describe('task panel REST API', () => {
+  const taskRouter = (): { router: Router; tick: number } => {
+    const tick = { value: 0 }
+    const fileStore = new TaskFileStore({ rootDir: join(home, 'workmate') })
+    const superagent = {
+      async health() {
+        return { online: true, endpoint: 'http://127.0.0.1:3082' }
+      },
+      async tickets() {
+        return { online: true, tickets: [] }
+      },
+      async action() {
+        return { ok: true }
+      },
+    } as unknown as SuperagentClient
+    const tasks = new TaskServiceImpl({
+      store: fileStore,
+      superagent,
+      now: () => new Date(1_760_000_000_000 + tick.value++ * 1_000),
+    })
+    const r = new Router()
+    registerApiRoutes(r, {
+      proposals,
+      archive,
+      registry: undefined as never,
+      openspecRoot: 'openspec',
+      projectRoot: '',
+      qualitySyncEnabled: false,
+      claudeAssetsEnabled: false,
+      tasks,
+      worktreeReclaim: {
+        async leftover() {
+          return { entries: [] }
+        },
+        async reclaim(taskId: string) {
+          return { reclaimed: taskId }
+        },
+      },
+    })
+    return { router: r, tick: tick.value }
+  }
+
+  it('serves the board, creates a todo and walks the write-side actions', async () => {
+    const { router: r } = taskRouter()
+    const handle = async (method: string, url: string, body?: unknown): Promise<StubResponse> => {
+      const { res, result } = stubRes()
+      await r.handle(url, stubReq(method, url, body), res)
+      result.body = json(result)
+      return result
+    }
+
+    expect(await handle('GET', '/api/config')).toMatchObject({ status: 200, body: { taskExecutor: 'superagent' } })
+    expect(await handle('GET', '/api/tasks')).toMatchObject({ status: 200, body: { cards: [], attention: 0 } })
+    expect(await handle('GET', '/api/worktrees/leftover')).toMatchObject({ status: 200, body: { entries: [] } })
+
+    const created = await handle('POST', '/api/tasks', { intent: '做点事', repo: 'demo', baseBranch: 'main' })
+    expect(created.status).toBe(200)
+    const task = (created.body as { task: { id: string } }).task
+    expect((created.body as { task: { intent: string } }).task.intent).toBe('做点事')
+
+    expect(await handle('POST', `/api/tasks/${task.id}/assign`)).toMatchObject({
+      status: 200,
+      body: { task: { assigned: true, attempt: 1 } },
+    })
+    expect(await handle('POST', `/api/tasks/${task.id}/reply`, { text: '继续' })).toMatchObject({
+      status: 200,
+      body: { seq: 1 },
+    })
+    expect(await handle('POST', `/api/tasks/${task.id}/stop`)).toMatchObject({
+      status: 200,
+      body: { task: { abandoned: true } },
+    })
+    expect(await handle('POST', `/api/tasks/${task.id}/reopen`)).toMatchObject({
+      status: 200,
+      body: { task: { abandoned: false, assigned: true } },
+    })
+  })
+
+  it('keeps the write-side errors readable', async () => {
+    const { router: r } = taskRouter()
+    const call = async (method: string, url: string, body?: unknown): Promise<StubResponse> => {
+      const { res, result } = stubRes()
+      await r.handle(url, stubReq(method, url, body), res)
+      result.body = json(result)
+      return result
+    }
+
+    expect(await call('POST', '/api/tasks', { intent: '   ' })).toMatchObject({ status: 400 })
+    expect(await call('POST', '/api/tasks', { intent: 'x' })).toMatchObject({ status: 200 })
+    expect(await call('POST', '/api/worktrees/reclaim', {})).toMatchObject({
+      status: 400,
+      body: { error: expect.stringContaining('taskId 必填') },
+    })
+  })
+
+  it('reports a missing task service instead of pretending the board is empty', async () => {
+    const r = new Router()
+    registerApiRoutes(r, {
+      proposals,
+      archive,
+      registry: undefined as never,
+      openspecRoot: 'openspec',
+      projectRoot: '',
+      qualitySyncEnabled: false,
+      claudeAssetsEnabled: false,
+    })
+    const { res, result } = stubRes()
+    await r.handle('/api/tasks', stubReq('GET', '/api/tasks'), res)
+    expect(result.status).toBe(400)
+    expect((JSON.parse(String(result.raw)) as { error: string }).error).toContain('任务服务未装配')
+  })
 })
