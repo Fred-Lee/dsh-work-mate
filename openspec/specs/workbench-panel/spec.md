@@ -211,7 +211,7 @@ SHALL NOT 静默提交一个缺少分支的目标。提交失败 SHALL 在模态
 
 ### Requirement: 流水线视图与最小人工动作
 
-面板 SHALL 以流水线呈现提案：`方案 → 待确认 → 执行中（开发/审查/测试）→ 待合并 → 已归档`，
+面板 SHALL 以流水线呈现提案：`方案 → 待确认 → 执行中（待回答/待验收）→ 待合并 → 已归档`，
 并显示每个提案当前位置与进度；状态 SHALL 来自服务端证据派生结果，SHALL NOT 由前端本地
 推断或要求用户逐态点击。
 
@@ -219,7 +219,7 @@ SHALL NOT 静默提交一个缺少分支的目标。提交失败 SHALL 在模态
 把 `mode=advance` 的逐态推进作为卡片主按钮；手动推进/回退 SHALL 收进「更多」或详情操作，
 并标注为覆盖操作。
 
-详情 SHALL 展示证据：工件完整性、`planHash`、团队 Task 状态、审查与测试结论、各 target
+详情 SHALL 展示证据：工件完整性、`planHash`、Ticket 阶段与目录、审查与测试结论、各 target
 的合并状态；方案改动导致 `planHash` 失效时 SHALL 在卡片上提示「需重新确认」。
 
 #### Scenario: 提案完成后自动进入待确认
@@ -229,8 +229,8 @@ SHALL NOT 静默提交一个缺少分支的目标。提交失败 SHALL 在模态
 
 #### Scenario: 执行中不再逐态点击
 
-- **WHEN** 方案已确认、团队 run 正在执行
-- **THEN** 卡片显示执行中与开发/审查/测试进度，不出现「推进到 implementing/merging」按钮
+- **WHEN** 方案已确认、Ticket 正在执行
+- **THEN** 卡片显示执行中与待回答/待验收，不出现「推进到 implementing/merging」按钮
 
 #### Scenario: 方案改动提示重确认
 
