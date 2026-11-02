@@ -47,7 +47,7 @@ TBD - created by archiving change add-proposal-middleware. Update Purpose after 
 
 提案状态 SHALL 只在 `draft → executing → archived` 路径上推进；`draft` 直接归档
 SHALL 被拒绝；能解析 projectRoot 且 `openspec/changes/<id>/` 缺失时归档 SHALL 被
-拒绝（除非 `force: true`）。M2 阶段归档不做外部编排（swarm / CLI），该语义由
+拒绝（除非 `force: true`）。M2 阶段归档不做外部编排（CLI），该语义由
 里程碑四在工具背后替换，工具签名不变。
 
 #### Scenario: draft 不能直接归档

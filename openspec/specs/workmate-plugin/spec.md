@@ -9,7 +9,7 @@ TBD - created by archiving change bootstrap-workmate-plugin. Update Purpose afte
 `./cordis.patch.yml`，且 patch 内容 SHALL 以 `- insert:` 形式声明且仅声明 `id: workmate`
 的插件树条目；该条目的 `name` SHALL 与 `package.json` 的 `name` 一致，插件入口导出的
 `name` SHALL 为 `workmate`。三处标识由 `pnpm verify:contract` 静态门禁校验。
-社区插件条目（swarm 编排、MCP 桥接）SHALL 在对应插件实际装入 profile 之前不得写入
+社区插件条目（MCP 桥接等）SHALL 在对应插件实际装入 profile 之前不得写入
 patch——引用缺失插件会直接破坏 profile 装载。
 
 #### Scenario: 装载进 web profile
