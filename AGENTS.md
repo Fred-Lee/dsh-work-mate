@@ -5,7 +5,7 @@
 WorkMate（`workmate4dsh`）是一个 **DSH 插件 Bundle**，围绕「变更提案」核心实体，
 串联需求文档、Git 变更、OpenSpec 归档、GitNexus 知识图谱，实现研发全链路的知识
 沉淀与并行迭代。设计原则：寄生而非替代（UI 注入 DSH 原生界面）、复用优先
-（swarm 编排 / @快捷指令 / MCP 桥接用社区插件）、自建聚焦（变更提案中间层 +
+（执行交给 Super-agent / @快捷指令 / MCP 桥接用社区插件）、自建聚焦（变更提案中间层 +
 知识串联逻辑）。
 
 - 完整技术设计：`docs/DESIGN.md`（0.1.0-draft，宪法文档）
@@ -24,7 +24,7 @@ pnpm verify                    # 五条门禁：契约 + 工具链钉版 + 宿�
 pnpm verify:contract           # patch id / package.json / 入口 name 三处一致
 pnpm verify:toolchain          # toolchain.json ↔ package.json 钉版一致
 pnpm verify:host-compat        # dsh peer 范围与宿主基线（借宿主自己的判定函数）
-pnpm verify:built              # 加载 dist/index.js（真实模块求值）并断言宿主工具面（20 个工具，不含已删的 team_*）
+pnpm verify:built              # 加载 dist/index.js（真实模块求值）并断言宿主工具面（18 个工具，不含已删的 team_* / swarm_*）
 pnpm verify:client             # 在 VM 里真求值 dist/client/client.js：load 次数 / id / apply /
                                # inject / external 白名单（**默认拒绝**）——补"单测抓不到、
                                # 只有真机才暴露"那道门；它只管装载契约，不证明 UI 渲染对
@@ -204,7 +204,7 @@ Super-agent 已经做得更好的一层（并发、重试、会话、提问）�
 | M11 | 分级审查 tally 与影子期（`reviewBlockingSeverities`） | ✅ 已归档 `2026-10-05-add-review-tally` |
 | M12 | 控制带的确定性对外入口（`POST /api/bands` + `scripts/bands-watch.mjs`） | ✅ 已归档 `2026-10-05-add-bands-watch` |
 | M13 | 规格库补齐（9 个历史变更归档同步） | ✅ `chore(openspec)` 提交 |
-| M14 | 任务级并行载体（swarm：writes 装批 + 合并仲裁 + 归档门） | ✅ 已归档 `2026-10-05-add-swarm-parallel` |
+| M14 | ~~任务级并行载体（swarm）~~——2026-11-02 已移除（`remove-swarm-parallel`）；并发改由多条待办 + Super-agent `maxWorkers` | ❌ 已移除 |
 | M15 | 工件账本与计划漂移（声明 vs 实际 + sha256 + 可选漂移门） | ✅ 已归档 `2026-10-05-add-artifact-ledger` |
 | M16 | 判断层（agent/rules provider + 阈值动作 + decision 事件；Jev 接口占位） | ✅ 已归档 `2026-10-05-add-decision-layer` |
 | M17 | 判断层四个消费节点（风险分级 / 审查归级 / 注入判定 / 任务判定） | ✅ 已归档 `2026-10-05-add-decision-nodes` |
@@ -224,8 +224,8 @@ Super-agent 已经做得更好的一层（并发、重试、会话、提问）�
 
 **知识面已定型（2026-10-07 用户决策）：本地 markdown + Obsidian，放弃 WeKnora** —— GitNexus wiki → 导出 Obsidian vault（`index.md`/`modules/`/`iterations/`/`views.md`/`changelog.md`），人用 Graph+Dataview 读，AI 读同一批 markdown（`workmate_wiki_search` 返回文件:行号）；语义检索走本地 Ollama（bge-m3），重排走判断层 `search-rerank`。
 待办（依赖外部条件）：@快捷指令（`@hucj/dsh-file-mention` 未装）、
-`dsh-mcp-client` 的 profile patch 行（库已装但惰性）。~~WeKnora 真机契约核验~~（已放弃）；WeKnora 写路径与 embedding 不再实现。swarm 的任务级载体已落地（M14）：
-"谁来执行任务"仍由调用方（子代理 / Agent Teams）决定，插件只负责 git 隔离与合并纪律；
+`dsh-mcp-client` 的 profile patch 行（库已装但惰性）。~~WeKnora 真机契约核验~~（已放弃）；WeKnora 写路径与 embedding 不再实现。~~swarm 的任务级载体~~（M14 已于 2026-11-02 移除）：
+执行统一交给 Super-agent（见下一节），WorkMate 只做规划、治理与知识桥接；
 工件账本与 plan-drift 已落地（M15）。判断层（M16）插件默认关闭，但**本机 web profile 已开启**（`cordis.patch.yml` 的 workmate 行：`decisionEnabled=true`、3 次采样、缓存开启）；插件侧默认仍是关闭，
 `decisionProvider` 可切 `agent` / `rules` / `jev`（`jev` 仅接口占位，需 TypeSafe key 才有适配器）。
 
@@ -251,7 +251,7 @@ profile 侧 `@deepseek-ai/schemastery 3.18.5`、`@deepseek-ai/cordis 4.0.5`；�
 | 审查证据机检 | `reviewEvidenceGate` | `'warn'` | `off`/`warn`/`block`；`block` 下反引号引用指向不存在的文件即拦归档；行号越界只 warn；GitNexus 查询结论标注为不可机检 |
 | 计划漂移 | `planDriftGate` | `false` | 只拦**改了没声明**（`undeclared` → failed）；**声明了没改**只产出一条 `warn` 步骤（计划写多了或改在别处，无法从 git 事实区分，不阻断）。提案自己的 `openspec/changes/<id>/` 是计划不是交付物，计入 `excluded` 而不算漂移。想在本机开启：在 `~/.dsh/profiles/<profile>/cordis.patch.yml` 的 workmate 条目加 `planDriftGate: true` |
 | 团队证据 | `teamEvidenceGate` | `'block'` | `off`/`warn`/`block`；有 `TASKS.json` 的变更在归档前必须有 `TEST.md`/`TEAM-REVIEW.md` 及规定段头 |
-| swarm 逐任务核验 | `swarmReviewRequired` | `false` | `true` 时每个已合并 swarm 任务都必须有独立核验记录（`workmate_swarm_task action=verify`），自评（`same-as-author`）或取不到 git 事实（`undetermined`）都算未核验 |
+| ~~swarm 逐任务核验~~ | ~~`swarmReviewRequired`~~ | — | 随 `remove-swarm-parallel` 删除：没有 swarm 任务实体，逐任务核验无从谈起 |
 | 归档步骤的成败判据 | 无（代码级，不可配） | — | `openspec-archive` 步骤不看退出码，只看**产物事实**：该变更是否真的从 `changes/<id>/` 移入 `changes/archive/<date>-<id>/`。**`openspec archive` 在 delta 解析失败时退出码仍是 0**（只打 `Aborted. No files were changed.`），所以"退出码 0 就报 ok"会让面板显示归档成功而目录原地不动（2026-10-12 四份提案全部命中，人工修 spec 段头才真正归档）。核验不过即 `failed` + `ok=false` + 提案停在 `archiving`，摘要带 CLI 原话与"仍在原地"。无 `specs/` 的变更与幂等重跑都不误伤 |
 
 强制归档（`force`）必留痕：approval 记录的 `forcedGates` 列出被跳过的门，

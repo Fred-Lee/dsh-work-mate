@@ -1,5 +1,11 @@
 # 自主 Agent 团队设计：需求/方案评估 → 前后端实现 → 集成测试（2026-10-19）
 
+> **状态：已废弃（2026-11-02）**。本文描述的团队执行器（`src/features/team/`、6 个
+> `workmate_team_*` 工具、面板团队视图）已随 `remove-team-executor` 整层删除——它重复了
+> Super-agent 已经做得更好的并发/重试/会话/提问，且默认关闭、真机从未跑过。执行侧现在的
+> 归属见 `docs/SUPERAGENT-INTEGRATION.md`；本文保留作为设计记录，文中提到的 `swarm`
+> 也已在 `remove-swarm-parallel` 中移除。
+
 > 目标：在 WorkMate 里组建一支可复用的 Agent 团队，技术方案确认后**自主推进**到可验收；人只把关产品级/范围级决策与合并/归档。
 >
 > 参考：DeepSeekBot / DS Bot（长期角色 Bot 与群聊协作）、`@yangdcm/dsh-expert-team`（12 角色 9 阶段门控）、Orca orchestration（Run/Task/Dispatch、DAG、门禁、协调循环）、WorkDSH（项目配置修订、任务=原生会话、工作台契约）。
@@ -87,7 +93,7 @@ intake（用户一句话 / 提案）
 | `TEAM-REVIEW.md` | reviewer | severity/file/line/status、独立身份、证据引用 |
 | `SUMMARY.md` | coordinator | 每个 Task 的 outcome、证据、未解阻塞 |
 
-与现有门禁的关系：`TEAM-REVIEW.md` / `TEST.md` 直接喂给现有 `review-gate` 与归档审查；`TASKS.json` 的 writes 复用 `swarm/plan.ts` 的 `scopesIntersect`；证据引用沿用 `reviewEvidenceGate` 的机检规则。
+与现有门禁的关系：`TEAM-REVIEW.md` / `TEST.md` 直接喂给现有 `review-gate` 与归档审查；`TASKS.json` 的 writes 复用 `proposal/writes.ts` 的 `scopesIntersect`（原在 `swarm/plan.ts`，swarm 删除后迁入）；证据引用沿用 `reviewEvidenceGate` 的机检规则。
 
 ## 5. 与现有 WorkMate 能力的关系
 

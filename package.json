@@ -1,7 +1,7 @@
 {
   "name": "workmate4dsh",
   "version": "0.1.0",
-  "description": "WorkMate — a DSH plugin bundle built around the change-proposal entity: proposal management, GitNexus/WeKnora knowledge bridging, swarm parallel orchestration and an OpenSpec archival loop.",
+  "description": "WorkMate — a DSH plugin bundle built around the change-proposal entity: proposal management, GitNexus knowledge bridging, Super-agent task handoff and an OpenSpec archival loop.",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {

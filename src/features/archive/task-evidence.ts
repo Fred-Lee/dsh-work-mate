@@ -3,7 +3,7 @@
  *
  * 判据变了：以前是"有没有团队 Run"，现在是**变更目录里有没有 `TASKS.json`**。
  * 这与 change `adopt-superagent-openspec-source` 的分工一致——`TASKS.json` 是任务的
- * 单一事实源，谁执行它都可能（Super-agent 的 worker、人或 swarms），但**有任务就必须
+ * 单一事实源，谁执行它都可能（Super-agent 的 worker 或人），但**有任务就必须
  * 有测试与审查证据**。没有 `TASKS.json` 的老提案不会被这条门挡住。
  *
  * `role` 字段保留但不再参与派发；这里只用它判断"这份变更是否承诺过测试/审查"。

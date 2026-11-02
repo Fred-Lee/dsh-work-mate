@@ -14,7 +14,7 @@ let events: EventLog
 let proposals: ProposalServiceImpl
 
 const worktree = (): WorktreeManager =>
-  new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10, copyFiles: [], packageManager: 'pnpm' })
+  new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10,  })
 
 /** A dependency set that archives successfully and reports what the orchestration was asked to do. */
 const lifecycleFor = (

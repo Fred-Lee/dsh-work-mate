@@ -80,8 +80,6 @@ beforeEach(async () => {
       subdir: 'workmate',
       basePort: 3000,
       portStep: 10,
-      copyFiles: [],
-      packageManager: 'pnpm',
     }),
     orchestrate: async () => ({
       ok: false,

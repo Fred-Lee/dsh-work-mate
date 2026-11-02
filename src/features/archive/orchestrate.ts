@@ -1,6 +1,6 @@
 /**
  * Archive orchestration (M4): the five-step pipeline from the design doc —
- *   tasks snapshot → (swarm parallel run, D1: recorded skip) →
+ *   tasks snapshot →
  *   openspec archive --yes → gitnexus analyze --force → status = archived.
  *
  * Failure semantics (D2): any CLI failure halts the pipeline, leaves the
@@ -30,7 +30,6 @@ export interface OrchestrationStep {
     | 'review-evidence'
     | 'tasks'
     | 'plan-drift'
-    | 'swarm'
     | 'openspec-archive'
     | 'gitnexus-analyze'
     | 'reopen-dir'
@@ -190,7 +189,6 @@ export interface OrchestrateDeps {
   decide?: DecideHook
   /** `openspec` CLI binary; overridable in tests. */
   openspecBin?: string
-  runSwarmTasks?(tasks: TaskSnapshot, projectRoot: string): Promise<string>
 }
 
 export interface OrchestrateOptions {
@@ -229,11 +227,6 @@ export interface OrchestrateOptions {
    * an out-of-range line only warns. @default 'off'
    */
   reviewEvidenceGate?: 'off' | 'warn' | 'block'
-  /**
-   * Block archiving while a merged swarm task lacks an independent verification
-   * record (change `wire-swarm-independent-review`). @default false
-   */
-  swarmReviewRequired?: boolean
   /** Identities of this proposal's executors, collected by the caller (git authors). */
   executorIdentities?: readonly Identity[]
   /** How many untagged findings one run may grade (`Config.reviewGradeMax`). @default 5 */
@@ -299,17 +292,6 @@ export async function orchestrateArchive(
     const snapshot = entry.snapshot as TaskSnapshot
     return snapshot.total > 0 && snapshot.done < snapshot.total
   })
-  const unmerged = (proposal.swarmTasks ?? []).filter((task) => task.status !== 'merged')
-  if (unmerged.length > 0 && options.tasksGate !== false) {
-    steps.push({
-      step: 'tasks',
-      status: 'failed',
-      summary: `验收未通过：swarm 任务未合并 —— ${unmerged
-        .map((task) => `[${task.id}] ${task.status}`)
-        .join('，')}（workmate_swarm_task action=merge，或 force 跳过）`,
-    })
-    return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }
-  }
   // Task judgement (change `add-decision-nodes`): computed once, then reused by the
   // manifest so the gate and the delivery record never disagree.
   const taskJudgements = await judgeTasks(proposal, targets, options, deps.decide)
@@ -379,82 +361,6 @@ export async function orchestrateArchive(
       summary: `${incomplete.length > 0 ? '验收谓词被 force 跳过；' : 'tasks 全部完成；'}${progress}`,
     })
     if (tasks === undefined) tasks = withTasks[0]?.snapshot
-  }
-
-  // 2. swarm: REPORT, never dispatch. Design D1 keeps task execution with the caller
-  // (subagents / Agent Teams); workmate owns the git isolation and merge discipline. So the
-  // step states what this proposal actually used instead of a vague "not wired".
-  const swarmTasks = proposal.swarmTasks ?? []
-  const swarmMerged = swarmTasks.filter((task) => task.status === 'merged')
-  const swarmPending = swarmTasks.filter((task) => task.status !== 'merged')
-  if (tasks !== undefined && deps.runSwarmTasks !== undefined) {
-    try {
-      const summary = await deps.runSwarmTasks(tasks, firstRoot)
-      steps.push({ step: 'swarm', status: 'ok', summary })
-    } catch (error) {
-      steps.push({ step: 'swarm', status: 'failed', summary: error instanceof Error ? error.message : String(error) })
-      return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }
-    }
-  } else if (swarmTasks.length === 0) {
-    steps.push({
-      step: 'swarm',
-      status: 'ok',
-      summary: '无 swarm 任务（本提案未使用任务级并行；派发执行由调用方/Agent Teams 决定，见设计 D1）',
-    })
-  } else if (swarmPending.length === 0) {
-    // Merged is not checked (change `wire-swarm-independent-review`): with
-    // `swarmReviewRequired` on, each merged task needs a verification record whose
-    // checker is independent of that task's commit authors. Without it the merged
-    // claim alone passes — the same "self-report" hole the review gate had.
-    // `undetermined` blocks too (design D3): in this scenario it means the git facts are
-    // unreachable — a misconfiguration — so treating it as "no verdict" would let the
-    // gate fail silently instead of loudly. This mirrors specs/swarm-verification.
-    const unverified = options.swarmReviewRequired === true
-      ? swarmMerged.filter(
-          (task) =>
-            task.verification === undefined ||
-            task.verification.independence === 'same-as-author' ||
-            task.verification.independence === 'undetermined',
-        )
-      : []
-    if (unverified.length > 0) {
-      steps.push({
-        step: 'swarm',
-        status: 'failed',
-        summary:
-          `${swarmMerged.length} 个 swarm 任务已合并，但 ${unverified.length} 个没有独立核验记录：` +
-          unverified
-            .map((task) => {
-              if (task.verification === undefined) return `${task.id}(未核验)`
-              if (task.verification.independence === 'undetermined') {
-                return `${task.id}(核验者 ${task.verification.reviewer} 的独立性无法判定：取不到仓库作者事实)`
-              }
-              return `${task.id}(核验者 ${task.verification.reviewer} 与提交作者同一身份)`
-            })
-            .join('，') +
-          '——先 workmate_swarm_task action=verify，或把 Config.swarmReviewRequired 关掉',
-      })
-      return { ok: false, steps, ...(tasks !== undefined ? { tasks } : {}) }
-    }
-    steps.push({
-      step: 'swarm',
-      status: 'ok',
-      summary: `${swarmMerged.length} 个 swarm 任务全部已合并` +
-        `${swarmMerged.filter((task) => task.branch !== undefined).length > 0
-          ? `（分支：${swarmMerged.map((task) => task.branch ?? task.id).join(', ')}）`
-          : ''}` +
-        `${swarmMerged.filter((task) => task.verification !== undefined).length > 0
-          ? `；其中 ${swarmMerged.filter((task) => task.verification !== undefined).length} 个有独立核验记录`
-          : ''}`,
-    })
-  } else {
-    steps.push({
-      step: 'swarm',
-      status: 'skipped',
-      summary: `swarm 任务未全部合并，本次按 force 放行：${swarmPending
-        .map((task) => `${task.id}(${task.status}${task.branch !== undefined ? `, ${task.branch}` : ''})`)
-        .join('，')}——正常路径应为 workmate_swarm_task action=merge`,
-    })
   }
 
   // 3. review gate: every resolvable target must have a review report with

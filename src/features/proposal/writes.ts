@@ -7,8 +7,20 @@
  */
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { scopesIntersect } from '../swarm/plan.ts'
 import { validateProjectRoot } from './openspec.ts'
+
+/**
+ * 两个声明写域是否重叠。尾部 `/**` 与 `/*` 表示"这棵子树"，其余按路径前缀比较。
+ * （change `remove-swarm-parallel`：从 `swarm/plan.ts` 迁来；swarm 删除后这里成为唯一实现。）
+ */
+export function scopesIntersect(left: string, right: string): boolean {
+  const normalize = (scope: string): string => scope.replace(/\/\*\*?$/, '').replace(/\/+$/, '')
+  const a = normalize(left)
+  const b = normalize(right)
+  if (a === '' || b === '') return false
+  if (a === b) return true
+  return a.startsWith(`${b}/`) || b.startsWith(`${a}/`)
+}
 
 const WRITES = /<!--\s*writes:\s*([^>]*?)\s*-->/g
 

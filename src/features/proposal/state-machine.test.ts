@@ -28,8 +28,6 @@ beforeEach(async () => {
     subdir: 'workmate',
     basePort: 3000,
     portStep: 10,
-    copyFiles: [],
-    packageManager: 'pnpm',
   })
   lifecycle = new LifecycleServiceImpl({ proposals, worktree })
 })

@@ -40,9 +40,7 @@ describe('parseTasksMd', () => {
 })
 
 /** Minimal archiving proposal: the review gate runs before any CLI. */
-const archivingProposal = (
-  swarmTasks?: Array<{ id: string; status: 'planned' | 'running' | 'merged' | 'failed' }>,
-): {
+const archivingProposal = (): {
   id: string
   title: string
   status: 'archiving'
@@ -51,7 +49,6 @@ const archivingProposal = (
   openspecChangeId: string
   createdAt: string
   updatedAt: string
-  swarmTasks?: Array<{ id: string; status: 'planned' | 'running' | 'merged' | 'failed' }>
 } => ({
   id: 'p1',
   title: 't',
@@ -61,7 +58,6 @@ const archivingProposal = (
   openspecChangeId: 'p1',
   createdAt: '2026-10-05T00:00:00.000Z',
   updatedAt: '2026-10-05T00:00:00.000Z',
-  ...(swarmTasks !== undefined ? { swarmTasks } : {}),
 })
 
 describe('orchestrateArchive (fake CLIs)', () => {
@@ -104,7 +100,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
     await chmod(path, 0o755)
   }
 
-  it('runs the full pipeline: snapshot → skip swarm → archive → analyze → archived', async () => {
+  it('runs the full pipeline: snapshot → archive → analyze → archived', async () => {
     const project = await seedProject()
     await installFakeOpenspec()
     // fake gitnexus: write a marker file instead of indexing
@@ -131,7 +127,6 @@ describe('orchestrateArchive (fake CLIs)', () => {
       expect(result.tasks).toEqual({ done: 2, total: 2, lines: ['- [x] 1. a', '- [x] 2. b'] })
       expect(result.steps.map((s) => [s.step, s.status])).toEqual([
         ['tasks', 'ok'],
-        ['swarm', 'ok'],   // 无 swarm 任务时如实报告，而非含糊的 not wired
         ['review-gate', 'ok'],
         ['openspec-archive', 'ok'],
         ['gitnexus-analyze', 'ok'],
@@ -183,7 +178,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
 
     const okArchive = new LifecycleServiceImpl({
       proposals,
-      worktree: new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10, copyFiles: [], packageManager: 'pnpm' }),
+      worktree: new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10 }),
       orchestrate: async () => ({ ok: true, steps: [{ step: 'status', status: 'ok', summary: '' }] }),
     })
     const okResult = (await okArchive.runArchive('p1')) as { proposal: { status: string }; orchestration?: unknown }
@@ -193,7 +188,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
     await proposals.setStatus('p1', 'archiving')
     const badArchive = new LifecycleServiceImpl({
       proposals,
-      worktree: new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10, copyFiles: [], packageManager: 'pnpm' }),
+      worktree: new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10 }),
       orchestrate: async () => ({ ok: false, steps: [{ step: 'openspec-archive', status: 'failed', summary: 'boom' }] }),
     })
     const badResult = (await badArchive.runArchive('p1')) as { proposal: { status: string }; orchestration: { ok: boolean } }
@@ -477,116 +472,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
     for (const project of [good, missing, outOfRange, gitnexus]) await rm(project, { recursive: true, force: true })
   })
 
-  it('blocks archiving while a swarm task is unmerged', async () => {
-    const project = await mkdtemp(join(tmpdir(), 'wm-swarm-gate-'))
-    await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
-    await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n', 'utf8')
 
-    const result = await orchestrateArchive(
-      archivingProposal([{ id: 't1', status: 'running' }, { id: 't2', status: 'merged' }]),
-      [{ project: 'demo', root: project }],
-      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false },
-    )
-
-    expect(result.ok).toBe(false)
-    const gate = result.steps.find((step) => step.step === 'tasks')
-    expect(gate?.status).toBe('failed')
-    expect(gate?.summary).toContain('[t1] running')
-    expect(gate?.summary).not.toContain('[t2]')
-
-    const forced = await orchestrateArchive(
-      archivingProposal([{ id: 't1', status: 'running' }]),
-      [{ project: 'demo', root: project }],
-      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false, tasksGate: false, reviewGate: false },
-    )
-    expect(forced.steps.find((step) => step.step === 'tasks')?.status).toBe('ok')
-    await rm(project, { recursive: true, force: true })
-  })
-
-  it('requires an independent check per merged swarm task when the gate is on', async () => {
-    const project = await mkdtemp(join(tmpdir(), 'wm-swarm-review-'))
-    await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
-    await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n', 'utf8')
-    const verification = {
-      reviewer: 'auditor@2',
-      verdict: 'verified' as const,
-      independence: 'independent' as const,
-      note: '不在执行者身份集合内',
-      at: '2026-10-05T12:00:00.000Z',
-    }
-    const merged = [
-      { id: 't1', status: 'merged' as const, verification },
-      { id: 't2', status: 'merged' as const },
-    ]
-
-    // gate off (default): merging alone still reaches the swarm step as ok
-    const permissive = await orchestrateArchive(archivingProposal(merged), [{ project: 'demo', root: project }], {
-      openspecRoot: 'openspec',
-      gitnexusAnalyzeEnabled: false,
-      reviewGate: false,
-    })
-    expect(permissive.steps.find((step) => step.step === 'swarm')?.status).toBe('ok')
-
-    // gate on: the unverified task blocks, naming it
-    const strict = await orchestrateArchive(archivingProposal(merged), [{ project: 'demo', root: project }], {
-      openspecRoot: 'openspec',
-      gitnexusAnalyzeEnabled: false,
-      reviewGate: false,
-      swarmReviewRequired: true,
-    })
-    expect(strict.ok).toBe(false)
-    const swarmStep = strict.steps.find((step) => step.step === 'swarm')
-    expect(swarmStep?.status).toBe('failed')
-    expect(swarmStep?.summary).toContain('t2(未核验)')
-    expect(swarmStep?.summary).not.toContain('t1(')
-
-    // a self-check does not count as verification
-    const selfChecked = [
-      { id: 't1', status: 'merged' as const, verification: { ...verification, independence: 'same-as-author' as const } },
-    ]
-    const blockedBySelf = await orchestrateArchive(archivingProposal(selfChecked), [{ project: 'demo', root: project }], {
-      openspecRoot: 'openspec',
-      gitnexusAnalyzeEnabled: false,
-      reviewGate: false,
-      swarmReviewRequired: true,
-    })
-    expect(blockedBySelf.ok).toBe(false)
-    expect(blockedBySelf.steps.find((step) => step.step === 'swarm')?.summary).toContain('同一身份')
-
-    // `undetermined` counts as unverified too (specs/swarm-verification: SHALL 视同未核验).
-    // Without this branch the gate would silently pass exactly when the git facts are
-    // unreachable — the misconfiguration `undetermined` stands for.
-    const undecidable = [
-      { id: 't1', status: 'merged' as const, verification: { ...verification, independence: 'undetermined' as const } },
-    ]
-    const blockedByUndetermined = await orchestrateArchive(archivingProposal(undecidable), [{ project: 'demo', root: project }], {
-      openspecRoot: 'openspec',
-      gitnexusAnalyzeEnabled: false,
-      reviewGate: false,
-      swarmReviewRequired: true,
-    })
-    expect(blockedByUndetermined.ok).toBe(false)
-    const undeterminedStep = blockedByUndetermined.steps.find((step) => step.step === 'swarm')
-    expect(undeterminedStep?.status).toBe('failed')
-    expect(undeterminedStep?.summary).toContain('无法判定')
-
-    // everything verified: the step says so
-    const allVerified = [
-      { id: 't1', status: 'merged' as const, verification },
-      { id: 't2', status: 'merged' as const, verification: { ...verification, reviewer: 'auditor@3' } },
-    ]
-    const allChecked = await orchestrateArchive(archivingProposal(allVerified), [{ project: 'demo', root: project }], {
-      openspecRoot: 'openspec',
-      gitnexusAnalyzeEnabled: false,
-      reviewGate: false,
-      swarmReviewRequired: true,
-    })
-    const okStep = allChecked.steps.find((step) => step.step === 'swarm')
-    expect(okStep?.status).toBe('ok')
-    expect(okStep?.summary).toContain('2 个有独立核验记录')
-
-    await rm(project, { recursive: true, force: true })
-  })
 
   it('stops on unchecked tasks and reports per-project progress', async () => {
     const projectA = await mkdtemp(join(tmpdir(), 'wm-tasks-a-'))
@@ -705,7 +591,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
     const seen: Array<{ openspecRoot: string; reviewGate?: boolean }> = []
     const lifecycle = new LifecycleServiceImpl({
       proposals,
-      worktree: new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10, copyFiles: [], packageManager: 'pnpm' }),
+      worktree: new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10 }),
       openspecRoot: 'spec',
       resolveProjectRoots: async () => [{ project: 'demo', root: project }],
       orchestrate: async (_proposal, _targets, options) => {
@@ -745,7 +631,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
 
     const lifecycle = new LifecycleServiceImpl({
       proposals,
-      worktree: new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10, copyFiles: [], packageManager: 'pnpm' }),
+      worktree: new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10 }),
       openspecRoot: 'openspec',
       resolveProjectRoots: async () => [{ project: 'demo', root: project }],
       orchestrate: async () => ({ ok: true, steps: [] }),
@@ -770,7 +656,7 @@ describe('orchestrateArchive (fake CLIs)', () => {
 
     const lifecycle = new LifecycleServiceImpl({
       proposals,
-      worktree: new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10, copyFiles: [], packageManager: 'pnpm' }),
+      worktree: new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10 }),
       resolveProjectRoots: async () => [{ project: 'demo', root: join(home, 'no-such-project') }],
       orchestrate: async () => ({ ok: true, steps: [] }),
       reopen: (proposal, targets, options) => orchestrateReopen(proposal, targets, options),
@@ -806,238 +692,5 @@ describe('archived change dir is still readable (archive-evidence-after-move)', 
     expect(await resolveChangeDir(root, 'openspec', 'moved-probe')).toBe(active)
 
     await rm(root, { recursive: true, force: true })
-  })
-})
-
-describe('swarm step reports what the proposal used (swarm-report-not-wired)', () => {
-  const NO_PROJECT = mkdtemp(join(tmpdir(), 'wm-swarm-none-'))
-  const MERGED_PROJECT = mkdtemp(join(tmpdir(), 'wm-swarm-merged-'))
-
-  /** Minimal archivable fixture; the swarm step only needs tasks.md and proposal.swarmTasks. */
-  async function fixture(project: string): Promise<void> {
-    await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
-    await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n', 'utf8')
-  }
-
-  const baseProposal = (swarmTasks?: unknown[]): unknown => ({
-    id: 'p1',
-    title: 'swarm 步骤如实报告',
-    status: 'archiving',
-    projects: ['proj'],
-    commits: [],
-    openspecChangeId: 'p1',
-    ...(swarmTasks !== undefined ? { swarmTasks } : {}),
-  })
-
-  it('says the proposal used no task-level parallelism when there are no swarm tasks', async () => {
-    const project = await NO_PROJECT
-    await fixture(project)
-    const result = await orchestrateArchive(
-      baseProposal() as never,
-      [{ project: 'proj', root: project }],
-      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false, reviewGate: false } as never,
-    )
-
-    const step = result.steps.find((entry) => entry.step === 'swarm')
-    expect(step?.status).toBe('ok')
-    expect(step?.summary).toContain('无 swarm 任务')
-    expect(step?.summary).toContain('D1')
-    await rm(project, { recursive: true, force: true })
-  })
-
-  it('lists merged swarm tasks and their branches', async () => {
-    const project = await MERGED_PROJECT
-    await fixture(project)
-    const result = await orchestrateArchive(
-      baseProposal([
-        { id: 't1', title: 'a', writes: [], status: 'merged', branch: 'feature/x--t1' },
-        { id: 't2', title: 'b', writes: [], status: 'merged', branch: 'feature/x--t2' },
-      ]) as never,
-      [{ project: 'proj', root: project }],
-      { openspecRoot: 'openspec', gitnexusAnalyzeEnabled: false, reviewGate: false } as never,
-    )
-
-    const step = result.steps.find((entry) => entry.step === 'swarm')
-    expect(step?.summary).toContain('2 个 swarm 任务全部已合并')
-    expect(step?.summary).toContain('feature/x--t1')
-    await rm(project, { recursive: true, force: true })
-  })
-})
-
-describe('auto vault export after archiving (auto-export-vault)', () => {
-  async function fixture(): Promise<string> {
-    const project = await mkdtemp(join(tmpdir(), 'wm-autovault-'))
-    await mkdir(join(project, 'openspec', 'changes', 'p1'), { recursive: true })
-    await writeFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), '- [x] 1. done\n', 'utf8')
-    return project
-  }
-  const prop = { id: 'p1', title: 't', status: 'archiving', projects: ['proj'], commits: [], openspecChangeId: 'p1' }
-
-  it('calls the hook once the proposal is archived', async () => {
-    const project = await fixture()
-    const calls: string[] = []
-    const result = await orchestrateArchive(prop as never, [{ project: 'proj', root: project }], {
-      openspecRoot: 'openspec',
-      gitnexusAnalyzeEnabled: false,
-      reviewGate: false,
-      onArchived: async (proposal, targets) => {
-        calls.push(`${proposal.id}@${targets[0]?.project}`)
-        return '导出了 3 个模块'
-      },
-    } as never)
-
-    expect(calls).toEqual(['p1@proj'])
-    expect(result.steps.find((step) => step.step === 'vault-export')).toMatchObject({ status: 'ok' })
-    await rm(project, { recursive: true, force: true })
-  })
-
-  it('records a failing hook without failing the archive', async () => {
-    const project = await fixture()
-    const result = await orchestrateArchive(prop as never, [{ project: 'proj', root: project }], {
-      openspecRoot: 'openspec',
-      gitnexusAnalyzeEnabled: false,
-      reviewGate: false,
-      onArchived: async () => {
-        throw new Error('vault 不可写')
-      },
-    } as never)
-
-    expect(result.ok).toBe(true)
-    const step = result.steps.find((entry) => entry.step === 'vault-export')
-    expect(step?.status).toBe('failed')
-    expect(step?.summary).toContain('不影响归档')
-    await rm(project, { recursive: true, force: true })
-  })
-})
-
-/**
- * False-green regression (change `harden-openspec-archive-step`): `openspec archive`
- * exits 0 while printing "Aborted. No files were changed." when the delta specs do
- * not parse. The pipeline used to call that `ok` and stamp the proposal `archived`
- * while `changes/<id>/` never moved.
- *
- * These cases run the REAL `openspec` CLI — a fake cannot express the bug, because
- * the bug is precisely "the CLI says fine and the directory stays put".
- */
-describe('openspec-archive step verifies the product, not the exit code', () => {
-  const prop = {
-    id: 'p1',
-    title: 't',
-    status: 'archiving' as const,
-    projects: ['demo'],
-    commits: [],
-    openspecChangeId: 'p1',
-  }
-
-  /** Seed a change whose spec section header is the only variable under test. */
-  async function seedWithSpec(sectionHeader: string, withSpecs = true): Promise<string> {
-    const project = await mkdtemp(join(tmpdir(), 'wm-archive-fact-'))
-    const changeDir = join(project, 'openspec', 'changes', 'p1')
-    await mkdir(join(changeDir, 'specs', 'cap'), { recursive: true })
-    await writeFile(join(changeDir, 'proposal.md'), '# P\n\n## Why\n\n因为。\n\n## What Changes\n\n- 甲\n', 'utf8')
-    await writeFile(join(changeDir, 'tasks.md'), '- [x] 1. a\n', 'utf8')
-    await writeFile(join(changeDir, 'review.md'), '## CRITICAL 问题\n\n无。\n', 'utf8')
-    if (withSpecs) {
-      await writeFile(
-        join(changeDir, 'specs', 'cap', 'spec.md'),
-        [
-          '# cap Specification',
-          '',
-          '## Purpose',
-          '',
-          '说明。',
-          '',
-          sectionHeader,
-          '',
-          '### Requirement: 甲',
-          '',
-          '系统 SHALL 甲。',
-          '',
-          '#### Scenario: 甲场景',
-          '',
-          '- **WHEN** 甲',
-          '- **THEN** 甲',
-          '',
-        ].join('\n'),
-        'utf8',
-      )
-    }
-    return project
-  }
-
-  async function run(project: string) {
-    return orchestrateArchive(prop as never, [{ project: 'demo', root: project }], {
-      openspecRoot: 'openspec',
-      gitnexusAnalyzeEnabled: false,
-    } as never)
-  }
-
-  it('fails when the CLI aborts but still exits 0 (delta header missing)', async () => {
-    // `## Requirements` is not a delta header: openspec parses no operations,
-    // prints "Aborted. No files were changed." — and exits 0.
-    const project = await seedWithSpec('## Requirements')
-
-    const result = await run(project)
-
-    const step = result.steps.find((s) => s.step === 'openspec-archive')
-    expect(step?.status).toBe('failed')
-    expect(result.ok).toBe(false)
-    // The CLI's own words survive into the report, and so does the product fact.
-    expect(step?.summary).toContain('Aborted. No files were changed.')
-    expect(step?.summary).toContain('仍在原地')
-    // Nothing advanced behind the failure.
-    expect(result.steps.find((s) => s.step === 'status')).toBeUndefined()
-    // The directory really is still where it was — that is what made it a failure.
-    await expect(stat(join(project, 'openspec', 'changes', 'p1'))).resolves.toBeTruthy()
-    expect(await readFile(join(project, 'openspec', 'changes', 'p1', 'tasks.md'), 'utf8')).toContain('- [x] 1. a')
-
-    await rm(project, { recursive: true, force: true })
-  })
-
-  it('succeeds when the same fixture only swaps the header to a delta section', async () => {
-    // Identical fixture; the single difference is the section header. The case
-    // above must be red and this one green, or the verdict is not about the code.
-    const project = await seedWithSpec('## ADDED Requirements')
-
-    const result = await run(project)
-
-    expect(result.ok).toBe(true)
-    expect(result.steps.find((s) => s.step === 'openspec-archive')?.status).toBe('ok')
-    // The archive directory is date-stamped by the CLI, so discover it instead of
-    // hardcoding today's date (which would rot the moment the clock rolls over).
-    const archiveRoot = join(project, 'openspec', 'changes', 'archive')
-    const archived = (await readdir(archiveRoot)).filter((name) => name.endsWith('-p1'))
-    expect(archived).toHaveLength(1)
-    expect(await readFile(join(archiveRoot, archived[0]!, 'tasks.md'), 'utf8')).toContain('- [x] 1. a')
-    await expect(stat(join(project, 'openspec', 'changes', 'p1'))).rejects.toThrow()
-
-    await rm(project, { recursive: true, force: true })
-  })
-
-  it('does not misfire on a change that legitimately has no specs directory', async () => {
-    // No `specs/` at all: openspec archives it happily (only a proposal.md warning).
-    // The verdict keys on where the directory went, not on whether specs exist.
-    const project = await seedWithSpec('## ADDED Requirements', false)
-
-    const result = await run(project)
-
-    expect(result.steps.find((s) => s.step === 'openspec-archive')?.status).toBe('ok')
-    expect(result.ok).toBe(true)
-    await expect(stat(join(project, 'openspec', 'changes', 'p1'))).rejects.toThrow()
-
-    await rm(project, { recursive: true, force: true })
-  })
-
-  it('treats a rerun over an already-archived change as a skip, not a failure', async () => {
-    const project = await seedWithSpec('## ADDED Requirements')
-
-    const first = await run(project)
-    expect(first.steps.find((s) => s.step === 'openspec-archive')?.status).toBe('ok')
-
-    const second = await run(project)
-    expect(second.steps.find((s) => s.step === 'openspec-archive')?.status).toBe('skipped')
-    expect(second.ok).toBe(true)
-
-    await rm(project, { recursive: true, force: true })
   })
 })

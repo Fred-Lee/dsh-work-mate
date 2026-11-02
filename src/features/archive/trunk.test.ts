@@ -38,8 +38,6 @@ function lifecycleFor(mainBranch?: string): LifecycleServiceImpl {
       subdir: 'workmate',
       basePort: 3000,
       portStep: 10,
-      copyFiles: [],
-      packageManager: 'pnpm',
     }),
     openspecRoot: 'openspec',
     // Omitted for the "unconfigured keeps the old default" case.

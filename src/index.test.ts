@@ -157,11 +157,11 @@ describe('host entry dependency shape', () => {
     const { ctx, registered, routes } = fakeCtx({})
     apply(ctx)
 
-    expect(registered).toHaveLength(20)
+    expect(registered).toHaveLength(18)
     expect(registered.map((tool) => (tool as { name: string }).name)).toContain('workmate_metrics')
     expect(registered.map((tool) => (tool as { name: string }).name)).toContain('workmate_bands')
-    expect(registered.map((tool) => (tool as { name: string }).name)).toContain('workmate_swarm_plan')
-    expect(registered.map((tool) => (tool as { name: string }).name)).toContain('workmate_swarm_task')
+    // swarm 已随 `remove-swarm-parallel` 删除。
+    expect(registered.map((tool) => (tool as { name: string }).name).filter((name: string) => name.startsWith('workmate_swarm_'))).toEqual([])
     expect(registered.map((tool) => (tool as { name: string }).name)).toContain('workmate_plan_drift')
     expect(registered.map((tool) => (tool as { name: string }).name)).toContain('workmate_assess_risk')
     expect(registered.map((tool) => (tool as { name: string }).name)).toContain('workmate_wiki_generate')
@@ -182,7 +182,7 @@ describe('host entry dependency shape', () => {
     const { ctx, registered, routes } = fakeCtx({ webServer: { register: () => {} } })
     apply(ctx)
 
-    expect(registered).toHaveLength(20)
+    expect(registered).toHaveLength(18)
     expect(routes.map((route) => ({ kind: route.kind, path: route.path }))).toEqual([
       { kind: 'prefix', path: '/workmate' },
     ])
@@ -251,74 +251,6 @@ describe('host entry dependency shape', () => {
   it('stays ACTIVE with no guidance services (tools still register)', () => {
     const { ctx, registered } = fakeCtx({})
     expect(() => apply(ctx)).not.toThrow()
-    expect(registered).toHaveLength(20)
-  })
-})
-
-describe('swarm verify wiring (wire-swarm-independent-review)', () => {
-  it('passes the resolved project root to action=verify', async () => {
-    // The tool resolves the root for start/merge; verify used to be left out, and since
-    // the manager's own `repoRoot` comes from the (usually unset) Config.projectRoot,
-    // every verdict degraded to `undetermined` — i.e. the feature was inert in the
-    // normal profile. This pins the wiring end to end through the registered tool.
-    const project = await mkdtemp(join(tmpdir(), 'wm-entry-swarm-'))
-    await git(['init', '-b', 'main'], project)
-    await git(['config', 'user.email', 'author@example.com'], project)
-    await git(['config', 'user.name', 'author'], project)
-    await writeFile(join(project, 'app.txt'), 'one\n', 'utf8')
-    await git(['add', '-A'], project)
-    await git(['commit', '-m', 'init', '-q'], project)
-
-    const { ctx, registered } = fakeCtx({})
-    apply(ctx)
-    const service = (ctx as unknown as { workmate: { proposal: { upsert: (input: { id: string; title: string; projects?: string[] }) => Promise<unknown>; patchFields: (id: string, patch: Record<string, unknown>) => Promise<unknown> } } }).workmate.proposal
-    await service.upsert({ id: 'p1', title: 'swarm 接线', projects: ['demo'] })
-    await service.patchFields('p1', {
-      swarmTasks: [{ id: 't1', title: '任务一', writes: ['app.txt'], status: 'merged' }],
-    })
-
-    const tool = (registered as Array<{ name: string; execute: (args: Record<string, unknown>, exec: unknown) => Promise<unknown> }>)
-      .find((definition) => definition.name === 'workmate_swarm_task')
-    expect(tool).toBeDefined()
-
-    // No Config.projectRoot, no registry entry for `demo` → it must fall back to the
-    // explicit argument, which is what a caller does today.
-    const self = (await tool?.execute(
-      { id: 'p1', action: 'verify', taskId: 't1', reviewer: 'author', verdict: 'verified', projectRoot: project },
-      { signal: undefined },
-    )) as { independence: string; warning?: string }
-    expect(self.independence).toBe('same-as-author')
-    expect(self.warning).toContain('同一身份')
-
-    const other = (await tool?.execute(
-      { id: 'p1', action: 'verify', taskId: 't1', reviewer: 'auditor@9', verdict: 'issues', projectRoot: project },
-      { signal: undefined },
-    )) as { independence: string }
-    expect(other.independence).toBe('independent')
-
-    await rm(project, { recursive: true, force: true })
-  })
-
-  it('warns when the independence cannot be determined', async () => {
-    const { ctx, registered } = fakeCtx({})
-    apply(ctx)
-    const service = (ctx as unknown as { workmate: { proposal: { upsert: (input: { id: string; title: string }) => Promise<unknown>; patchFields: (id: string, patch: Record<string, unknown>) => Promise<unknown> } } }).workmate.proposal
-    await service.upsert({ id: 'p2', title: '无仓库事实' })
-    await service.patchFields('p2', {
-      swarmTasks: [{ id: 't1', title: '任务一', writes: [], status: 'merged' }],
-    })
-
-    const tool = (registered as Array<{ name: string; execute: (args: Record<string, unknown>, exec: unknown) => Promise<unknown> }>)
-      .find((definition) => definition.name === 'workmate_swarm_task')
-    // A non-git directory: git facts are unreachable, so the verdict is honest about it
-    // and the caller is told the gate will treat it as unverified.
-    const notARepo = await mkdtemp(join(tmpdir(), 'wm-entry-nogit-'))
-    const result = (await tool?.execute(
-      { id: 'p2', action: 'verify', taskId: 't1', reviewer: 'auditor@9', verdict: 'verified', projectRoot: notARepo },
-      { signal: undefined },
-    )) as { independence: string; warning?: string }
-    expect(result.independence).toBe('undetermined')
-    expect(result.warning).toContain('无法判定')
-    await rm(notARepo, { recursive: true, force: true })
+    expect(registered).toHaveLength(18)
   })
 })

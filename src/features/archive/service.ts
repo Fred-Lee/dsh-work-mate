@@ -120,8 +120,6 @@ export interface LifecycleDeps {
   teamEvidenceGate?: 'off' | 'warn' | 'block'
   /** block | warn | off for cross-proposal write-scope conflicts. @default 'block' */
   writeConflictGate?: 'block' | 'warn' | 'off'
-  /** Require an independent verification record per merged swarm task (`Config.swarmReviewRequired`). */
-  swarmReviewRequired?: boolean
   /** Extra states a HIGH-risk proposal needs a human approval for (`Config.highRiskExtraGates`). */
   highRiskExtraGates?: string[]
   /**
@@ -684,7 +682,6 @@ export class LifecycleServiceImpl {
       planDriftGate: this.deps.planDriftGate === true && options.force !== true,
       ...(this.deps.reviewerIndependence !== undefined ? { reviewerIndependence: this.deps.reviewerIndependence } : {}),
       ...(this.deps.reviewEvidenceGate !== undefined ? { reviewEvidenceGate: this.deps.reviewEvidenceGate } : {}),
-      ...(this.deps.swarmReviewRequired === true ? { swarmReviewRequired: true } : {}),
       ...(options.signal !== undefined ? { signal: options.signal } : {}),
     })
     if (!orchestration.ok) {

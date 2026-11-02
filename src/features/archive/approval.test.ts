@@ -14,7 +14,7 @@ let events: EventLog
 let proposals: ProposalServiceImpl
 
 const worktree = (): WorktreeManager =>
-  new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10, copyFiles: [], packageManager: 'pnpm' })
+  new WorktreeManager({ subdir: 'workmate', basePort: 3000, portStep: 10 })
 
 const lifecycleFor = (deps: Partial<ConstructorParameters<typeof LifecycleServiceImpl>[0]> = {}): LifecycleServiceImpl =>
   new LifecycleServiceImpl({ proposals, worktree: worktree(), ...deps })

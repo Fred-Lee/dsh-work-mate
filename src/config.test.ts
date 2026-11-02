@@ -5,18 +5,16 @@ describe('resolveConfig', () => {
   it('fills every knob with its documented default', () => {
     expect(resolveConfig()).toEqual({
       workmateHome: 'workmate',
-      maxConcurrent: 3,
       gitnexusEnabled: true,
       weknoraBaseUrl: '',
       writeConflictGate: 'block',
-    openspecTargets: 'primary',
-    openspecRoot: 'openspec',
+      openspecTargets: 'primary',
+      openspecRoot: 'openspec',
       projectRoot: '',
       qualitySyncEnabled: true,
       claudeAssetsEnabled: true,
       basePort: 3000,
       portStep: 10,
-      copyFiles: ['.env', '.env.local'],
       approvalsRequired: ['merging'],
       allowAgentApproval: false,
       reviewBlockingSeverities: ['CRIT'],
@@ -24,8 +22,7 @@ describe('resolveConfig', () => {
       allowAgentForceArchive: false,
       reviewerIndependence: 'warn',
       reviewEvidenceGate: 'warn',
-    teamEvidenceGate: 'block',
-      swarmReviewRequired: false,
+      teamEvidenceGate: 'block',
       taskFile: '',
       superagentEndpoint: 'http://127.0.0.1:3082',
       superagentTimeoutMs: 5000,
@@ -61,7 +58,6 @@ describe('resolveConfig', () => {
       wikiVaultClassifyMax: 20,
       wikiVaultRerank: false,
       wikiVaultAutoExport: true,
-      packageManager: 'pnpm',
       weknoraEnabled: true,
       weknoraKbId: '',
       weknoraWikiRequired: false,
@@ -73,14 +69,13 @@ describe('resolveConfig', () => {
   })
 
   it('keeps explicit overrides', () => {
-    expect(resolveConfig({ maxConcurrent: 5, workmateHome: 'wm-test' })).toMatchObject({
-      maxConcurrent: 5,
+    expect(resolveConfig({ workmateHome: 'wm-test', basePort: 3010 })).toMatchObject({
       workmateHome: 'wm-test',
     })
   })
 
   it('does not let an explicit undefined shadow a default', () => {
-    expect(resolveConfig({ maxConcurrent: undefined, weknoraBaseUrl: undefined })).toEqual(
+    expect(resolveConfig({ basePort: undefined, weknoraBaseUrl: undefined })).toEqual(
       resolveConfig(),
     )
   })

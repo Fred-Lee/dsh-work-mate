@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -51,10 +51,17 @@ function makeManager(): WorktreeManager {
     subdir: 'workmate',
     basePort: 3000,
     portStep: 10,
-    copyFiles: ['.env', 'config/cert.pem'],
-    packageManager: 'pnpm',
-    installTimeoutMs: 60_000,
   })
+}
+
+/**
+ * 目录现在由 Super-agent 的 prepare 创建（design D10b），`WorktreeManager` 只负责回收。
+ * 测试自己用 git 建一个同形状的 worktree + 分支，再验证 `remove` 的门槛与释放。
+ */
+async function placeWorktree(manager: WorktreeManager, proposalId: string): Promise<string> {
+  const path = manager.worktreePath(project, proposalId)
+  await git(['worktree', 'add', '-b', `feature/${proposalId}`, path], project)
+  return path
 }
 
 describe('PortAllocator', () => {
@@ -76,54 +83,19 @@ describe('PortAllocator', () => {
 })
 
 describe('WorktreeManager (real git)', () => {
-  it('create performs the four steps and records the allocation', async () => {
+  it('refuses to remove an unmerged branch, then removes after the merge', async () => {
     const manager = makeManager()
-    const result = await manager.create({ projectRoot: project, proposalId: 'p1' })
-
-    expect(result.worktreePath).toBe(join(project, '.workmates', 'p1'))
-    expect(result.portRange[0]).toBe(3000)
-    expect(result.copied).toEqual(['.env', 'config/cert.pem'])
-    if (result.install === 'failed') console.error('installNote:', result.installNote)
-    expect(result.install).toBe('installed')
-
-    const env = await readFile(join(result.worktreePath, '.env'), 'utf8')
-    expect(env).toContain('WORKMATE_PROPOSAL=p1')
-    expect(env).toContain('WORKMATE_PORTS=3000,3001,3002,3003,3004')
-    expect(env).toContain('EXISTING=1') // copied config coexists with the injected ports
-    await expect(readFile(join(result.worktreePath, 'package.json'), 'utf8')).resolves.toContain('demo')
-
-    // recorded on the allocator
-    await expect(manager.ports().get('p1')).resolves.toMatchObject({ base: 3000 })
-
-    // `.gitignore` gets exactly one `.workmates/` line, no matter how many creates ran
-    const ignore = await readFile(join(project, '.gitignore'), 'utf8')
-    expect(ignore.split('\n').filter((line) => line.trim() === '.workmates/')).toHaveLength(1)
-    await manager.create({ projectRoot: project, proposalId: 'p2' })
-    const again = await readFile(join(project, '.gitignore'), 'utf8')
-    expect(again.split('\n').filter((line) => line.trim() === '.workmates/')).toHaveLength(1)
-  })
-
-  it('serializes concurrent creates without .git/config contention', async () => {
-    const manager = makeManager()
-    const results = await Promise.all([
-      manager.create({ projectRoot: project, proposalId: 'p1' }),
-      manager.create({ projectRoot: project, proposalId: 'p2' }),
-      manager.create({ projectRoot: project, proposalId: 'p3' }),
-    ])
-    const bases = results.map((r) => r.portRange[0]).sort((a, b) => a - b)
-    expect(bases).toEqual([3000, 3010, 3020])
-  })
-
-  it('remove refuses unmerged branches, cleans up after merge', async () => {
-    const manager = makeManager()
-    const result = await manager.create({ projectRoot: project, proposalId: 'p1' })
+    const path = await placeWorktree(manager, 'p1')
+    await manager.ports().allocate('p1')
     // commit something on the worktree branch (unmerged)
-    await writeFile(join(result.worktreePath, 'x.txt'), 'x', 'utf8')
-    await git(['add', '-A'], result.worktreePath)
-    await git(['commit', '-m', 'wip [proposal:p1]', '-q'], result.worktreePath)
+    await writeFile(join(path, 'x.txt'), 'x', 'utf8')
+    await git(['add', '-A'], path)
+    await git(['commit', '-m', 'wip [proposal:p1]', '-q'], path)
 
     const refused = await manager.remove({ projectRoot: project, proposalId: 'p1' })
     expect(refused.removed).toBe(false)
+    // 被拒时保留分配：worktree 还在，端口可能仍被占用。
+    await expect(manager.ports().get('p1')).resolves.toMatchObject({ base: 3000 })
 
     // merge the feature branch into main → removal proceeds
     await git(['merge', 'feature/p1', '-q', '--no-edit'], project)
@@ -137,10 +109,9 @@ describe('WorktreeManager (real git)', () => {
 
   it('rollback removal deletes the unmerged feature branch and releases its ports', async () => {
     const manager = makeManager()
-    const created = await manager.create({ projectRoot: project, proposalId: 'rollback-p1' })
-    expect(created.branchCreated).toBe(true)
-    const reused = await manager.create({ projectRoot: project, proposalId: 'rollback-p1' })
-    expect(reused.branchCreated).toBe(false)
+    await placeWorktree(manager, 'rollback-p1')
+    await manager.ports().allocate('rollback-p1')
+
     const removed = await manager.remove({
       projectRoot: project,
       proposalId: 'rollback-p1',
@@ -151,48 +122,15 @@ describe('WorktreeManager (real git)', () => {
     await expect(gitish(['rev-parse', '--verify', 'feature/rollback-p1'], project)).rejects.toThrow()
     await expect(manager.ports().get('rollback-p1')).resolves.toBeUndefined()
   }, 30_000)
-  it('creates one target worktree per project with disjoint ports', async () => {
-    const other = await mkdtemp(join(tmpdir(), 'wm-wt-other-'))
-    try {
-      await git(['init', '-b', 'main'], other)
-      await git(['config', 'user.email', 't@t'], other)
-      await git(['config', 'user.name', 't'], other)
-      await git(['commit', '--allow-empty', '-m', 'init', '-q'], other)
 
-      const manager = makeManager()
-      const a = await manager.createTarget({
-        projectRoot: project,
-        project: 'a',
-        proposalId: 'p1',
-        baseBranch: 'main',
-      })
-      const b = await manager.createTarget({
-        projectRoot: other,
-        project: 'b',
-        proposalId: 'p1',
-        baseBranch: 'main',
-      })
+  it('reads back per-project allocations without touching the proposal-level key', async () => {
+    const manager = makeManager()
+    const a = await manager.ports().allocate('p1--a')
+    const b = await manager.ports().allocate('p1--b')
 
-      expect(a.worktreePath).toBe(join(project, '.workmates', 'p1'))
-      expect(b.worktreePath).toBe(join(other, '.workmates', 'p1'))
-      expect([a.portRange[0], b.portRange[0]]).toEqual([3000, 3010])
-      await expect(manager.ports().get('p1--a')).resolves.toMatchObject({ base: 3000 })
-      await expect(manager.ports().get('p1--b')).resolves.toMatchObject({ base: 3010 })
-      await expect(manager.ports().get('p1')).resolves.toBeUndefined()
-      await expect(manager.allocationFor('p1', 'a')).resolves.toEqual(a.portRange)
-      await expect(readFile(join(a.worktreePath, '.env'), 'utf8')).resolves.toContain('WORKMATE_PROJECT=a')
-
-      // idempotent re-entry keeps the same allocation
-      const again = await manager.createTarget({
-        projectRoot: project,
-        project: 'a',
-        proposalId: 'p1',
-        baseBranch: 'main',
-      })
-      expect(again.portRange).toEqual(a.portRange)
-    } finally {
-      await rm(other, { recursive: true, force: true })
-    }
-  }, 30_000)
-
+    expect([a.base, b.base]).toEqual([3000, 3010])
+    await expect(manager.allocationFor('p1', 'a')).resolves.toEqual(a.ports)
+    await expect(manager.allocationFor('p1', 'b')).resolves.toEqual(b.ports)
+    await expect(manager.ports().get('p1')).resolves.toBeUndefined()
+  })
 })

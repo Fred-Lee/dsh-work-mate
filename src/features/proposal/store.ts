@@ -78,7 +78,6 @@ export interface ApprovalRecord {
 }
 
 import type { ArchiveManifest } from '../archive/manifest.ts'
-import type { SwarmTaskRecord } from '../swarm/manager.ts'
 
 /** One project × base-branch carrier of a proposal (change `multiproject-branch-workbench`). */
 export interface ProposalTarget {
@@ -146,8 +145,8 @@ export interface Proposal {
   approvals?: ApprovalRecord[]
   /** Delivery summary written by a successful archive run (change `adopt-workdsh-lessons`). */
   archiveManifest?: ArchiveManifest
-  /** Per-task parallel carriers (change `add-swarm-parallel`). */
-  swarmTasks?: SwarmTaskRecord[]
+  // `swarmTasks` removed in `remove-swarm-parallel`：任务级并行载体已删除。
+  // 历史记录里的该字段不清洗，读取端忽略。
   /** Judged change risk (change `add-decision-nodes`); high tightens the approval gate. */
   risk?: 'low' | 'medium' | 'high'
   createdAt: string

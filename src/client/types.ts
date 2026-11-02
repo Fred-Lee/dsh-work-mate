@@ -37,20 +37,6 @@ export interface WikiLinkEntry {
   registeredAt: string
 }
 
-export interface SwarmTaskRecord {
-  id: string
-  title: string
-  writes: string[]
-  branch?: string
-  worktreePath?: string
-  portRange?: number[]
-  status: 'planned' | 'running' | 'merged' | 'failed'
-  startedAt?: string
-  mergedAt?: string
-  commit?: string
-  note?: string
-}
-
 export interface DriftReport {
   declared: string[]
   actual: string[]
@@ -127,8 +113,6 @@ export interface Proposal {
   archiveManifest?: ArchiveManifest
   /** Set when the proposal was deliberately abandoned (hidden from lists). */
   abandonedAt?: string
-  /** Per-task parallel carriers. */
-  swarmTasks?: SwarmTaskRecord[]
 }
 
 export interface AssociatedCommit {

@@ -30,11 +30,14 @@ export const PROPOSAL_FLOW_SKILL: RuntimeSkill = {
    - proposing：\`<openspecRoot>/changes/<id>/proposal.md\` 存在
    - reviewing：提案分支 \`proposal/<id>\` 存在
    - ready：该分支已合并进 main
-   - implementing：自动创建 worktree（端口注入 / 配置复制 / 依赖安装）
+   - implementing：校验每个 target 的基线分支存在并写实现待办（目录由 Super-agent 的
+     \`prepare\` 创建，WorkMate 不预建）
    - merging：声明的 wiki 任务类型已被 \`workmate_wiki_link\` 覆盖
    - archiving：实现分支已合并进 main
 3. **回退**：相邻回退自由（\`transition\` 到前一状态即可）。\`archived → archiving\` 会把各项目
    \`changes/archive/*-<id>/\` 搬回 \`changes/<id>/\`——不要手工 mv 目录。
+4. **并发**：要并行就把工作拆成多条待办（每条一个 Ticket），并发度由 Super-agent 的
+   \`maxWorkers\` 控制；WorkMate 不再提供任务级并行载体（swarm 已移除）。
 
 ## 三条硬纪律
 
@@ -101,21 +104,6 @@ openspec archive**。\`force\` 只跳过审查门，其余步骤照跑——默�
 - 文档/规范用 \`workmate_knowledge_search\`（WeKnora；未配置会返回禁用说明）。
 - 归档前每个声明 wiki 的任务必须已登记页面引用（\`workmate_wiki_link\`，pageType 为
   concept / synthesis / entity 之一）。
-
-## 并行执行（swarm）
-
-- 提案内多任务要并行时：先 \`workmate_swarm_plan\`（从 tasks.md 派生任务，行内
-  \`<!-- writes: src/a/** -->\` 声明文件范围），同一批内 writes 不相交；然后逐个
-  \`workmate_swarm_task {action:"start"}\` 起任务 worktree/分支，在那里改代码并提交。
-- 干完用 \`workmate_swarm_task {action:"merge"}\` 合回 implementation 分支。冲突时插件会
-  中止合并并把冲突文件交回：**在任务 worktree 里 \`git merge feature/<提案>\`、解完提交、
-  再重跑 merge**——不要手工改主工作区。
-- 归档门会拦未合并的任务（\`force\` 可跳过，但那等于带着未合代码归档）。
-- **合并之后要核验**：\`workmate_swarm_task {action:"verify", taskId, reviewer, verdict:"verified"|"issues", evidence}\`。
-  合并只说明代码落地，核验才说明有人看过；插件会从 git 读该任务的提交作者，
-  判断核验者是否独立（同名即 \`same-as-author\`，不署名则拒绝，取不到 git 事实记 \`undetermined\`）。
-  默认不拦归档；把 \`Config.swarmReviewRequired\` 设为 true 后，缺核验、自评、或
-  \`undetermined\`（通常意味着项目根没解析到）都会拦归档。
 
 ## 入口溯源
 

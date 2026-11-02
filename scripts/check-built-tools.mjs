@@ -40,6 +40,7 @@ const required = [
 const missing = required.filter((name) => !names.includes(name))
 // 团队执行器已移除（change `remove-team-executor`）：这 6 个工具必须消失，
 // 否则说明构建产物里还留着一份已删源码的旧实现。
+// swarm 已移除（change `remove-swarm-parallel`）：这两个工具同理。
 const banned = [
   'workmate_team_prepare',
   'workmate_team_plan',
@@ -47,9 +48,11 @@ const banned = [
   'workmate_team_status',
   'workmate_team_inbox',
   'workmate_team_answer',
+  'workmate_swarm_plan',
+  'workmate_swarm_task',
 ].filter((name) => names.includes(name))
 if (banned.length > 0) {
-  console.error(`[built-tools] FAILED — team tools must be gone: ${banned.join(', ')}`)
+  console.error(`[built-tools] FAILED — removed tools must be gone: ${banned.join(', ')}`)
   process.exit(1)
 }
 if (mod.name !== 'workmate') {
@@ -60,4 +63,4 @@ if (missing.length > 0) {
   console.error(`[built-tools] FAILED — missing tools: ${missing.join(', ')}`)
   process.exit(1)
 }
-console.log(`[built-tools] ok — name=${mod.name}, tools=${registered.length}, no team tools`)
+console.log(`[built-tools] ok — name=${mod.name}, tools=${registered.length}, no team/swarm tools`)

@@ -132,7 +132,7 @@ node $DSH --profile web --dump-config | sed -n '/id: workmate/,/^- id:/p'
 | 3 | 写 `design.md` / `tasks.md`（tasks 里可标 `<!-- writes: src/a/** -->`） | 编辑文件 | — |
 | 4 | 审查：产出 `review.md`（带严重度标签或交给判断层归级） | 技能 `workmate-proposal-audit` | 详情区「🔍 审查报告」+ 重新审查 |
 | 5 | 逐态推进到 `ready` | `POST $API/proposals/<id>/advance`；工具 `workmate_proposal_archive(mode=advance)` | 「推进到 X ›」/「‹ 回退到 Y」 |
-| 6 | `implementing`：自动建 worktree（端口注入 / 配置复制 / 依赖安装） | 同上 | 同上 |
+| 6 | `implementing`：校验每个 target 的基线分支并写实现待办（目录由 Super-agent 的 `prepare` 创建） | 同上 | 同上 |
 | 7 | `merging` / `archiving`：**需要人工批准** | **面板点按钮**（会问批准理由） | 「推进到 merging ›」→ 再「完成归档」 |
 | 8 | 归档编排：验收谓词 → 审查门 → `openspec archive` → `gitnexus analyze` → worktree 回收 → 写交付物摘要 | `POST $API/proposals/<id>/archive`；工具 `workmate_proposal_archive(mode=archive)` | 「完成归档」（审查门没过时用「强制归档（跳过审查门）」） |
 
@@ -146,7 +146,6 @@ node $DSH --profile web --dump-config | sed -n '/id: workmate/,/^- id:/p'
 - **📦 项目**：分支名、关联提交（`[proposal:<id>]` 标记）、`git status` 摘要；
 - **📋 OpenSpec**：`changes/<id>/` 状态与 tasks 完成度；
 - **🔍 审查报告**：分级 tally（`CRIT 1/2` 这类计数）、审查者与 `shadow` 徽标、逐条发现；
-- **🧩 并行任务**（swarm）：每个任务的 id / 状态 / 提交；
 - **📦 交付物**（归档后）：标记提交数、spec 是否更新、知识图谱是否重建、漂移百分比、
   账本条目数；
 - **决策日志 / 卡点**：`supersedes` 链与未决问题。
@@ -358,22 +357,21 @@ gitnexusSseProxyUpstream: https://<你的网关>/ai/v1/chat/completions
 > 与 `workmate_wiki_link` 的区别：后者登记的是**提案级 WeKnora 页面引用**，
 > 本命令生成的是**项目级 GitNexus 仓库 wiki**，两者互补。
 
-### 0.10 第 8 步：并行执行（swarm）
+### 0.10 第 8 步：并行执行（多条待办）
+
+提案内部的并行不走 WorkMate 自己的任务载体（swarm 已于 2026-11-02 移除）——**每条待办就是一个
+Ticket**，由 Super-agent 按 `maxWorkers` 并发执行：
 
 ```bash
-# 1) 计划：从 tasks.md 派生任务，同批内 writes 不相交
-#    在 tasks.md 里写：- [ ] 2. 拆分计费模块 <!-- writes: src/billing/**, docs/billing.md -->
-#    工具：workmate_swarm_plan {id, maxParallel?}
-# 2) 起载体：每任务一个 worktree（.workmates/<提案>--<任务>）+ 分支 feature/<提案>--<任务>
-#    工具：workmate_swarm_task {id, action: "start", taskId: "t1"}
-# 3) 在任务 worktree 里干活并提交（带 [proposal:<id>] 标记）
-# 4) 合回 implementation 分支（提案 worktree 内 --no-ff merge）
-#    工具：workmate_swarm_task {id, action: "merge", taskId: "t1"}
+# 1) 在 tasks.md 里把能并行的部分拆成独立条目，各自声明写域
+#    - [ ] 2. 拆分计费模块 <!-- writes: src/billing/**, docs/billing.md -->
+# 2) 在面板（或 workmate_task_create）为每个可并行条目建一条待办，指向同一提案与仓库
+# 3) Super-agent 扫描成 Trigger → Ticket → worker；并发度由 Super-agent 的 maxWorkers 决定
+# 4) 每条 Ticket 在自己的 worktree（.workmates/workmate-<ticket>）与分支上工作并提交
 ```
 
-合并冲突时插件会 `merge --abort` 回到干净态并把冲突文件交回；**裁决姿势**：在任务 worktree 里
-`git merge feature/<提案>` → 解冲突 → 提交 → 重跑第 4 步。未合并的任务会挡住归档
-（`force` 可跳过）。
+写域声明仍然有用：`/api/isolation/writes` 会暴露两条待办声明了相交写域，面板据此提示串行，
+而不是等合并冲突才发现。合并与归档仍由 WorkMate 的 G5 与归档门把关。
 
 ### 0.11 常见问题速查
 
@@ -503,16 +501,13 @@ pnpm dsh web                                            # 启动，默认 http:/
 | 配置项 | 默认 | 说明 |
 |---|---|---|
 | `workmateHome` | `'workmate'` | 状态目录名（`$DSH_HOME` 下，默认 `~/.dsh/workmate`）；其中 `proposals.json` 是提案聚合（原子写、损坏 fail-closed），`events.jsonl` 是只追加的过程事件流（每次状态迁移/门禁失败/控制带越界各一条；读取容错撕裂尾行）；`bands.json` 是控制带配置（缺失用内建默认，损坏 fail-closed） |
-| `maxConcurrent` | `3` | swarm 并行执行上限（保留项） |
 | `projectRoot` | `''` | 默认项目根；空 = 每次显式传 |
 | `openspecRoot` | `'openspec'` | 目标项目内 OpenSpec 目录名（提案目录生成、状态聚合、生命周期前置校验、归档编排全链路一致） |
 | `gitnexusEnabled` | `true` | GitNexus 知识查询总开关 |
 | `weknoraBaseUrl` | `''` | WeKnora REST 地址（空 = 禁用知识检索） |
 | `qualitySyncEnabled` | `true` | 创建提案时向目标项目同步规范资产（OpenSpec 侧） |
 | `claudeAssetsEnabled` | `true` | 同时分发 Claude Code 资产（`.claude/rules`、`agents`、`hooks`、`settings.json` 合并）；DSH 侧用插件内置 skill，不需要这一组 |
-| `basePort` / `portStep` | `3000` / `10` | worktree 端口段分配（每提案 `portStep` 个端口） |
-| `copyFiles` | `['.env', '.env.local']` | worktree 创建时从主工作区复制的文件清单 |
-| `packageManager` | `'pnpm'` | worktree 内依赖安装命令 |
+| `basePort` / `portStep` | `3000` / `10` | 端口段分配（每任务 `portStep` 个端口，键为 `<提案>--<项目>--<任务>`） |
 | `weknoraEnabled` | `true` | WeKnora Wiki 关联流程开关 |
 | `weknoraKbId` | `''` | 默认知识库 id（强制 Wiki 时必填） |
 | `weknoraWikiRequired` | `false` | `true` 时实现→合并被缺失 Wiki 引用阻断 |
@@ -668,32 +663,21 @@ node scripts/bands-watch.mjs --fail-on propose --apply
 
 ---
 
-## 5.7 并行执行（swarm）：每任务一个 worktree
+## 5.7 并行执行：多条待办，由 Super-agent 并发
 
-提案内部的多个任务可以真并行——**每个任务一个 worktree + 独立分支**，冲突靠声明与装批避免：
+WorkMate 不再自带任务级并行载体（swarm 已于 2026-11-02 的 `remove-swarm-parallel` 移除）。
+并行改为**拆待办**：
 
-```bash
-# 1. 计划（从 tasks.md 派生任务，writes 声明写在行内注释里）
-#    - [ ] 2. 拆分计费模块 <!-- writes: src/billing/**, docs/billing.md -->
-# 工具：workmate_swarm_plan {id, maxParallel?} → 装批结果 + 冲突对 + 未声明清单
-# 2. 起任务载体（worktree: .workmates/<提案>--<任务>，分支: feature/<提案>--<任务>）
-# 工具：workmate_swarm_task {id, action: "start", taskId: "t1"}
-# 3. 在任务 worktree 里干活、提交（记得带 [proposal:<id>]）
-# 4. 合回提案的 implementation 分支（在提案 worktree 内 --no-ff merge）
-# 工具：workmate_swarm_task {id, action: "merge", taskId: "t1"}
-```
+- 在 `tasks.md` 里把一个提案拆成可并行的独立条目，各自声明写域
+  `<!-- writes: src/billing/**, docs/billing.md -->`；
+- 每条待办对应一个 Ticket，由 Super-agent 按自己的 `maxWorkers` 并发执行，
+  worker 落在各自的 worktree（`.workmates/workmate-<ticket>`）与分支上；
+- 写域冲突由 `GET /api/isolation/writes` 暴露（声明相交即提示串行），
+  合并在 G5 里逐个 target 完成；
+- 归档门仍然检查任务勾选、审查、计划漂移与团队证据，与并行度无关。
 
-- **防踩踏**：同一批内任意两任务的 `writes` 不得相交（相交则分到不同批，严格串行）；未声明
-  `writes` 的任务不阻塞并行，但会在计划里标出来。
-- **合并冲突是裁决，不是机械操作**：冲突时插件 `merge --abort` 回到干净态、把冲突文件交给
-  你，任务标 `failed`；**裁决方式**——在任务 worktree 里 `git merge feature/<提案>`，
-  解完提交，再重跑 merge。
-- **归档门**：存在未 `merged` 的 swarm 任务时归档编排第一步失败并列出 `[taskId] status`
-  （`force` 可显式跳过）。
-- 任务状态随提案记录返回，面板详情区有「🧩 并行任务」小节。
-- 附带纪律：worktree 创建时会把 `.env` 与 `.workmates/` 写进仓库的
-  `.git/info/exclude`（**本地文件、不进版本库**），这样 `git add -A` 不会把机器本地文件
-  带进分支、也不会在合并时与载体里的未跟踪副本打架。
+附带纪律：`.workmates/` 由 Super-agent 的 `prepare` 创建并写进仓库的
+`.git/info/exclude`（**本地文件、不进版本库**），这样 `git add -A` 不会把机器本地文件带进分支。
 
 ---
 
@@ -884,7 +868,6 @@ rules/agent/hook 形式分发到目标项目，供在同一个仓库里跑 Claud
 | 插件 | 用途 | 状态 |
 |---|---|---|
 | `@wxg-prc-cpg/dsh-weknora` | WeKnora 检索工具（wiki/知识检索） | npm 已核实；安装即用 |
-| `dsh-swarm-orchestrator` | tasks 并行执行（worktree 编排已预留接口） | 待接入，启用后单独提案 |
 | `@hucj/dsh-file-mention` | 输入框 @文件 快捷指令 | 待安装 |
 
 ---
@@ -912,8 +895,8 @@ src/
 ├── config.ts                # 配置（§3 全部项）
 ├── features/
 │   ├── proposal/            # 状态机、提案存储（原子写）、Git 关联、状态聚合
-│   ├── archive/             # 生命周期集成层 + 归档编排（审查门/swarm/openspec/gitnexus）
-│   ├── worktree/            # 端口分配器 + worktree 生命周期管理
+│   ├── archive/             # 生命周期集成层 + 归档编排（审查门/openspec/gitnexus）
+│   ├── worktree/            # 端口分配器 + worktree 回收
 │   ├── wiki/                # WeKnora 引用登记与归档渲染
 │   ├── knowledge-bridge/    # GitNexus CLI 桥接 + WeKnora HTTP 客户端
 │   ├── quality/             # 规范资产同步 + review.md 解析

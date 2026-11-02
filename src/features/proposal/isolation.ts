@@ -3,7 +3,7 @@
  * design D5). Occupancy is derived from active proposals and their effective
  * targets — never from a second lease file. What this module can see is a
  * branch-name collision; physical worktrees and write-scope conflicts are
- * checked elsewhere (worktree manager / swarm scopes).
+ * checked elsewhere (worktree manager / proposal write scopes).
  */
 import type { Proposal } from './store.ts'
 import { effectiveTargets } from './targets.ts'

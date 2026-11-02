@@ -21,8 +21,8 @@ export interface Config {
    * @default 'workmate'
    */
   workmateHome?: string
-  /** Upper bound for swarm parallel agents at archive time. @default 3 */
-  maxConcurrent?: number
+  // `maxConcurrent` / `swarmReviewRequired` removed in `remove-swarm-parallel`：
+  // 前者从未被读取（标 reserved），后者没有对应实体。旧 profile 保留这两个键不会报错。
   /** Master switch for the GitNexus bridge (M3). @default true */
   gitnexusEnabled?: boolean
   /** WeKnora REST base URL; empty disables knowledge search (M3). @default '' */
@@ -61,9 +61,10 @@ export interface Config {
   /** Port step between worktree segments. @default 10 */
   portStep?: number
   /** Files copied from the main checkout into each new worktree. @default ['.env', '.env.local'] */
-  copyFiles?: string[]
+  // `copyFiles` / `packageManager` removed in `remove-swarm-parallel`：
+  // 它们只服务于 WorkMate 自己建 worktree 的路径（swarm / 团队），那条路径已删除。
+  // 注意：Super-agent 的 Source 实例配置里仍有一个同名 `copyFiles`，那是它自己的字段。
   /** Package manager run inside a new worktree. @default 'pnpm' */
-  packageManager?: string
   /** Enable the WeKnora Wiki association flow. @default true */
   weknoraEnabled?: boolean
   /** Default WeKnora knowledge base id; empty = unconfigured. @default '' */
@@ -115,11 +116,7 @@ export interface Config {
   // `teamAutoPlan` / `teamReadonlyPreset` / `teamWorkspacePreset` /
   // `teamRequireRolePresets` / `teamRoleModels` removed in `remove-team-executor`：
   // 团队执行器已删除，这些键没有消费者。旧 profile 里保留它们不会报错（未知键透传）。
-  /**
-   * Require every merged swarm task to carry an independent verification record
-   * before archiving (change `wire-swarm-independent-review`). @default false
-   */
-  swarmReviewRequired?: boolean
+  // `swarmReviewRequired` removed in `remove-swarm-parallel`：逐任务核验没有对应实体。
   // `taskExecutor` removed in `remove-team-executor`：Super-agent 是唯一执行器，
   // 留一个永远等于 `superagent` 的枚举只会给未来的自己留歧义。
   /**
@@ -205,7 +202,6 @@ export interface Config {
 /** Runtime schema the host collects (validation + config-UI projection). */
 export const Config: z<Config> = z.object({
   workmateHome: z.string().default('workmate').description('Directory name under the DSH home holding WorkMate state.'),
-  maxConcurrent: z.number().default(3).description('Upper bound for swarm parallel agents at archive time (reserved).'),
   gitnexusEnabled: z.boolean().default(true).description('Master switch for the GitNexus knowledge bridge.'),
   weknoraBaseUrl: z.string().default('').description('WeKnora REST base URL; empty disables knowledge search.'),
   writeConflictGate: z
@@ -228,8 +224,6 @@ export const Config: z<Config> = z.object({
     .description('Also distribute the Claude Code assets (.claude/rules, agents, hooks, settings merge); DSH uses the bundled skills instead.'),
   basePort: z.number().default(3000).description('Port allocation base for worktree .env injection.'),
   portStep: z.number().default(10).description('Port step between worktree segments.'),
-  copyFiles: z.array(z.string()).default(['.env', '.env.local']).description('Files copied from the main checkout into each new worktree.'),
-  packageManager: z.string().default('pnpm').description('Package manager run inside a new worktree.'),
   weknoraEnabled: z.boolean().default(true).description('Enable the WeKnora Wiki association flow.'),
   weknoraKbId: z.string().default('').description('Default WeKnora knowledge base id; empty = unconfigured.'),
   weknoraWikiRequired: z.boolean().default(false).description('Fail implementing→merging when declared wiki pages are missing.'),
@@ -265,10 +259,6 @@ export const Config: z<Config> = z.object({
     .string()
     .default('block')
     .description('Require TEST.md/TEAM-REVIEW.md for changes with TASKS.json: off | warn | block.'),
-  swarmReviewRequired: z
-    .boolean()
-    .default(false)
-    .description('Require an independent verification record per merged swarm task.'),
   taskFile: z
     .string()
     .default('')
@@ -329,7 +319,6 @@ export type ResolvedConfig = Required<Config>
 
 export const CONFIG_DEFAULTS: ResolvedConfig = {
   workmateHome: 'workmate',
-  maxConcurrent: 3,
   gitnexusEnabled: true,
   weknoraBaseUrl: '',
   writeConflictGate: 'block',
@@ -340,8 +329,6 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   claudeAssetsEnabled: true,
   basePort: 3000,
   portStep: 10,
-  copyFiles: ['.env', '.env.local'],
-  packageManager: 'pnpm',
   weknoraEnabled: true,
   weknoraKbId: '',
   weknoraWikiRequired: false,
@@ -353,7 +340,6 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   reviewerIndependence: 'warn',
   reviewEvidenceGate: 'warn',
   teamEvidenceGate: 'block',
-  swarmReviewRequired: false,
   taskFile: '',
   superagentEndpoint: 'http://127.0.0.1:3082',
   superagentTimeoutMs: 5000,

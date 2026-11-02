@@ -3,7 +3,7 @@
  *
  * Change-proposal-centric bundle (design: docs/DESIGN.md): proposal management
  * + OpenSpec directory generation + Git association + REST/SPA panel (M2),
- * knowledge bridging (M3), archive orchestration over swarm/openspec/gitnexus
+ * knowledge bridging (M3), archive orchestration over openspec/gitnexus
  * (M4), knowledge-graph view (M5).
  *
  * Integration surfaces, all in the host-verified shapes (design D1 of
@@ -27,13 +27,11 @@ import { basename, join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { EventLog } from './features/proposal/events.ts'
 import { runBandsCheck } from './features/metrics/check.ts'
-import { parseSwarmTasks } from './features/swarm/plan.ts'
 import { parseTargetsSpec } from './features/proposal/targets.ts'
 import type { WorkspaceRegistryLike } from './features/project/workspace-candidates.ts'
 import { AgentProvider, type HostLlmFace } from './features/decision/agent.ts'
 import { RulesProvider } from './features/decision/rules.ts'
 import { DecisionService } from './features/decision/service.ts'
-import { SwarmManager } from './features/swarm/manager.ts'
 import type { ProposalSource } from './features/proposal/store.ts'
 import { aggregateMetrics, proposalMetrics } from './features/proposal/metrics.ts'
 import { ProposalServiceImpl, type ProposalService } from './features/proposal/service.ts'
@@ -126,8 +124,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     subdir: resolved.workmateHome,
     basePort: resolved.basePort,
     portStep: resolved.portStep,
-    copyFiles: resolved.copyFiles,
-    packageManager: resolved.packageManager,
   })
   const tasks = new TaskServiceImpl({
     store: taskStore,
@@ -148,13 +144,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   // variable (key lives in the Keychain / shell, never in a repo or plugin file).
   setGitnexusApiKeyEnv(resolved.gitnexusApiKeyFromEnv)
   setGitnexusKeychainService(resolved.gitnexusApiKeyKeychainService)
-  const swarm = new SwarmManager({
-    proposals,
-    worktrees: worktree,
-    // Indepent-check verdicts read the task branch authors from the repository git
-    // (change `wire-swarm-independent-review`); no project root means `undetermined`.
-    repoRoot: () => (resolved.projectRoot !== '' ? resolved.projectRoot : undefined),
-  })
   // The judgement layer reaches the LLM service through a lazy reference: a profile
   // without `llm` keeps the plugin ACTIVE and the agent provider simply reports
   // itself unavailable (the deterministic `rules` provider is then the floor).
@@ -215,7 +204,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     reviewerIndependence: resolved.reviewerIndependence as 'off' | 'warn' | 'block',
     reviewEvidenceGate: resolved.reviewEvidenceGate as 'off' | 'warn' | 'block',
     teamEvidenceGate: resolved.teamEvidenceGate as 'off' | 'warn' | 'block',
-    swarmReviewRequired: resolved.swarmReviewRequired,
     highRiskExtraGates: resolved.highRiskExtraGates,
     riskGateEnabled: resolved.decisionEnabled,
     orchestrate(proposal, targets, opts) {
@@ -504,7 +492,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
   }
 
-  registerTools(ctx, { proposals, archive, registry, worktree, swarm, decision, vaultExport: runVaultExport, resolved, events })
+  registerTools(ctx, { proposals, archive, registry, worktree, decision, vaultExport: runVaultExport, resolved, events })
   // Native guidance surfaces: two runtime skills + one flow section. Lazy, so
   // a composition without those services keeps the plugin ACTIVE.
   registerGuidance(ctx, {
@@ -653,7 +641,6 @@ interface ToolDeps {
   archive: LifecycleServiceImpl
   registry: ProjectRegistry
   worktree: WorktreeManager
-  swarm: SwarmManager
   decision: DecisionService
   /** Export the project wiki into the configured vault (shared with `/workmate export`). */
   vaultExport: (options: { projectRoot: string; vaultPath?: string; noGit?: boolean }) => Promise<{
@@ -1089,8 +1076,8 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     }),
   )
 
-  /** Resolve the project root a swarm task runs against (explicit → config → registry). */
-  const swarmRoot = async (proposal: Proposal, explicit?: string): Promise<string> => {
+  /** 工具调用解析项目根：显式参数 → Config.projectRoot → 第一个已注册项目。 */
+  const toolProjectRoot = async (proposal: Proposal, explicit?: string): Promise<string> => {
     if (explicit !== undefined && explicit !== '') return explicit
     if (resolved.projectRoot !== '') return resolved.projectRoot
     for (const name of proposal.projects) {
@@ -1099,98 +1086,6 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
     }
     throw new Error('no project root: pass projectRoot, set Config.projectRoot, or register a project')
   }
-
-  ctx.tools.register(
-    defineTool({
-      name: 'workmate_swarm_plan',
-      description:
-        'Plan parallel task execution for a proposal: derive tasks from its tasks.md (each line may declare <!-- writes: src/a/**, docs/** -->), batch them so no two tasks in a batch share a write scope, and record one worktree/branch carrier per task. Reports conflicting task pairs and undeclared scopes. Call workmate_swarm_task to start or merge one.',
-      parameters: {
-        id: { type: 'string', required: true, description: 'Proposal id.' },
-        maxParallel: { type: 'number', description: 'Tasks per batch (default 3).' },
-        projectRoot: { type: 'string', description: 'Absolute project root; defaults to Config.projectRoot or the first registered project.' },
-      },
-      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
-      isConcurrencySafe: () => true,
-      async execute(args) {
-        const proposal = await proposals.get(args.id)
-        if (proposal === undefined) throw new Error(`proposal not found: ${args.id}`)
-        const root = await swarmRoot(proposal, args.projectRoot)
-        const tasksFile = join(root, resolved.openspecRoot, 'changes', proposal.openspecChangeId, 'tasks.md')
-        const content = await readFile(tasksFile, 'utf8').catch(() => '')
-        const inputs = parseSwarmTasks(content)
-        if (inputs.length === 0) {
-          return asJson({ note: `no task lines found in ${tasksFile}`, tasks: [] })
-        }
-        const planned = await deps.swarm.plan(args.id, inputs, {
-          ...(args.maxParallel !== undefined ? { maxParallel: args.maxParallel } : {}),
-        })
-        return asJson({ tasksFile, plan: planned.plan, tasks: planned.tasks })
-      },
-    }),
-  )
-
-  ctx.tools.register(
-    defineTool({
-      name: 'workmate_swarm_task',
-      description:
-        'Start, merge or verify one planned swarm task. action=start creates the task worktree + branch (feature/<proposal>--<task>) and marks it running; action=merge merges that branch back into the proposal implementation branch inside the proposal worktree (a conflict aborts and returns the files for adjudication); action=verify registers the independent check of a merged task — reviewer + verdict + evidence — and derives whether that reviewer is independent of the task commit authors. Merging says the code landed; verifying says somebody looked.',
-      parameters: {
-        id: { type: 'string', required: true, description: 'Proposal id.' },
-        action: { type: 'string', required: true, description: 'start | merge | verify.' },
-        taskId: { type: 'string', required: true, description: 'Task id from workmate_swarm_plan (e.g. t1).' },
-        reviewer: { type: 'string', description: 'action=verify: who checked the task (name/handle). Required for verify.' },
-        verdict: { type: 'string', description: 'action=verify: verified | issues. Required for verify.' },
-        evidence: { type: 'string', description: 'action=verify: what was run or inspected (tests, files read, outputs).' },
-        projectRoot: { type: 'string', description: 'Absolute project root; defaults to Config.projectRoot or the first registered project.' },
-      },
-      output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
-      async execute(args, exec) {
-        const proposal = await proposals.get(args.id)
-        if (proposal === undefined) throw new Error(`proposal not found: ${args.id}`)
-        const root = await swarmRoot(proposal, args.projectRoot)
-        if (args.action === 'start') {
-          const record = await deps.swarm.start(args.id, args.taskId, { projectRoot: root, ...(exec.signal !== undefined ? { signal: exec.signal } : {}) })
-          return asJson({ task: record, workspace: record.worktreePath, branch: record.branch })
-        }
-        if (args.action === 'merge') {
-          const result = await deps.swarm.merge(args.id, args.taskId, { projectRoot: root, ...(exec.signal !== undefined ? { signal: exec.signal } : {}) })
-          return asJson(result)
-        }
-        if (args.action === 'verify') {
-          if (args.reviewer === undefined || args.reviewer.trim() === '') {
-            throw new Error('action=verify 需要 reviewer —— 独立核验必须署名（不署名就只是"看起来核过"）')
-          }
-          const verdict = args.verdict === 'issues' ? 'issues' : args.verdict === 'verified' ? 'verified' : undefined
-          if (verdict === undefined) {
-            throw new Error("action=verify 需要 verdict：'verified' 或 'issues'")
-          }
-          const checked = await deps.swarm.verify(args.id, args.taskId, {
-            reviewer: args.reviewer,
-            verdict,
-            // Same resolved root as start/merge: the author lookup is a git fact of this
-            // repository, and without it every verdict degrades to `undetermined`
-            // (Config.projectRoot is unset in the normal profile).
-            projectRoot: root,
-            ...(args.evidence !== undefined ? { evidence: args.evidence } : {}),
-            ...(exec.signal !== undefined ? { signal: exec.signal } : {}),
-          })
-          return asJson({
-            task: checked.task,
-            independence: checked.independence,
-            note: checked.note,
-            ...(checked.independence === 'same-as-author'
-              ? { warning: '核验者与任务提交作者同一身份 —— 不是独立核验，归档门（swarmReviewRequired）会视为未核验' }
-              : {}),
-            ...(checked.independence === 'undetermined'
-              ? { warning: '取不到仓库作者事实（git 不可用或该提交作者为空）—— 独立性无法判定，归档门（swarmReviewRequired）会视为未核验' }
-              : {}),
-          })
-        }
-        throw new Error(`unknown action '${args.action}' — valid: start, merge, verify`)
-      },
-    }),
-  )
 
   ctx.tools.register(
     defineTool({
@@ -1206,7 +1101,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
       async execute(args) {
         const proposal = await proposals.get(args.id)
         if (proposal === undefined) throw new Error(`proposal not found: ${args.id}`)
-        const root = await swarmRoot(proposal, args.projectRoot)
+        const root = await toolProjectRoot(proposal, args.projectRoot)
         const drift = await collectProjectDrift(
           proposal,
           { project: proposal.projects[0] ?? '(explicit)', root },
@@ -1237,7 +1132,7 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
         if (!deps.decision.enabled) {
           return asJson({ id: args.id, note: 'judgement layer disabled (Config.decisionEnabled=false)', risk: proposal.risk ?? null })
         }
-        const root = await swarmRoot(proposal, args.projectRoot)
+        const root = await toolProjectRoot(proposal, args.projectRoot)
         const drift = await collectProjectDrift(
           proposal,
           { project: proposal.projects[0] ?? '(explicit)', root },
@@ -1451,6 +1346,6 @@ function registerTools(ctx: Context, deps: ToolDeps): void {
   )
 
   console.log(
-    '[workmate] tools registered (lifecycle + decide/block/unblock + wiki + knowledge + metrics + bands + swarm)',
+    '[workmate] tools registered (lifecycle + decide/block/unblock + wiki + knowledge + metrics + bands)',
   )
 }

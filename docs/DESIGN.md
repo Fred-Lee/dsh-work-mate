@@ -38,7 +38,9 @@
    （只重排候选、绝不丢结果）。
 4. **过程纪律**：审批记录与"写码者不得批准"（`merging`/`archiving` 只能人推进）；风险未判定不得进入
    高风险门；`force` 在返回值里显式标注；异常提案可用 `abandon`（记录 actor 与原因）。
-5. **并行载体**：`swarm_plan` 按写作用域装批 + `swarm_task` 起/并分支；未合并任务拦归档（编排只**报告**，不派发执行——D1）。
+5. ~~**并行载体**：`swarm_plan` 按写作用域装批 + `swarm_task` 起/并分支~~——2026-11-02 `remove-swarm-parallel`
+   已删除（与 Super-agent 的并发/重试/会话重复）；现在并发靠**多条待办**（每条一个 Ticket），
+   写域声明仍由 `/api/isolation/writes` 暴露冲突。
 
 ### 0.3 已知边界（诚实声明）
 
@@ -59,13 +61,13 @@ WorkMate 是一个 DSH 插件 Bundle，围绕「变更提案」这一核心实�
 
 - **变更提案管理**：创建、查看、归档提案，关联项目与 Git 提交
 - **知识桥接**：通过 MCP 接入 GitNexus，通过 HTTP 接入 WeKnora
-- **并行编排**：复用 `dsh-swarm-orchestrator` 驱动多任务并行执行
+- **并行执行**：交给 Super-agent（每条待办一个 Ticket，按 `maxWorkers` 并发）；WorkMate 自身的 swarm 载体已于 2026-11-02 移除
 - **归档闭环**：变更完成后自动触发 OpenSpec 归档与 GitNexus 索引重建
 
 ### 1.3 设计原则
 
 - **寄生而非替代**：UI 全部注入 DSH 原生界面，不另起 Web 应用
-- **复用优先**：@快捷指令、Git 面板、并行编排、MCP 桥接均使用社区验证插件
+- **复用优先**：@快捷指令、Git 面板、执行编排（Super-agent）、MCP 桥接均使用社区验证插件
 - **自建聚焦**：只实现「变更提案中间层」和「知识串联逻辑」
 
 ## 2. 系统架构
@@ -86,7 +88,7 @@ WorkMate 是一个 DSH 插件 Bundle，围绕「变更提案」这一核心实�
 │  └─────────────┘  └─────────────┘  └─────────────────────┘  │
 ├─────────────────────────────────────────────────────────────┤
 │                    复用插件层                                │
-│  dsh-swarm-orchestrator │ @deepseek-ai/dsh-mcp-client       │
+│  superagent（执行）     │ @deepseek-ai/dsh-mcp-client       │
 │  @hucj/dsh-file-mention │ 其他社区插件                       │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -176,11 +178,7 @@ GitNexus 提供 `query`、`context`、`impact`、`detect_changes` 等工具，�
 ```
 提案归档触发
     ↓
-从 OpenSpec tasks.md 生成 swarm 任务 DAG
-    ↓
-调用 swarm_dispatch 并行执行
-    ↓
-等待所有任务完成
+验收谓词（tasks 勾选 / 审查门 / 计划漂移 / 团队证据）
     ↓
 执行 openspec archive <id> --yes
     ↓
@@ -196,7 +194,9 @@ openspec archive <change-id> --yes
 openspec validate --strict
 ```
 
-**Swarm 集成**：从提案的 `tasks.md` 解析任务列表，转换为 `swarm_dispatch` 的 `tasks[]` 参数格式。每个 task 声明 `writes` 字段限制文件范围，避免并发冲突。
+**并行执行已移交**：执行侧不再是归档编排的一步——每条待办由 Super-agent 派发成 Ticket，
+worktree 由它的 `executor.prepare` 创建；归档编排只做治理检查与 `openspec archive`。
+（历史上这里曾有 `runSwarmTasks` 钩子，随 `remove-swarm-parallel` 删除。）
 
 ### 3.2 Client 半模块
 
@@ -251,7 +251,6 @@ Client 半通过 `dsh.client` 声明，在 DSH 的 slot 系统中注册 UI 组�
 ```typescript
 const Config = Schema.object({
   workmateHome: Schema.string().default('workmate'),
-  maxConcurrent: Schema.number().default(3),      // swarm 并发上限
   gitnexusEnabled: Schema.boolean().default(true),
   weknoraBaseUrl: Schema.string().default(''),
   openspecRoot: Schema.string().default('openspec'),
@@ -265,12 +264,7 @@ const Config = Schema.object({
     - id: workmate
       name: '@your-org/workmate4dsh'
       config:
-        maxConcurrent: 3
         openspecRoot: 'openspec'
-    - id: swarm
-      require: dsh-swarm-orchestrator
-      config:
-        maxTotalConcurrentAgents: 3
     - id: mcp-gitnexus
       name: '@deepseek-ai/dsh-mcp-client'
       config:
@@ -313,7 +307,6 @@ const Config = Schema.object({
 
 | 插件 | 用途 | 安装方式 |
 |------|------|----------|
-| `dsh-swarm-orchestrator` | 并行任务编排 | `dsh plugin --profile web add` |
 | `@hucj/dsh-file-mention` | @快捷指令 | `dsh plugin --profile web add` |
 
 ### 5.3 外部工具依赖
@@ -354,11 +347,12 @@ const Config = Schema.object({
 
 **验收**：向 Agent 发「查一下评分流程」，Agent 调用 GitNexus MCP 工具返回结果。
 
-### 里程碑四：并行编排接入与归档闭环
+### 里程碑四：归档闭环（并行执行已移交 Super-agent）
 
-**交付**：归档触发 swarm 并行执行，完成后 OpenSpec 归档 + GitNexus 索引重建。
+**交付**：归档完成 OpenSpec 归档 + GitNexus 索引重建。立项时的「归档触发 swarm 并行执行」
+于 2026-11-02 废弃：执行由 Super-agent 承担，WorkMate 不再自建并行载体。
 
-**验收**：提案归档时 swarm 看板显示并行任务状态；归档完成后 `openspec/changes/archive/` 出现目录，`gitnexus analyze` 执行成功。
+**验收**：`openspec/changes/archive/` 出现目录，`gitnexus analyze` 执行成功。
 
 ### 里程碑五（可选）：知识图谱可视化
 
@@ -366,7 +360,7 @@ const Config = Schema.object({
 
 **验收**：知识图谱展示至少 3 层关联。
 
-> **里程碑现状**：本节只写了立项时的 5 个里程碑。实际路线已到 **M61**，逐条状态
+> **里程碑现状**：本节只写了立项时的 5 个里程碑。实际路线已到 **M30+**，逐条状态
 > （含每次变更的归档名）见 `AGENTS.md` §里程碑路线，此处不再复制以免漂移。
 
 ## 8. 开发规范
@@ -397,7 +391,7 @@ dsh plugin --profile web add ./workmate4dsh-0.1.0.tgz
 
 - 骨架与分层：`dsh-plugin-framework`（FSD 结构）
 - 多引擎驱动：Codingns4DSH 的 Agent 适配器模式
-- Swarm 集成：`dsh-swarm-orchestrator` 的 `swarm_dispatch` 工具用法
+- 执行编排：Super-agent 的 SourceKind / Ticket / `executor.prepare` 契约（见 `docs/SUPERAGENT-INTEGRATION.md`）
 - OpenSpec 归档：Accesserty/UI-Kit 的 `openspec-archive.md` workflow
 
 ## 9. WorkDSH 基础设施复用与参考
@@ -422,11 +416,12 @@ WorkBuddy 原作的会话绑定序列（prepare-session → workspace.create →
 真实对位是「Session 级执行实例」；有价值的启发是给编排任务补**能力组装维度**
 （Preset 的职责：模型 / 工具 / 技能 / 连接器的组合描述）。
 
-**落地方式**：不新增实体层。在 `src/features/archive/orchestrate.ts` 已预留的
-`runSwarmTasks(tasks, root)` 接口上扩展 per-task 执行配置：
+**落地方式**：不新增实体层。原计划是在归档编排的 `runSwarmTasks` 钩子上扩展
+per-task 执行配置；该钩子随 `remove-swarm-parallel`（2026-11-02）删除，执行侧由
+Super-agent 的 agentPreset / 模型覆盖承担同样的「能力组装」职责。下面是历史记录：
 
 ```ts
-// 未来 swarm 接入时的接口演进（现为记录性跳过）：
+// 历史接口（已随 swarm 移除；保留以说明设计演进）：
 interface SwarmTaskConfig {
   title: string
   writes: string[]                 // 文件范围（已有）
@@ -437,13 +432,13 @@ interface SwarmTaskConfig {
 runSwarmTasks(tasks: SwarmTaskConfig[], root: string): Promise<string>
 ```
 
-**并行执行载体的 Git 决策**（2026-09-29 补充）：一个项目内多任务并行采用
+**并行执行载体的 Git 决策**（2026-09-29 补充，机制在 2026-11-02 移交 Super-agent）：一个项目内多任务并行采用
 **每任务一个 worktree + 独立分支**，不是纯分支。理由：git 单工作目录只能检出
 一个分支，多任务并行必须多目录；worktree 共享对象库（秒级检出、磁盘只付工作区
 差异）且 git 原生阻止同一分支被两个 worktree 同时检出（防呆）。物理隔离不解决
 逻辑冲突——沿用 Helmsman 三层纪律：`writes` 声明防踩踏、冲突域（仓库:模块）排队、
 patch 式 `git apply` 合并 + 按 agent/file 裁决重试。编排生命周期：提案进入执行中
-→ 按任务建 `<项目根>/.worktrees/<proposal-id>-<task>/` 与独立分支 → swarm 并行
+→ 按任务建 `<项目根>/.worktrees/<proposal-id>-<task>/` 与独立分支 → 并行执行
 → 合并回项目主分支 → 归档编排对主分支执行 → 清理 worktree。项目注册表的
 root 指向 worktree 已真机兼容（`svc-billing-wt` 场景）。
 
@@ -456,14 +451,15 @@ root 指向 worktree 已真机兼容（`svc-billing-wt` 场景）。
 **WorkDSH 的设计**：「writeScopes 不是锁」「能力授权与数据写入两维度」的论述
 **[W-待确认]**——在 WorkDSH 公开文档中不存在（README / architecture / user-guide /
 plugin-ecosystem 四篇逐条核对为空），该观点不能作为「WorkDSH 已验证基础设施」引用。
-但观点本身与本仓两条既有实践同构：swarm task 的 `writes` 字段声明、Helmsman 看板的
+但观点本身与本仓两条既有实践同构：tasks.md 的 `writes` 写域声明（`/api/isolation/writes` 仍在用）、Helmsman 看板的
 冲突域 WIP（`仓库:模块` 粒度）+ 原子合并（patch 式 `git apply`，冲突整批失败）。
 
 **复用决策**：借鉴观点、不新增机制。「writes 不是锁」的正确推论是：文件范围声明防
 意外踩踏，防并发逻辑冲突靠**幂等 + 验收谓词**——而 WorkMate 编排已经天然幂等
 （已归档 → skipped 的重试语义经真机验证），缺的只是每个任务的「完成判据」。
 
-**落地方式**：在 9.1 的 `SwarmTaskConfig.done` 谓词上落地：swarm 任务完成后编排逐条
+**落地方式**：在 9.1 的 `SwarmTaskConfig.done` 谓词上落地（该接口已删除，思想保留在
+归档门与「完成标记不等于成功证明」纪律里）：原设计是任务完成后编排逐条
 核验（文件存在 / 命令退出码 0），不满足则该任务标记未收敛、整批可重试；与 tasks.md
 生成逻辑的结合点是 OpenSpec 任务行 → `done` 谓词的映射（`[x]` 勾选即验收声明）。
 不引入锁、不引入领域修订框架。

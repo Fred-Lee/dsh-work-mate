@@ -49,7 +49,6 @@ const PATCHABLE = new Set([
   'targets',
   'wikiLinks',
   'archiveManifest',
-  'swarmTasks',
   'risk',
   'abandonedAt',
   'abandonedReason',
