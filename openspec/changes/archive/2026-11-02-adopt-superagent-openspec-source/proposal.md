@@ -43,7 +43,8 @@ WorkMate 自己只保留 Super-agent 没有、也不该有的东西：OpenSpec �
 - **面板只做人的写侧与治理视图**：新建待办、指派、回答、停止，以及提案/门禁/归档；
   执行阶段与提问**从 Super-agent 读取**，不镜像、不缓存为第二份真相。
 - **BREAKING**：`workmate_team_run` / `workmate_team_plan(start=true)` 默认不再派发
-  worker；`taskExecutor=team` 才启用，且面板标注"回退执行器"。
+  worker。**后续变更（2026-11-02）**：团队执行器已随 `remove-team-executor` 整层删除，
+  `taskExecutor` 配置不再存在；这里保留为当时的实现事实。
 - **BREAKING**：`ready→implementing` 不再创建 worktree。目录改由 Super-agent 的
   `executor.prepare` 在首次 launch 时创建（`<repo>/.workmates/<Ticket 短名>`），
   分支改为 `workmate/<Ticket 短名>`；WorkMate 只保留规划（基线/端口）与回收。
@@ -51,6 +52,7 @@ WorkMate 自己只保留 Super-agent 没有、也不该有的东西：OpenSpec �
   `policy.allowed` 即可，**不需要写接受规则**；前提是 Trigger 为
   `human: true` + `addressed: 'mention'` + `actor.source='workmate'`。
 - **团队控制台降为只读投影**：执行态改读 Ticket，不在团队视图里回答/重试。
+  **后续变更（2026-11-02）**：团队视图随 `remove-team-executor` 一并删除。
 
 ## 落地顺序与最小切片
 
@@ -79,7 +81,8 @@ WorkMate 自己只保留 Super-agent 没有、也不该有的东西：OpenSpec �
 - 面板显示阶段与 Super-agent 自己的 Execution 页**一致**（交叉核对，不靠自述）；
 - 人在面板回答后，worker 在**下一步**读到，且不产生新 Ticket；
 - 归档时能回收 `workmate/<短名>` 的目录与端口，`git worktree list` 无残留；
-- 回滚到 `taskExecutor=team` 后，旧团队路径仍能跑通，且没有遗留目录/端口；
+- ~~回滚到 `taskExecutor=team` 后旧团队路径仍能跑通~~（团队路径已于 2026-11-02 删除，
+  回滚改为「停用子包 bundle + 跑回滚脚本」两件事）；
 - `scripts/verify-source-install.mjs` 在三种状态下都给出正确答案：正常安装、包已装但
   bundle 未启用、包未安装。
 
@@ -107,10 +110,14 @@ WorkMate 自己只保留 Super-agent 没有、也不该有的东西：OpenSpec �
 
 ### Modified Capabilities
 
-- `team-orchestration`：`Run/Task/Dispatch` 从默认执行路径降为回退；保留 `TASKS.json` 的
-  DAG 与 `writes` 装批作为**规划**能力。
-- `team-console`：团队视图降为只读投影；执行态来自 Ticket，回答与重试移出该视图。
+- `lifecycle-state-machine`：`ready→implementing` 不建目录、不复制配置、不装依赖；
+  `merging/archiving` 的完成判据改用 Ticket 结束与分支合并。
+- `multi-target-worktree`：worktree 由 Super-agent 的 `prepare` 创建，WorkMate 只做规划与
+  回收；分支名与 `baseCommit` 在观察到 Ticket 后回写。
 - `workbench-panel`：主视图改为「任务」；提案看板保留为并列页签。
+
+原计划中的 `team-orchestration` / `team-console` delta 已随 `remove-team-executor`
+（2026-11-02）删除——那两个能力不复存在，不能再以"回退执行器"的形式修改。
 
 ## Impact
 
@@ -124,8 +131,8 @@ WorkMate 自己只保留 Super-agent 没有、也不该有的东西：OpenSpec �
   - 新增 `src/features/task/`（三份文件读写、任务服务、端口规划）、
     `src/features/superagent/contract.ts`（结构契约）、`src/features/worktree/reclaim.ts`（回收）；
   - 改 `src/api.ts`（`/api/tasks*`、`/api/superagent/health`、`/api/worktrees/*`）、
-    `src/client/{App.tsx,api.ts,types.ts}`（任务主视图）、`src/config.ts`（五个新键）、
-    `src/features/team/{tools,coordinator}.ts`（默认关闭派发）、
+    `src/client/{App.tsx,api.ts,types.ts}`（任务主视图）、`src/config.ts`（新键）；
+    （`src/features/team/` 已在后续 `remove-team-executor` 中删除）、
     `src/features/archive/service.ts`（`ready→implementing` 不建目录、G2 写待办）、
     `src/index.ts`（启动恢复边界）；
   - 改门禁与构建：`vitest.config.ts`、`tsconfig*.json`、`scripts/build.mjs`、
@@ -133,8 +140,8 @@ WorkMate 自己只保留 Super-agent 没有、也不该有的东西：OpenSpec �
     与 `scripts/rollback-superagent.mjs`。
 - **不改 Super-agent 源码**；不新增 HTTP `POST /tickets`；不把 `workmate4dsh` 装进
   Super-agent 的 `dsh.profile.bundles`。
-- **数据**：新增 `tasks.json` / `inputs.jsonl` / `tasks.jsonl`；`proposals.json`、
-  `team-runs.json` 结构不变；
+- **数据**：新增 `tasks.json` / `inputs.jsonl` / `tasks.jsonl`；`proposals.json` 结构不变
+  （`team-runs.json` 随后续 `remove-team-executor` 停用，旧文件可手工删除）；
   `ports.json` 的键从 `${proposalId}--${project}` 改为 `${proposalId}--${project}--${taskId}`
   （旧键在回收时按 target 兜底兼容）。
 - **worktree 归属变化**：`ready→implementing` SHALL NOT 再创建 worktree；目录由 Super-agent 的

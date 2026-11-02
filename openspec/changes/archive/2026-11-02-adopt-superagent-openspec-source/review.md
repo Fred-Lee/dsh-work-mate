@@ -1,21 +1,12 @@
 # Review — 把 WorkMate 的待办做成 Super-agent 的原生 Source
 
 > 交叉一致性审查报告。四节标题为机器可读约定，禁止改名或增删。
-> `## CRITICAL 问题
-
-<!-- 每条一个 checkbox，未勾选即阻断归档。 -->
-
-- [x] CRIT-10 已解决：worktree 所有权未定义，两侧会各建一个目录，worker 的 cwd 只在
-  Super-agent 那个里。已新增 `worktree-plan` capability 与 design D10b：WorkMate 只出计划
-  （基线、分支名、端口）与回收，创建交给 `prepare`；`ready→implementing` 不再建目录。
-- [x] CRIT-11 已解决：分支命名 `feature/<proposalId>` 无法绑定 PR，且同仓多 target 撞名。
-  已改为 `workmate/$DSH_SUPERAGENT_NAME`，并说明短名只能由 `prepare` 从环境变量获得。
-- [x] CRIT-12 已解决：端口键按提案分配会让一个提案的多条 Ticket 共用一段。已改为
-  `${proposalId}--${project}--${taskId}`，`attempt` 复用，旧键在回收时兜底。
-- [x] CRIT-13 已解决：回收不检查 Ticket 是否结束，可能删掉活跃 worker 的 cwd。已把
-  "Ticket 已结束"加为回收第二前置，并在面板暴露遗留目录与手动回收。
-` 中的每个条目是 checkbox：`- [ ]` = 未解决（阻断归档），
+> `## CRITICAL 问题` 中的每个条目是 checkbox：`- [ ]` = 未解决（阻断归档），
 > `- [x]` = 已解决。
+
+> **后续变更（2026-11-02）**：`remove-team-executor` 已删除团队执行器与 `taskExecutor`
+> 配置，`remove-swarm-parallel` 已删除 swarm；本报告里与「回退执行器」相关的结论（CRIT-6、
+> CRIT-16、CRIT-20 与「回退策略」确认项）已随后续变更失效，保留为当时的审查记录。
 
 ## 确认项
 

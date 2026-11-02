@@ -126,6 +126,12 @@
   附 `reclaim.test.ts`：活跃 Ticket 拒绝、未合并拒绝、成功释放、遗留列表
   <!-- writes: src/features/worktree/reclaim.ts, src/features/worktree/reclaim.test.ts, src/api.ts, src/api.test.ts -->
 
+> **后续变更说明（2026-11-02）**：任务 15–17 描述的团队执行器已在
+> `remove-team-executor` 中整层删除，`taskExecutor` 配置也不存在了。这三个任务当时已完成，
+> 但现在的对应事实是「团队工具与团队视图都已移除」，而不再是「降级为回退执行器」。
+> 任务 11 的 `taskExecutor` 配置同样已随后续变更删除；它当时建立的
+> 「默认执行交给 Super-agent」语义保留。
+
 ## 阶段 3 — 降级与文档
 
 - [x] 15. 团队工具降级 `src/features/team/tools.ts`：`workmate_team_run` /
