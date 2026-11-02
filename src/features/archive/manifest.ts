@@ -37,10 +37,4 @@ export interface ArchiveManifest {
   at: string
   projects: ArchiveManifestEntry[]
   /** Team Run settlement, when the change had a SUMMARY.md (T4-4.3). */
-  team?: {
-    summaryPath: string
-    status?: string
-    tasksDone?: number
-    tasksTotal?: number
-  }
 }

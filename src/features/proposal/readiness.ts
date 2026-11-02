@@ -2,17 +2,20 @@
  * Proposal readiness (change `multiproject-branch-workbench`, task 8.1).
  *
  * One explainable assessment for the panel/API: are the artifacts complete, is
- * the current planHash approved, are targets declared, and is there an active
- * team Run? `ready` is true only when no check failed — warnings stay visible.
+ * the current planHash approved, and are targets declared? `ready` is true only
+ * when no check failed — warnings stay visible.
+ *
+ * Change `remove-team-executor`：这里不再看团队 Run。执行状态由 Ticket 投影提供，
+ * 与"提案是否可以进入下一态"是两件事——把执行进度混进 readiness 会让每个提案在
+ * Super-agent 离线时都显示红色。
  */
 import { computePlanFingerprint } from './plan.ts'
 import type { Proposal } from './store.ts'
-import type { TeamRun } from '../team/types.ts'
 
 export type ReadinessStatus = 'ok' | 'warn' | 'fail'
 
 export interface ReadinessCheck {
-  id: 'artifacts' | 'plan-approval' | 'targets' | 'team-run' | 'lifecycle'
+  id: 'artifacts' | 'plan-approval' | 'targets' | 'lifecycle'
   status: ReadinessStatus
   detail: string
 }
@@ -25,7 +28,6 @@ export interface ProposalReadiness {
 export interface ReadinessInput {
   projectRoot?: string
   openspecRoot: string
-  teamRun?: TeamRun
 }
 
 export async function assessReadiness(proposal: Proposal, input: ReadinessInput): Promise<ProposalReadiness> {
@@ -68,22 +70,6 @@ export async function assessReadiness(proposal: Proposal, input: ReadinessInput)
         }
       : { id: 'targets', status: 'warn', detail: '未声明 targets（旧提案按标量项目兼容）' },
   )
-
-  if (input.teamRun === undefined) {
-    checks.push({ id: 'team-run', status: 'warn', detail: '没有团队 Run（非团队提案）' })
-  } else {
-    const failed = input.teamRun.tasks.filter((task) => task.status === 'failed' || task.status === 'blocked').length
-    checks.push({
-      id: 'team-run',
-      status:
-        input.teamRun.status === 'succeeded'
-          ? 'ok'
-          : input.teamRun.status === 'partial' || input.teamRun.status === 'blocked'
-            ? 'fail'
-            : 'warn',
-      detail: `${input.teamRun.id} ${input.teamRun.status}（${input.teamRun.tasks.length} tasks${failed > 0 ? `，${failed} 未完成` : ''}）`,
-    })
-  }
 
   checks.push({
     id: 'lifecycle',

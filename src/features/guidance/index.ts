@@ -15,7 +15,6 @@ import {
   FLOW_SECTION_TEXT,
   KNOWLEDGE_USAGE_SKILL,
   PROPOSAL_AUDIT_SKILL,
-  TEAM_RUN_SKILL,
   UI_REVIEW_SKILL,
   PROPOSAL_FLOW_SKILL,
 } from './content.ts'
@@ -39,7 +38,6 @@ export function registerGuidance(ctx: Context, commandDeps?: CommandDeps): void 
     scope.effect(() => scope.skills.register(KNOWLEDGE_USAGE_SKILL), 'workmate:knowledge-usage-skill')
     scope.effect(() => scope.skills.register(DAILY_LOOP_SKILL), 'workmate:daily-loop-skill')
     scope.effect(() => scope.skills.register(UI_REVIEW_SKILL), 'workmate:ui-review-skill')
-    scope.effect(() => scope.skills.register(TEAM_RUN_SKILL), 'workmate:team-run-skill')
   })
 
   ctx.inject(['systemPrompt'], (scope) => {

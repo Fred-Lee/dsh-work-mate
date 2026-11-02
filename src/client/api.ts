@@ -4,7 +4,6 @@
  */
 import type { AggregateMetrics, BandsPayload, CreateProposalBody, Proposal, ProposalState, ProposalStatusPayload } from './types'
 import type { ProposalEvent } from '../features/proposal/events.ts'
-import type { TeamRun } from '../features/team/types.ts'
 import type { PanelLane, PanelSubstate } from '../features/superagent/project.ts'
 import type { TaskRecord } from '../features/task/files.ts'
 
@@ -168,37 +167,6 @@ export function reconcileProposal(id: string): Promise<{
 }
 
 
-export type TeamRunEvent = Pick<ProposalEvent, 'at' | 'kind' | 'taskId' | 'dispatchId' | 'status' | 'detail'>
-
-export function listTeamRuns(proposalId?: string): Promise<{ runs: TeamRun[] }> {
-  const query = proposalId !== undefined && proposalId !== '' ? `?proposalId=${encodeURIComponent(proposalId)}` : ''
-  return request(`/workmate/api/team/runs${query}`)
-}
-
-export function getTeamRun(id: string): Promise<{ run: TeamRun; events: TeamRunEvent[] }> {
-  return request(`/workmate/api/team/runs/${encodeURIComponent(id)}`)
-}
-
-export interface TeamArtifactView {
-  name: string
-  content?: string
-}
-
-export function getTeamArtifacts(id: string): Promise<{ artifacts: TeamArtifactView[]; changeId?: string; note?: string }> {
-  return request(`/workmate/api/team/runs/${encodeURIComponent(id)}/artifacts`)
-}
-
-export function answerTeamQuestion(
-  runId: string,
-  messageId: string,
-  reply: string,
-): Promise<{ message: NonNullable<TeamRun['inbox']>[number]; run: TeamRun }> {
-  return request(`/workmate/api/team/runs/${encodeURIComponent(runId)}/answer`, {
-    method: 'POST',
-    body: JSON.stringify({ messageId, reply }),
-  })
-}
-
 export function rejectMerge(
   id: string,
   category: 'plan' | 'implementation',
@@ -236,7 +204,6 @@ export function listProposalEvents(id: string): Promise<{ events: ProposalEventR
   return request(`/workmate/api/proposals/${encodeURIComponent(id)}/events`)
 }
 
-
 /* ── 任务（change `adopt-superagent-openspec-source`） ───────────────────── */
 
 export interface TaskCardView {
@@ -264,7 +231,7 @@ export interface TaskBoardView {
   notes: string[]
 }
 
-export function getPanelConfig(): Promise<{ taskExecutor: 'superagent' | 'team' }> {
+export function getPanelConfig(): Promise<{ taskExecutor: 'superagent' }> {
   return request('/workmate/api/config')
 }
 

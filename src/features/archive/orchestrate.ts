@@ -17,7 +17,6 @@ import { checkCitations, fileSystemProbe, formatCitationReport } from '../qualit
 import { judgeReviewerIndependence, type Identity } from '../quality/reviewer-independence.ts'
 import type { Proposal } from '../proposal/store.ts'
 import type { ArchiveManifest, ArchiveManifestEntry } from './manifest.ts'
-import { parseTeamSummary } from '../team/summary.ts'
 import { collectArtifactLedger, computeDrift, declaredScopes } from '../proposal/artifacts.ts'
 import type { DecisionOutcome, DecisionQuestion } from '../decision/types.ts'
 
@@ -472,8 +471,8 @@ export async function orchestrateArchive(
       try {
         const changeDir = await resolveChangeDir(target.root, options.openspecRoot, proposal.openspecChangeId)
         content = await readFile(join(changeDir, 'review.md'), 'utf8').catch(() => undefined)
-        // Team changes use a distinct uppercase artifact; macOS is case-insensitive,
-        // so it must not share a name with the planning `review.md` (C2).
+        // 任务制变更用大写工件 `TEAM-REVIEW.md`；macOS 大小写不敏感，所以它不能和
+        // 规划期的小写 `review.md` 同名（C2）。
         teamContent = await readFile(join(changeDir, 'TEAM-REVIEW.md'), 'utf8').catch(() => undefined)
         testContent = await readFile(join(changeDir, 'TEST.md'), 'utf8').catch(() => undefined)
         if (content === undefined && teamContent !== undefined) content = teamContent
@@ -701,7 +700,7 @@ export async function orchestrateArchive(
  * `harden-archive-gates`, design D2). Best-effort: a non-git root yields `[]`,
  * which makes the verdict `undetermined` rather than a false accusation.
  */
-async function collectExecutorIdentities(root: string, proposalId: string, signal?: AbortSignal): Promise<Identity[]> {
+export async function collectExecutorIdentities(root: string, proposalId: string, signal?: AbortSignal): Promise<Identity[]> {
   let output: string
   try {
     output = await execCli(
@@ -924,24 +923,7 @@ async function collectManifest(
     if (own.length > 0) entry.taskJudgements = own.map(({ task, verdict, certainty }) => ({ task, verdict, certainty }))
     projects.push(entry)
   }
-  let team: ArchiveManifest['team']
-  for (const target of targets) {
-    const active = join(target.root, options.openspecRoot, 'changes', proposal.openspecChangeId, 'SUMMARY.md')
-    const archivedDir = await findArchivedDir(target.root, options.openspecRoot, proposal.openspecChangeId)
-    const archived = archivedDir === undefined ? undefined : join(archivedDir, 'SUMMARY.md')
-    const path = (await readFile(active, 'utf8').then(() => active).catch(() => undefined)) ?? archived
-    const content = path === undefined ? undefined : await readFile(path, 'utf8').catch(() => undefined)
-    if (path === undefined || content === undefined) continue
-    const parsed = parseTeamSummary(content)
-    team = {
-      summaryPath: path,
-      ...(parsed.status !== undefined ? { status: parsed.status } : {}),
-      ...(parsed.tasksDone !== undefined ? { tasksDone: parsed.tasksDone } : {}),
-      ...(parsed.tasksTotal !== undefined ? { tasksTotal: parsed.tasksTotal } : {}),
-    }
-    break
-  }
-  return { at: new Date().toISOString(), projects, ...(team !== undefined ? { team } : {}) }
+  return { at: new Date().toISOString(), projects }
 }
 
 /**

@@ -12,7 +12,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Router, readJsonBody } from './http.ts'
 import { aggregateMetrics, proposalMetrics } from './features/proposal/metrics.ts'
 import type { EventLog } from './features/proposal/events.ts'
-import type { TeamRunStore } from './features/team/store.ts'
 import { assessReadiness } from './features/proposal/readiness.ts'
 import { evaluateBands, loadBands } from './features/metrics/bands.ts'
 import { runBandsCheck } from './features/metrics/check.ts'
@@ -70,12 +69,6 @@ export interface ApiDeps {
   wikiSearch?: (input: { query: string; project?: string; limit?: number; semantic?: boolean }) => Promise<unknown>
   /** Proposal event log; omitted in tests that do not measure. */
   events?: EventLog
-  /** Team run store; omitted = the team console shows an empty list. */
-  teamRuns?: TeamRunStore
-  /** After G2 approval, optionally create a planned team Run (Config.teamAutoPlan). */
-  teamAutoPlan?: (proposalId: string) => Promise<unknown>
-  /** Answer a persisted team inbox question and requeue its task. */
-  teamAnswer?: (runId: string, messageId: string, reply: string) => Promise<unknown>
   /** Control-band file; defaults to `<DSH home>/<workmateHome>/bands.json`. */
   bandsFile?: string
   /** States gated on a human approval (`Config.approvalsRequired`). */
@@ -102,7 +95,6 @@ export interface ApiDeps {
   /** 任务簿与 Super-agent 投影（change `adopt-superagent-openspec-source`）。 */
   tasks?: TaskServiceImpl
   /** 执行器选择：`superagent` 时团队派发默认关闭。 */
-  taskExecutor?: 'superagent' | 'team'
   /** worktree 回收与遗留清单（change `adopt-superagent-openspec-source`）。 */
   worktreeReclaim?: {
     leftover(): Promise<{ entries: Array<{ taskId: string; repo: string; directory: string; ticketId?: string }> }>
@@ -173,140 +165,6 @@ export function mountWorkmateApi(webServer: WebServerLike, deps: ApiDeps): void 
 
 export function registerApiRoutes(router: Router, deps: ApiDeps): void {
 
-  router.get('/api/team/runs', async (r) => {
-    const proposalId = r.query.get('proposalId')
-    const runs = (await deps.teamRuns?.list()) ?? []
-    return { runs: proposalId === null || proposalId === '' ? runs : runs.filter((run) => run.proposalId === proposalId) }
-  })
-
-  router.post('/api/team/runs/:id/answer', async (r) => {
-    if (deps.teamAnswer === undefined) throw new Error('team answer is not wired in this profile')
-    const body = await readJsonBody<{ messageId?: string; reply?: string }>(r.req)
-    if (body.messageId === undefined || body.messageId.trim() === '') throw new Error('messageId is required')
-    if (body.reply === undefined || body.reply.trim() === '') throw new Error('reply is required')
-    return deps.teamAnswer(r.params['id'] ?? '', body.messageId, body.reply)
-  })
-
-  router.get('/api/team/runs/:id', async (r) => {
-    const id = r.params['id'] ?? ''
-    const run = await deps.teamRuns?.get(id)
-    if (run === undefined) throw new Error(`team run not found: ${id}`)
-    const read = deps.events === undefined ? { events: [] } : await deps.events.read()
-    const events = read.events.filter((event) => event.runId === id && event.kind.startsWith('team-'))
-    return { run, events }
-  })
-
-  router.get('/api/team/runs/:id/artifacts', async (r) => {
-    const id = r.params['id'] ?? ''
-    const run = await deps.teamRuns?.get(id)
-    if (run === undefined) throw new Error(`team run not found: ${id}`)
-    const proposal = await deps.proposals.get(run.proposalId)
-    if (proposal === undefined) return { artifacts: [], note: `proposal not found: ${run.proposalId}` }
-    const primary = proposal.primaryProject ?? proposal.projects[0]
-    const registered = primary === undefined ? undefined : await deps.registry.get(primary)
-    const root = registered?.root ?? deps.projectRoot
-    if (root === undefined || root === '') return { artifacts: [], note: 'no project root for run artifacts' }
-    // Evidence artifacts are produced inside the target worktree before the
-    // feature branch is merged; fall back to the worktree so the team console
-    // shows TEST/TEAM-REVIEW during a run instead of "缺失".
-    const roots = [root, ...(proposal.targets ?? []).map((target) => target.worktreePath).filter((value): value is string => value !== undefined)]
-    const names = ['REQ.md', 'PLAN.md', 'TASKS.json', 'TEST.md', 'TEAM-REVIEW.md', 'SUMMARY.md']
-    const artifacts: Array<{ name: string; content?: string }> = []
-    for (const name of names) {
-      let content: string | undefined
-      for (const candidate of roots) {
-        content = await readProposalFile(candidate, deps.openspecRoot, proposal.openspecChangeId, name)
-        if (content !== undefined) break
-      }
-      artifacts.push(content === undefined ? { name } : { name, content })
-    }
-    return { artifacts, changeId: proposal.openspecChangeId, root }
-  })
-
-
-
-  router.get('/api/worktrees/leftover', async () => {
-    if (deps.worktreeReclaim === undefined) return { entries: [], note: '回收服务未装配' }
-    return await deps.worktreeReclaim.leftover()
-  })
-
-  router.post('/api/worktrees/reclaim', async (r) => {
-    if (deps.worktreeReclaim === undefined) throw new Error('回收服务未装配：本 profile 缺少 worktree 回收依赖')
-    const body = await readJsonBody<{ taskId?: string; force?: boolean }>(r.req)
-    const taskId = (body.taskId ?? '').trim()
-    if (taskId === '') throw new Error('taskId 必填 — 一次只回收一个任务，避免误删')
-    return await deps.worktreeReclaim.reclaim(taskId, { force: body.force === true })
-  })
-
-  router.get('/api/config', async () => ({
-    taskExecutor: deps.taskExecutor ?? 'superagent',
-  }))
-
-  router.get('/api/tasks', async () => {
-    if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')
-    return deps.tasks.board()
-  })
-
-  router.post('/api/tasks', async (r) => {
-    if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')
-    const body = await readJsonBody<{
-      intent?: string
-      repo?: string
-      baseBranch?: string
-      acceptance?: string
-      priority?: string
-      mode?: string
-      proposalId?: string
-      dependsOn?: string[]
-    }>(r.req)
-    const intent = (body.intent ?? '').trim()
-    if (intent === '') throw new Error('目标不能为空')
-    const priority = body.priority === 'P0' || body.priority === 'P1' ? body.priority : 'P2'
-    const mode = body.mode === 'superagent' || body.mode === 'proposal' ? body.mode : 'record'
-    return {
-      task: await deps.tasks.create({
-        intent,
-        repo: (body.repo ?? deps.projectRoot ?? '').trim(),
-        ...(body.baseBranch !== undefined ? { baseBranch: body.baseBranch } : {}),
-        ...(body.acceptance !== undefined ? { acceptance: body.acceptance } : {}),
-        priority,
-        mode,
-        ...(body.proposalId !== undefined ? { proposalId: body.proposalId } : {}),
-        ...(body.dependsOn !== undefined ? { dependsOn: body.dependsOn } : {}),
-      }),
-    }
-  })
-
-  router.post('/api/tasks/:id/assign', async (r) => {
-    if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')
-    return { task: await deps.tasks.assign(r.params['id'] ?? '') }
-  })
-
-  router.post('/api/tasks/:id/retry', async (r) => {
-    if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')
-    return { task: await deps.tasks.assign(r.params['id'] ?? '', { retry: true }) }
-  })
-
-  router.post('/api/tasks/:id/reply', async (r) => {
-    if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')
-    const body = await readJsonBody<{ text?: string; replyTo?: string }>(r.req)
-    const text = (body.text ?? '').trim()
-    if (text === '') throw new Error('回答不能为空')
-    return await deps.tasks.reply(r.params['id'] ?? '', text, {
-      ...(body.replyTo !== undefined ? { replyTo: body.replyTo } : {}),
-    })
-  })
-
-  router.post('/api/tasks/:id/stop', async (r) => {
-    if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')
-    return await deps.tasks.stop(r.params['id'] ?? '')
-  })
-
-  router.post('/api/tasks/:id/reopen', async (r) => {
-    if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')
-    return { task: await deps.tasks.reopen(r.params['id'] ?? '') }
-  })
-
   router.get('/api/proposals', async () => {
     const proposals = await deps.proposals.list()
     return { proposals }
@@ -319,14 +177,9 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     const primary = proposal.primaryProject ?? proposal.projects[0]
     const registered = primary === undefined ? undefined : await deps.registry.get(primary)
     const root = (registered?.root ?? deps.projectRoot).trim() || undefined
-    const runs = (await deps.teamRuns?.list()) ?? []
-    const teamRun = runs
-      .filter((run) => run.proposalId === id)
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
     return assessReadiness(proposal, {
       ...(root !== undefined ? { projectRoot: root } : {}),
       openspecRoot: deps.openspecRoot,
-      ...(teamRun !== undefined ? { teamRun } : {}),
     })
   })
 
@@ -527,11 +380,7 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     const result = await deps.archive.approvePlan(id, {
       ...(body.rationale !== undefined ? { rationale: body.rationale } : {}),
     })
-    if (deps.teamAutoPlan === undefined) return result
-    const team = await deps.teamAutoPlan(id).catch((error: unknown) => ({
-      skipped: error instanceof Error ? error.message : String(error),
-    }))
-    return { ...result, team }
+    return result
   })
 
   router.post('/api/proposals/:id/reject-merge', async (r) => {

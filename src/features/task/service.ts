@@ -353,7 +353,7 @@ export class TaskServiceImpl {
       ?.append({
         at: this.now().toISOString(),
         proposalId: task.proposalId ?? task.id,
-        kind: 'team-settled',
+        kind: 'task-settled',
         actor: 'human',
         taskId: task.id,
         status: kind,

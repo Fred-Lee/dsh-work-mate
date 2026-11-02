@@ -47,7 +47,6 @@ function lifecycleFor(mainBranch?: string): LifecycleServiceImpl {
     resolveProjectRoots: async () => [{ project: 'demo', root: project }],
     approvalsRequired: [],
     orchestrate: async () => ({ ok: true, steps: [] }),
-    taskExecutor: 'team',
   })
 }
 
@@ -120,33 +119,5 @@ describe('archiving gate reads the configured trunk', () => {
 
     const outcome = await lifecycleFor().transition('p1', 'archiving')
     expect(outcome.proposal.status).toBe('archiving')
-  })
-})
-
-describe('implementing worktree is cut from the configured trunk', () => {
-  it('branches off the trunk, not main', async () => {
-    await proposals.setStatus('p1', 'ready', { actor: 'human' })
-
-    const outcome = await lifecycleFor('feat/workmate').transition('p1', 'implementing')
-    const worktreePath = outcome.worktree?.worktreePath
-    expect(worktreePath).toBeDefined()
-
-    // The worktree's own HEAD is the trunk tip. `--all` would also list
-    // `feat/workmate` and make the assertion true for a worktree cut from main.
-    const head = await git(['log', '--oneline', '-1'], worktreePath ?? project)
-    expect(head).toContain('docs: plan p1')
-    const branches = await git(['branch', '--contains', 'HEAD'], worktreePath ?? project)
-    expect(branches).toContain('feat/workmate')
-  })
-
-  it('fails the transition instead of silently falling back to main', async () => {
-    await proposals.setStatus('p1', 'ready', { actor: 'human' })
-
-    // `git worktree add -b … <missing trunk>` is a plain git failure; the point is
-    // that the configured trunk is used verbatim and the proposal does not advance.
-    await expect(lifecycleFor('no-such-trunk').transition('p1', 'implementing')).rejects.toThrow(
-      /invalid reference|no-such-trunk/,
-    )
-    expect((await proposals.get('p1'))?.status).toBe('ready')
   })
 })

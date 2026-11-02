@@ -13,8 +13,6 @@ import { registerApiRoutes } from './api.ts'
 import { ProjectRegistry } from './features/project/registry.ts'
 import { EventLog } from './features/proposal/events.ts'
 import { DecisionService } from './features/decision/service.ts'
-import { TeamRunStore } from './features/team/store.ts'
-import { DEFAULT_TEAM_BUDGET } from './features/team/types.ts'
 
 let home: string
 let store: ProposalStore
@@ -448,7 +446,7 @@ describe('project registry REST API', () => {
       })
     })
 
-  const projectRouter = (registry: ProjectRegistry, teamRuns?: TeamRunStore, openspecTargets?: 'primary' | 'all'): Router => {
+  const projectRouter = (registry: ProjectRegistry, openspecTargets?: 'primary' | 'all'): Router => {
     const r = new Router()
     registerApiRoutes(r, {
       proposals,
@@ -459,7 +457,6 @@ describe('project registry REST API', () => {
       registry,
       qualitySyncEnabled: false,
       claudeAssetsEnabled: false,
-      ...(teamRuns !== undefined ? { teamRuns } : {}),
     })
     return r
   }
@@ -545,7 +542,7 @@ describe('project registry REST API', () => {
     const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
     await registry.upsert('a', a)
     await registry.upsert('b', b)
-    const r = projectRouter(registry, undefined, 'all')
+    const r = projectRouter(registry, 'all')
     const created = stubRes()
     await r.handle(
       '/api/proposals',
@@ -710,43 +707,6 @@ describe('project registry REST API', () => {
     expect(json(res.result)).toMatchObject({
       drifts: [{ project: 'drift-repo', baseBranch: 'main', baseCommit, drifted: true }],
     })
-  })
-
-  it('lists team runs and reads one with its team events', async () => {
-    const teamRuns = new TeamRunStore({ homeRoot: home, subdir: 'workmate' })
-    await teamRuns.upsert({
-      id: 'r1',
-      proposalId: 'p1',
-      template: 'bug-fix',
-      status: 'running',
-      tasks: [
-        {
-          id: 't1',
-          title: 't1',
-          role: 'backend-dev',
-          project: 'demo',
-          writes: [],
-          dependsOn: [],
-          acceptance: 'ok',
-          status: 'dispatched',
-          attempts: 1,
-        },
-      ],
-      dispatches: [],
-      budget: DEFAULT_TEAM_BUDGET,
-      createdAt: '2026-10-19T00:00:00.000Z',
-      updatedAt: '2026-10-19T00:00:00.000Z',
-    })
-    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
-    const r = projectRouter(registry, teamRuns)
-
-    const listRes = stubRes()
-    await r.handle('/api/team/runs', stubReq('GET', '/api/team/runs'), listRes.res)
-    expect(json(listRes.result)).toMatchObject({ runs: [{ id: 'r1', proposalId: 'p1' }] })
-
-    const oneRes = stubRes()
-    await r.handle('/api/team/runs/r1', stubReq('GET', '/api/team/runs/r1'), oneRes.res)
-    expect(json(oneRes.result)).toMatchObject({ run: { id: 'r1' }, events: [] })
   })
 
   it('returns a proposal readiness assessment', async () => {

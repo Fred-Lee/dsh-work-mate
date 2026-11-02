@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { assessReadiness } from './readiness.ts'
 import type { Proposal } from './store.ts'
-import { DEFAULT_TEAM_BUDGET, type TeamRun } from '../team/types.ts'
 
 let root: string
 const dir = (): string => join(root, 'openspec', 'changes', 'p1')
@@ -72,19 +71,4 @@ describe('assessReadiness', () => {
     expect(result.ready).toBe(true)
   })
 
-  it('surfaces a failed team run', async () => {
-    await writeArtifacts()
-    const run = {
-      id: 'r1',
-      proposalId: 'p1',
-      template: 'bug-fix',
-      status: 'partial',
-      tasks: [],
-      budget: DEFAULT_TEAM_BUDGET,
-      createdAt: '2026-10-19T00:00:00.000Z',
-      updatedAt: '2026-10-19T00:00:00.000Z',
-    } as TeamRun
-    const result = await assessReadiness(proposal(), { projectRoot: root, openspecRoot: 'openspec', teamRun: run })
-    expect(result.checks.find((check) => check.id === 'team-run')?.status).toBe('fail')
-  })
 })

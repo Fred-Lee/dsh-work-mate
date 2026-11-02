@@ -334,7 +334,7 @@ export const UI_REVIEW_SKILL: RuntimeSkill = {
 
 1. 先 \`pnpm build\`，确保 3080 的面板加载最新 dist；必要时刷新页面。
 2. 用 Playwright（宿主 node_modules 里的 playwright）跑真实页面：
-   - 列表 / 看板 / 团队 / 控制台 / 知识图谱 / 创建模态；
+   - 任务 / 列表 / 看板 / 控制台 / 知识图谱 / 创建模态；
    - 900px 下 \`document.documentElement.scrollWidth === clientWidth\`；
    - 深色：注入 \`--dsw-alias-*\` 变量后截图；
    - 记录 \`pageerror\` 与控制台 error。
@@ -346,20 +346,3 @@ export const UI_REVIEW_SKILL: RuntimeSkill = {
 截图放 \`docs/assets/ui/\`；评估写 \`docs/UI-EVALUATION.md\`。`,
 }
 
-export const TEAM_RUN_SKILL: RuntimeSkill = {
-  name: 'workmate-team-run',
-  description:
-    'WorkMate 团队 Run 操作与排障：prepare→plan→run→status→inbox→archive，角色 preset、工件路径与常见失败。',
-  whenToUse: '需要让 Agent 团队按 TASKS.json 跑需求评估/开发/测试/审查，或团队 Run 失败/卡住时。',
-  content: `# 团队 Run
-
-顺序：\`workmate_team_prepare\` → \`workmate_team_plan\` → \`workmate_team_run\`（按波次）→
-\`workmate_team_status\` / \`workmate_team_inbox\` / \`workmate_team_answer\`。
-
-- 工件必须先提交到基线分支再进 implementing；worker 的 worktree 只含已跟踪文件。
-- TEST.md / TEAM-REVIEW.md 必须写到 \`openspec/changes/<id>/\`，并含规定段头；
-  reviewer 首行写 \`<!-- reviewer: <dispatchId> -->\`。
-- 测试/审查角色需要 preset；reviewer 用 workspace preset（它要写报告），评估角色用 readonly。
-- Run 成功条件：所有 task done、证据门通过；失败先看 dispatch 的 outcome 与 inbox，不要直接重跑。
-- 合并/归档走提案生命周期；团队证据门要求最近 Run 为 succeeded 且 TASKS/TEST/TEAM-REVIEW/SUMMARY 齐全。`,
-}

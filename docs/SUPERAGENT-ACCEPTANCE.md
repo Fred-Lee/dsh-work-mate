@@ -95,8 +95,8 @@
 
 ## G. 回退演练
 
-- [ ] [真机] `taskExecutor=team` 后，团队 Run 派发可用（`workmate_team_run` 不再返回 disabled），
-      面板团队视图出现"回退执行器"徽标
+- [x] [单测] 团队执行器已移除：`workmate_team_*` 六个工具不再注册、`/api/team/*` 路由不存在
+      （`src/index.test.ts` 断言工具面、`src/api.test.ts` 不再有 team 用例）
 - [ ] [真机] 停用子包 bundle 后，Super-agent 不再产生该来源的 Trigger
 - [x] [引擎级] `node scripts/rollback-superagent.mjs --dry-run` 列出目录/分支/端口计划
 - [x] [引擎级] 实跑一次：worktree 移除、已合并分支删除、端口键释放；`git worktree list` 干净

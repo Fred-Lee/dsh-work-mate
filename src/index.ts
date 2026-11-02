@@ -29,11 +29,6 @@ import { EventLog } from './features/proposal/events.ts'
 import { runBandsCheck } from './features/metrics/check.ts'
 import { parseSwarmTasks } from './features/swarm/plan.ts'
 import { parseTargetsSpec } from './features/proposal/targets.ts'
-import { TeamRunStore } from './features/team/store.ts'
-import { TeamRunner } from './features/team/runner.ts'
-import { autoPlanTeamRun } from './features/team/auto-plan.ts'
-import { registerTeamTools } from './features/team/tools.ts'
-import type { SubagentServiceLike } from './features/team/host-dispatcher.ts'
 import type { WorkspaceRegistryLike } from './features/project/workspace-candidates.ts'
 import { AgentProvider, type HostLlmFace } from './features/decision/agent.ts'
 import { RulesProvider } from './features/decision/rules.ts'
@@ -127,8 +122,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     timeoutMs: resolved.superagentTimeoutMs,
   })
   const registry = new ProjectRegistry({ subdir: resolved.workmateHome })
-  const teamRuns = new TeamRunStore({ subdir: resolved.workmateHome })
-  const teamRunner = new TeamRunner(teamRuns)
   const worktree = new WorktreeManager({
     subdir: resolved.workmateHome,
     basePort: resolved.basePort,
@@ -209,7 +202,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     mainBranch: resolved.lifecycleMainBranch,
     approvalsRequired: resolved.approvalsRequired,
     allowAgentApproval: resolved.allowAgentApproval,
-    taskExecutor: resolved.taskExecutor === 'team' ? 'team' : 'superagent',
     onImplementing: async (proposal, targets) => {
       const result = await tasks.ensureImplementationTasks({
         proposalId: proposal.id,
@@ -223,7 +215,6 @@ export function apply(ctx: Context, config: Config = {}): void {
     reviewerIndependence: resolved.reviewerIndependence as 'off' | 'warn' | 'block',
     reviewEvidenceGate: resolved.reviewEvidenceGate as 'off' | 'warn' | 'block',
     teamEvidenceGate: resolved.teamEvidenceGate as 'off' | 'warn' | 'block',
-    teamRuns,
     swarmReviewRequired: resolved.swarmReviewRequired,
     highRiskExtraGates: resolved.highRiskExtraGates,
     riskGateEnabled: resolved.decisionEnabled,
@@ -306,49 +297,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         ),
     )
 
-  // 启动恢复边界（change `adopt-superagent-openspec-source`, task 17）：
-  // `superagent` 模式下不创建 Run、不装任何定时器（执行由 Super-agent 承担）；
-  // `team` 模式（回退）才扫描遗留 running/dispatched 的 Run，把它标成 abandoned
-  // 并写恢复事件——否则重启后它们会永远停在 "running"。
-  if ((resolved.taskExecutor === 'team')) {
-    void teamRuns
-      .list()
-      .then(async (runs) => {
-        const stale = runs.filter((run) => run.status === 'running')
-        for (const run of stale) {
-          const timestamp = new Date().toISOString()
-          const tasks = run.tasks.map((task) =>
-            task.status === 'dispatched' || task.status === 'running'
-              ? { ...task, status: 'failed' as const }
-              : task,
-          )
-          const dispatches = (run.dispatches ?? []).map((dispatch) =>
-            dispatch.status === 'dispatched' || dispatch.status === 'running'
-              ? { ...dispatch, status: 'abandoned' as const, endedAt: timestamp, outcome: '宿主重启：原有 Dispatch 中断' }
-              : dispatch,
-          )
-          await teamRuns.patch(run.id, { status: 'aborted', tasks, dispatches }, () => new Date())
-          await events
-            .append({
-              at: timestamp,
-              proposalId: run.proposalId,
-              kind: 'team-run',
-              actor: 'system',
-              runId: run.id,
-              detail: 'host-restart: 标记为 aborted（回退执行器）',
-            })
-            .catch(() => undefined)
-        }
-        if (stale.length > 0) {
-          console.error(`[workmate] 回退执行器：${stale.length} 个遗留 Run 已标为 aborted（宿主重启）`)
-        }
-      })
-      .catch((error: unknown) => {
-        console.error(
-          `[workmate] team-runs store unreadable: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      })
-  }
+  // 执行由 Super-agent 承担（change `remove-team-executor` 之后没有第二套派发）：
+  // 启动时不再扫描遗留 Run，也不再需要恢复定时器。
 
   ctx.provide('workmate.proposal', proposals)
   ctx.provide('workmate.archive', archive)
@@ -555,45 +505,6 @@ export function apply(ctx: Context, config: Config = {}): void {
   }
 
   registerTools(ctx, { proposals, archive, registry, worktree, swarm, decision, vaultExport: runVaultExport, resolved, events })
-  const autoPlanTeam = async (proposalId: string): Promise<unknown> => {
-    if (resolved.teamAutoPlan !== true) return { skipped: 'teamAutoPlan disabled' }
-    const proposal = await proposals.get(proposalId)
-    if (proposal === undefined) return { skipped: 'proposal not found' }
-    const primary = proposal.primaryProject ?? proposal.projects[0]
-    const registered = primary === undefined ? undefined : await registry.get(primary)
-    const root = (registered?.root ?? resolved.projectRoot).trim()
-    if (root === '') return { skipped: 'no project root' }
-    return autoPlanTeamRun({
-      proposalId,
-      changeId: proposal.openspecChangeId,
-      projectRoot: root,
-      openspecRoot: resolved.openspecRoot,
-      store: teamRuns,
-      runner: teamRunner,
-    })
-  }
-
-  let subagentsService: SubagentServiceLike | undefined
-  ctx.inject(['subagents'], (scope) => {
-    subagentsService = scope.get('subagents') as SubagentServiceLike
-  })
-  registerTeamTools(ctx, {
-    proposals,
-    registry,
-    runner: teamRunner,
-    openspecRoot: resolved.openspecRoot,
-    projectRoot: resolved.projectRoot,
-    subagents: () => subagentsService,
-    lifecycleMainBranch: resolved.lifecycleMainBranch,
-    events,
-    rolePresetConfig: {
-      readonlyPreset: resolved.teamReadonlyPreset,
-      workspacePreset: resolved.teamWorkspacePreset,
-    },
-    requireRolePresets: resolved.teamRequireRolePresets,
-    roleModels: resolved.teamRoleModels,
-    taskExecutor: resolved.taskExecutor === 'team' ? 'team' : 'superagent',
-  })
   // Native guidance surfaces: two runtime skills + one flow section. Lazy, so
   // a composition without those services keeps the plugin ACTIVE.
   registerGuidance(ctx, {
@@ -658,7 +569,6 @@ export function apply(ctx: Context, config: Config = {}): void {
       allowAgentApproval: resolved.allowAgentApproval,
       reviewBlockingSeverities: resolved.reviewBlockingSeverities,
       tasks,
-      taskExecutor: resolved.taskExecutor === 'team' ? 'team' : 'superagent',
       worktreeReclaim: {
         leftover: async () => {
           const boarded = await tasks.board()
@@ -703,9 +613,6 @@ export function apply(ctx: Context, config: Config = {}): void {
       },
       decision,
       events,
-      teamRuns,
-      teamAutoPlan: autoPlanTeam,
-      teamAnswer: (runId, messageId, reply) => teamRunner.answerMessage(runId, messageId, reply),
       vaultExport: (input) =>
         runVaultExport({
           projectRoot: input.projectRoot,

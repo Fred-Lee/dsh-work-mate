@@ -38,9 +38,13 @@ export interface ProposalEvent {
     | 'band-breach'
     | 'approval'
     | 'decision'
+    // 历史 kind：团队执行器已移除（change `remove-team-executor`），但 events.jsonl
+    // 是 append-only 事实流，旧行必须继续可读，否则指标会把它们算成非法行。
     | 'team-dispatch'
     | 'team-settled'
     | 'team-run'
+    // 任务层自己的事实（创建/指派/停止/回答），由 `TaskServiceImpl` 写入。
+    | 'task-settled'
   from?: ProposalState
   to?: ProposalState
   actor: EventActor
@@ -103,6 +107,7 @@ const isEvent = (value: unknown): value is ProposalEvent => {
       record['kind'] === 'team-dispatch' ||
       record['kind'] === 'team-settled' ||
       record['kind'] === 'team-run' ||
+      record['kind'] === 'task-settled' ||
       record['kind'] === 'band-breach' ||
       record['kind'] === 'approval' ||
       record['kind'] === 'decision')

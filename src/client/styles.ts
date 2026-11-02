@@ -70,10 +70,6 @@ export const PANEL_STYLE = `
   background: transparent; padding: 0;
 }
 
-.wm-team-artifacts { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
-.wm-team-artifact { border: 1px solid var(--wm-border-soft); border-radius: 8px; padding: 6px 8px; background: var(--wm-card); }
-.wm-team-artifact summary { cursor: pointer; font-size: 12px; color: var(--wm-fg); }
-.wm-team-artifact-body { white-space: pre-wrap; max-height: 240px; overflow: auto; font-size: 11px; line-height: 1.5; margin: 6px 0 0; }
 
 /* ---------- header ---------- */
 .wm-header {
@@ -323,101 +319,6 @@ export const PANEL_STYLE = `
 .wm-drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .wm-drawer-head h3 { margin: 0; font-size: 15px; }
 
-/* ---------- team console ---------- */
-.wm-team { display: grid; grid-template-columns: 340px minmax(0,1fr); gap: 16px; padding: 16px 20px 24px; align-items: start; }
-.wm-team-side { display: flex; flex-direction: column; gap: 10px; background: var(--wm-card); border: 1px solid var(--wm-border-soft); border-radius: 12px; padding: 12px; box-shadow: var(--wm-shadow); }
-.wm-team-main { min-width: 0; background: var(--wm-card); border: 1px solid var(--wm-border-soft); border-radius: 12px; padding: 16px; box-shadow: var(--wm-shadow); }
-@media (max-width: 1100px) { .wm-team { grid-template-columns: 1fr; } .wm-team-side { position: static; } }
-.wm-team-head { display: flex; align-items: center; justify-content: space-between; }
-.wm-team-head h3 { margin: 0; font-size: 14px; }
-.wm-team-list { display: flex; flex-direction: column; gap: 6px; }
-.wm-team-row {
-  display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: 8px;
-  width: 100%; text-align: left; cursor: pointer; padding: 9px 12px;
-  border: 1px solid var(--wm-border); border-radius: 10px;
-  background: var(--wm-card); color: var(--wm-fg);
-}
-.wm-team-row.active { border-color: var(--wm-accent, #3b82f6); box-shadow: var(--wm-shadow-lift); }
-.wm-team-row > div:first-child { min-width: 0; }
-.wm-team-row b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
-.wm-team-row .wm-card-id { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wm-team-detail { border-top: 0; padding-top: 0; }
-.wm-team-detail h4 { margin: 0 0 4px; font-size: 13px; }
-.wm-team-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; table-layout: fixed; }
-.wm-team-table th:nth-child(5), .wm-team-table td:nth-child(5) { width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wm-team-table th, .wm-team-table td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--wm-border-soft); }
-.wm-team-table th { color: var(--wm-muted); font-weight: 500; }
-.wm-team-events { margin-top: 8px; max-height: 180px; overflow-y: auto; }
-
-.wm-team-waves { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0; }
-.wm-team-wave { min-width: 150px; border: 1px dashed var(--wm-border); border-radius: 10px; padding: 8px; }
-.wm-team-wave-head { font-size: 11px; color: var(--wm-muted); margin-bottom: 6px; }
-.wm-team-chip {
-  font-size: 11px; padding: 4px 6px; margin-bottom: 4px; border-radius: 6px;
-  background: var(--wm-code, rgba(127,127,127,.10)); border-left: 3px solid var(--wm-muted);
-}
-.wm-team-chip.done { border-left-color: #22c55e; }
-.wm-team-chip.dispatched, .wm-team-chip.running { border-left-color: #3b82f6; }
-.wm-team-chip.failed, .wm-team-chip.blocked { border-left-color: #ef4444; }
-
-.wm-team-question {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 8px 10px; margin: 6px 0; border-radius: 8px;
-  background: rgba(245, 158, 11, .12); border: 1px solid rgba(245, 158, 11, .35);
-  font-size: 12px;
-}
-
-.wm-team-roles { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
-.wm-team-role {
-  font-size: 11px; padding: 3px 8px; border-radius: 999px;
-  border: 1px solid var(--wm-border); color: var(--wm-muted);
-}
-.wm-team-role.active { border-color: #3b82f6; color: #3b82f6; background: rgba(59, 130, 246, .10); }
-.wm-team-current { font-size: 12px; color: #3b82f6; margin-bottom: 6px; }
-
-.wm-drawer-section { margin: 10px 0 4px; font-size: 12px; color: var(--wm-muted); border-top: 1px solid var(--wm-border-soft); padding-top: 8px; }
-.wm-drawer-actions {
-  position: sticky; bottom: 0; margin-top: auto; padding: 10px 0 4px;
-  display: flex; flex-wrap: wrap; gap: 6px;
-  background: var(--wm-surface); border-top: 1px solid var(--wm-border);
-}
-
-.wm-tree { display: flex; flex-direction: column; gap: 10px; max-height: 55vh; overflow-y: auto; margin: 8px 0; }
-.wm-tree-group-head { font-size: 11px; color: var(--wm-muted); margin-bottom: 4px; }
-.wm-tree-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  width: 100%; text-align: left; cursor: pointer; padding: 8px 10px;
-  border: 1px solid var(--wm-border); border-radius: 8px;
-  background: var(--wm-card); color: var(--wm-fg);
-}
-.wm-tree-row:hover { box-shadow: var(--wm-shadow-lift); }
-.wm-tree-main { min-width: 0; flex: 1 1 auto; }
-.wm-tree-main b { white-space: nowrap; }
-.wm-tree-main .wm-progress-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wm-tree-meta { justify-content: flex-end; flex-shrink: 0; white-space: nowrap; font-size: 11px; color: var(--wm-muted); }
-.wm-steps { display: flex; gap: 6px; margin: 2px 0 10px; flex-wrap: wrap; }
-.wm-step { font-size: 11px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--wm-border-soft); color: var(--wm-muted); }
-.wm-step.active { border-color: var(--wm-accent); color: var(--wm-accent); font-weight: 600; }
-.wm-step.done { color: var(--wm-fg); border-color: var(--wm-border); }
-
-.wm-btn:focus-visible, .wm-pill:focus-visible, .wm-list-row:focus-visible,
-.wm-team-row:focus-visible, .wm-tree-row:focus-visible {
-  outline: 2px solid var(--wm-accent, #3b82f6); outline-offset: 2px;
-}
-
-.wm-skeleton-list { display: flex; flex-direction: column; gap: 6px; }
-.wm-skeleton-row {
-  height: 48px; border-radius: 10px;
-  background: linear-gradient(90deg, var(--wm-code, rgba(127,127,127,.10)) 25%, var(--wm-surface) 50%, var(--wm-code, rgba(127,127,127,.10)) 75%);
-  background-size: 200% 100%;
-  animation: wm-skeleton 1.4s ease-in-out infinite;
-}
-@keyframes wm-skeleton { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-@media (prefers-reduced-motion: reduce) {
-  .wm-skeleton-row { animation: none; }
-  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
-}
-
 /* ---------- native minimal v3 (direction A) ----------
  * Follow the host: 14px body, 0.5px borders, layer surfaces, no decorative
  * shadows on content cards. Keep only the drawer/modal elevation. */
@@ -514,23 +415,9 @@ export const PANEL_STYLE = `
 .wm-card:hover { box-shadow: var(--wm-shadow-lift); transform: none; }
 .wm-card-title { font-size: 13px; font-weight: 500; line-height: 20px; }
 .wm-card-bar { width: 3px; }
-.wm-team { padding: 20px 24px 24px; gap: 16px; }
-.wm-team-side, .wm-team-main {
   background: var(--wm-card); border: 0.5px solid var(--wm-border-soft);
   border-radius: var(--dsw-radius-md, 8px); box-shadow: none;
 }
-.wm-team-side { padding: 8px; }
-.wm-team-main { padding: 20px; }
-.wm-team-head h3 { font-size: 14px; font-weight: 600; }
-.wm-team-row { padding: 8px 10px; border: 0.5px solid var(--wm-border-soft); border-radius: var(--dsw-radius-sm, 6px); }
-.wm-team-row:hover { background: var(--wm-hover); }
-.wm-team-row.active { border-color: var(--wm-accent); box-shadow: none; background: var(--wm-hover); }
-.wm-team-detail h4 { font-size: 14px; font-weight: 600; }
-.wm-team-table { font-size: 12px; }
-.wm-team-table th { font-size: 11px; font-weight: 500; }
-.wm-team-table th, .wm-team-table td { padding: 6px 8px; border-bottom: 0.5px solid var(--wm-border-soft); }
-.wm-team-wave { border: 0.5px dashed var(--wm-border); border-radius: var(--dsw-radius-sm, 6px); }
-.wm-team-artifact { border: 0.5px solid var(--wm-border-soft); border-radius: var(--dsw-radius-sm, 6px); background: transparent; }
 .wm-console { padding: 20px 24px 24px; gap: 20px; }
 .wm-kpis { gap: 12px; }
 .wm-kpi {

@@ -106,35 +106,22 @@ export interface Config {
    */
   reviewEvidenceGate?: string
   /**
-   * Require team artifacts before archiving a team-managed change (`TASKS.json`
-   * present): TEST.md and TEAM-REVIEW.md with their required sections.
+   * Require task artifacts before archiving a change that has `TASKS.json`:
+   * `TEST.md` and `TEAM-REVIEW.md` with their required sections.
    * `off` | `warn` | `block`. @default 'block'
+   * （change `remove-team-executor` 之后判据是"有没有任务清单"，不再是"有没有团队 Run"。）
    */
   teamEvidenceGate?: string
-  /**
-   * After G2 plan approval, create a planned team Run when TASKS.json is
-   * complete. Dispatch still needs an explicit `workmate_team_run`.
-   * @default false
-   */
-  teamAutoPlan?: boolean
-  /** Read-only agent preset for evaluators/reviewer (T3-3.6). */
-  teamReadonlyPreset?: string
-  /** Workspace-write agent preset for developers/tester/coordinator (T3-3.6). */
-  teamWorkspacePreset?: string
-  /** Refuse dispatch when a role has no matching preset instead of inheriting parent scope. @default true */
-  teamRequireRolePresets?: boolean
-  /** JSON map of role → {provider?, model?, reasoningEffort?}; empty = inherit session model. */
-  teamRoleModels?: string
+  // `teamAutoPlan` / `teamReadonlyPreset` / `teamWorkspacePreset` /
+  // `teamRequireRolePresets` / `teamRoleModels` removed in `remove-team-executor`：
+  // 团队执行器已删除，这些键没有消费者。旧 profile 里保留它们不会报错（未知键透传）。
   /**
    * Require every merged swarm task to carry an independent verification record
    * before archiving (change `wire-swarm-independent-review`). @default false
    */
   swarmReviewRequired?: boolean
-  /**
-   * 执行器选择：`superagent`（默认，待办交给 Super-agent 的 Source）或
-   * `team`（回退，沿用既有 TeamRunner 派发）。@default 'superagent'
-   */
-  taskExecutor?: string
+  // `taskExecutor` removed in `remove-team-executor`：Super-agent 是唯一执行器，
+  // 留一个永远等于 `superagent` 的枚举只会给未来的自己留歧义。
   /**
    * 任务文件绝对路径；空表示 `<DSH home>/<workmateHome>/tasks.json`。
    * 必须与 Super-agent 侧 source 实例配置的 taskFile 指向同一个文件。@default ''
@@ -277,35 +264,11 @@ export const Config: z<Config> = z.object({
   teamEvidenceGate: z
     .string()
     .default('block')
-    .description('Require TEST.md/TEAM-REVIEW.md for team-managed changes: off | warn | block.'),
-  teamAutoPlan: z
-    .boolean()
-    .default(false)
-    .description('Create a planned team Run after G2 plan approval when TASKS.json is complete.'),
-  teamReadonlyPreset: z
-    .string()
-    .default('')
-    .description('Agent preset id for read-only team roles (evaluators/reviewer).'),
-  teamWorkspacePreset: z
-    .string()
-    .default('')
-    .description('Agent preset id for workspace-write team roles (dev/test/coordinator).'),
-  teamRequireRolePresets: z
-    .boolean()
-    .default(true)
-    .description('Refuse team dispatch when a role has no matching agent preset.'),
-  teamRoleModels: z
-    .string()
-    .default('')
-    .description('JSON map of role to provider/model overrides; empty inherits the session model.'),
+    .description('Require TEST.md/TEAM-REVIEW.md for changes with TASKS.json: off | warn | block.'),
   swarmReviewRequired: z
     .boolean()
     .default(false)
     .description('Require an independent verification record per merged swarm task.'),
-  taskExecutor: z
-    .string()
-    .default('superagent')
-    .description("Executor: 'superagent' (default) hands todos to the Super-agent Source; 'team' is the fallback runner."),
   taskFile: z
     .string()
     .default('')
@@ -390,13 +353,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   reviewerIndependence: 'warn',
   reviewEvidenceGate: 'warn',
   teamEvidenceGate: 'block',
-  teamAutoPlan: false,
-  teamReadonlyPreset: '',
-  teamWorkspacePreset: '',
-  teamRequireRolePresets: true,
-  teamRoleModels: '',
   swarmReviewRequired: false,
-  taskExecutor: 'superagent',
   taskFile: '',
   superagentEndpoint: 'http://127.0.0.1:3082',
   superagentTimeoutMs: 5000,

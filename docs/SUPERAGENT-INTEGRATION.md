@@ -161,22 +161,21 @@ Source 的下一次扫描。之后是 Super-agent 的领域流程：
 - 面板据此显示"已投递，等待接受"，而不是"已开工"；
 - 执行器离线时，面板显示"执行器离线"，待办仍可记录（文件不依赖它）。
 
-## 7. 回滚：三件事，缺一泄漏
+## 7. 回滚：两件事，缺一泄漏
 
-从 `superagent` 退回 `team`（或彻底拆掉 Super-agent）时，必须同时做三件事，缺一件就会
-留下"目录还在、端口没放、执行器还在投递"的中间态：
+团队执行器已在 `remove-team-executor` 中删除，`taskExecutor=team` 不再可用。要拆掉
+Super-agent 时，必须同时做两件事，缺一件就会留下"目录还在、端口没放、执行器还在投递"
+的中间态：
 
-1. **`taskExecutor=team`**（WorkMate 的 `cordis.patch.yml`）：否则面板仍把新待办标成
-   "superagent 模式"，Source 仍会扫描投递；
-2. **停用 `workmate-superagent-source` bundle**（Super-agent 的 profile）：否则它继续
+1. **停用 `workmate-superagent-source` bundle**（Super-agent 的 profile）：否则它继续
    读任务文件、继续产生 Trigger；
-3. **清理 worktree、分支与端口**：执行
+2. **清理 worktree、分支与端口**：执行
    ```bash
    node scripts/rollback-superagent.mjs --dry-run     # 先看计划
    node scripts/rollback-superagent.mjs               # 再执行
    ```
 
-第 3 步**不依赖 Super-agent 在线**：
+第 2 步**不依赖 Super-agent 在线**：
 
 - 定位分三级——① 任务记录缓存的 `directory`（面板观察到 Ticket 时回写）；
   ② `<repo>/.workmates/` 里以 Ticket 前 12 位结尾的名字；③ 目录名里带任务 ID 的目录；

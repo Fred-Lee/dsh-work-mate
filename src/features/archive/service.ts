@@ -20,8 +20,8 @@ import { computePlanFingerprint, type PlanFingerprint } from '../proposal/plan.t
 import { effectiveTargets } from '../proposal/targets.ts'
 import { isOccupying } from '../proposal/isolation.ts'
 import { findWriteConflicts, readProposalWriteScopes, type WriteClaim } from '../proposal/writes.ts'
-import { checkTeamEvidence } from '../team/evidence.ts'
-import type { TeamRunStore } from '../team/store.ts'
+import { checkTaskEvidence } from './task-evidence.ts'
+import { collectExecutorIdentities } from './orchestrate.ts'
 import type { ProposalService } from '../proposal/service.ts'
 import { WorktreeManager } from '../worktree/manager.ts'
 import { branchExists, isMergedInto, mergeBranch } from '../worktree/git.ts'
@@ -79,12 +79,6 @@ export interface LifecycleDeps {
   /** Resolves the proposal's associated project names into per-project roots. */
   resolveProjectRoots?(proposal: Proposal): Promise<OrchestrationTarget[]>
   /**
-   * 执行器选择（Config.taskExecutor）。`superagent`（默认）时 `ready→implementing`
-   * 只做规划（校验项目根与基线分支、保留 targets），不创建 worktree——目录由
-   * Super-agent 的 prepare 在首次 launch 时创建。`team` 保持原有创建行为。
-   */
-  taskExecutor?: 'superagent' | 'team'
-  /**
    * `ready→implementing`（superagent 模式）的交接钩子：写实现待办。
    * 由 index.ts 注入，避免生命周期服务直接依赖任务存储。
    */
@@ -122,10 +116,8 @@ export interface LifecycleDeps {
   reviewerIndependence?: 'off' | 'warn' | 'block'
   /** Citation-probe mode for the archive gate (`Config.reviewEvidenceGate`). */
   reviewEvidenceGate?: 'off' | 'warn' | 'block'
-  /** Team artifacts required for team-managed changes (`Config.teamEvidenceGate`). */
+  /** `TEST.md` / `TEAM-REVIEW.md` required for changes with `TASKS.json` (`Config.teamEvidenceGate`). */
   teamEvidenceGate?: 'off' | 'warn' | 'block'
-  /** Team run store; lets the evidence gate reject partial/blocked runs. */
-  teamRuns?: TeamRunStore
   /** block | warn | off for cross-proposal write-scope conflicts. @default 'block' */
   writeConflictGate?: 'block' | 'warn' | 'off'
   /** Require an independent verification record per merged swarm task (`Config.swarmReviewRequired`). */
@@ -440,7 +432,7 @@ export class LifecycleServiceImpl {
         return
       }
       case 'archiving': {
-        await this.assertTeamEvidence(root, proposal)
+        await this.assertTaskEvidence(root, proposal)
         // Legacy single-target proposals keep the original one-branch check.
         if (proposal.targets === undefined || proposal.targets.length === 0) {
           if (proposal.featureBranch === undefined) return
@@ -507,89 +499,25 @@ export class LifecycleServiceImpl {
         throw new InvalidTransitionError(`项目根未注册：${missing.join(', ')} — 先在面板注册项目`)
       }
 
-      if ((this.deps.taskExecutor ?? 'superagent') !== 'team') {
-        // superagent 模式：只校验，不建目录。分支与基线由 Ticket 投影回写（task 20），
-        // 目录由 prepare 创建；这里若抢建，prepare 会因"目录已存在"而跳过初始化。
-        const planned: ProposalTarget[] = []
-        for (const target of targets) {
-          const projectRoot = rootByProject.get(target.project) as string
-          const exists = await branchExists(projectRoot, target.baseBranch)
-          if (!exists) {
-            throw new InvalidTransitionError(
-              `基线分支不存在：${target.project}@${target.baseBranch} — 先创建或改选基线分支`,
-            )
-          }
-          planned.push({ ...target })
+      // Super-agent 是唯一执行器：只校验基线分支并保留 targets，不建目录。
+      // 目录由 `executor.prepare` 在首次 launch 时创建；这里若抢建，prepare 会因
+      // "目录已存在"而跳过初始化（design D10b）。
+      const planned: ProposalTarget[] = []
+      for (const target of targets) {
+        const projectRoot = rootByProject.get(target.project) as string
+        const exists = await branchExists(projectRoot, target.baseBranch)
+        if (!exists) {
+          throw new InvalidTransitionError(
+            `基线分支不存在：${target.project}@${target.baseBranch} — 先创建或改选基线分支`,
+          )
         }
-        await this.deps.proposals.patchFields(proposal.id, { targets: planned })
-        // G2 交接：写实现待办（幂等）。失败不回滚状态——待办只是人的意图，
-        // 真实执行由 Super-agent 的 Eval 决定；写失败时把原因抛给调用方。
-        await this.deps.onImplementing?.(proposal, planned)
-        return {
-          worktreePath: '',
-          portRange: [],
-          install: 'skipped',
-          targets: planned,
-        }
+        planned.push({ ...target })
       }
-
-      const created: ProposalTarget[] = []
-      const installed: string[] = []
-      const done: Array<{ projectRoot: string; project: string; branchCreated: boolean }> = []
-      try {
-        for (const target of targets) {
-          const projectRoot = rootByProject.get(target.project) as string
-          const result = await this.deps.worktree.createTarget({
-            projectRoot,
-            project: target.project,
-            proposalId: proposal.id,
-            baseBranch: target.baseBranch,
-            ...(options.signal !== undefined ? { signal: options.signal } : {}),
-          })
-          created.push({
-            ...target,
-            featureBranch: result.featureBranch,
-            worktreePath: result.worktreePath,
-            portRange: result.portRange,
-            ...(result.baseCommit !== undefined ? { baseCommit: result.baseCommit } : {}),
-          })
-          installed.push(result.install)
-          done.push({ projectRoot, project: target.project, branchCreated: result.branchCreated === true })
-        }
-      } catch (error) {
-        for (const entry of done.reverse()) {
-          try {
-            await this.deps.worktree.remove({
-              projectRoot: entry.projectRoot,
-              project: entry.project,
-              proposalId: proposal.id,
-              force: true,
-              deleteBranch: entry.branchCreated,
-            })
-          } catch {
-            // best effort: the original failure is the one worth reporting
-          }
-        }
-        throw new InvalidTransitionError(
-          `创建 target worktree 失败（已回滚 ${done.length} 个）：${error instanceof Error ? error.message : String(error)}`,
-        )
-      }
-
-      const single = created.length === 1 ? created[0] : undefined
-      await this.deps.proposals.patchFields(proposal.id, {
-        targets: created,
-        ...(single !== undefined
-          ? { worktreePath: single.worktreePath, portRange: single.portRange, featureBranch: single.featureBranch }
-          : { worktreePath: undefined, portRange: undefined, featureBranch: undefined }),
-      })
-      const install = installed.includes('failed') ? 'failed' : installed.includes('installed') ? 'installed' : 'skipped'
-      const first = created[0] as ProposalTarget
-      return {
-        worktreePath: first.worktreePath as string,
-        portRange: first.portRange ?? [],
-        install,
-        targets: created,
-      }
+      await this.deps.proposals.patchFields(proposal.id, { targets: planned })
+      // G2 交接：写实现待办（幂等）。失败不回滚状态——待办只是人的意图，
+      // 真实执行由 Super-agent 的 Eval 决定；写失败时把原因抛给调用方。
+      await this.deps.onImplementing?.(proposal, planned)
+      return { worktreePath: '', portRange: [], install: 'skipped', targets: planned }
     }
     if (to === 'archiving') {
       // wiki.md + commits.md land in the change dir BEFORE openspec archive
@@ -745,7 +673,7 @@ export class LifecycleServiceImpl {
     // Run or a deleted TASKS.json could otherwise slip through).
     const targets = (await this.deps.resolveProjectRoots?.(proposal)) ?? []
     if (options.force !== true && targets[0]?.root !== undefined) {
-      await this.assertTeamEvidence(targets[0].root, proposal)
+      await this.assertTaskEvidence(targets[0].root, proposal)
     }
     await this.assertApproval(proposal, 'archived', options)
     if (options.force === true) await this.assertForceAllowed(proposal, options)
@@ -878,56 +806,48 @@ export class LifecycleServiceImpl {
     return proposal
   }
 
-  /** TEST.md/TEAM-REVIEW.md are required only when the change opted into a team run. */
-  private async assertTeamEvidence(root: string, proposal: Proposal): Promise<void> {
+  /**
+   * `TEST.md` / `TEAM-REVIEW.md` 只在变更目录里有 `TASKS.json` 时必需
+   * （change `remove-team-executor`：判据从"有没有团队 Run"改成"有没有任务清单"）。
+   *
+   * 独立性判定只看工件本身：`TEAM-REVIEW.md` 的 reviewer 标记与标记提交的作者比较。
+   * 拿不到 git 事实时按 `reviewerIndependence` 降级，不静默通过。
+   */
+  private async assertTaskEvidence(root: string, proposal: Proposal): Promise<void> {
     const gate = this.deps.teamEvidenceGate ?? 'block'
     if (gate === 'off') return
-    const result = await checkTeamEvidence(root, this.openspecRoot, proposal.openspecChangeId)
-    const runs = (await this.deps.teamRuns?.list()) ?? []
-    const latestRun = runs
-      .filter((run) => run.proposalId === proposal.id)
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
-    const managed = result.managed || latestRun !== undefined
-    if (!managed) return
-    const runError =
-      latestRun !== undefined && latestRun.status !== 'succeeded'
-        ? `最近团队 Run ${latestRun.id} 终态为 ${latestRun.status}，只有 succeeded 才能归档`
-        : undefined
-    const reviewerError = (() => {
-      if (latestRun === undefined || result.reviewer === undefined) return undefined
-      const dispatches = latestRun.dispatches ?? []
-      const implementerIds = new Set(dispatches.filter((dispatch) => dispatch.role !== 'reviewer').map((dispatch) => dispatch.id))
-      const implementerSessions = new Set(
-        dispatches.filter((dispatch) => dispatch.role !== 'reviewer' && dispatch.sessionId !== undefined).map((dispatch) => dispatch.sessionId),
-      )
-      const reviewerSessions = dispatches
-        .filter((dispatch) => dispatch.role === 'reviewer' && dispatch.sessionId !== undefined)
-        .map((dispatch) => dispatch.sessionId)
-      if (implementerIds.has(result.reviewer)) return `TEAM-REVIEW reviewer ${result.reviewer} 与实现者 Dispatch 相同`
-      if (implementerSessions.has(result.reviewer)) return `TEAM-REVIEW reviewer ${result.reviewer} 与实现者会话相同`
-      if (reviewerSessions.some((session) => implementerSessions.has(session))) {
-        return 'reviewer 与实现者复用了同一 session — 独立审查要求不同身份'
+    const result = await checkTaskEvidence(root, this.openspecRoot, proposal.openspecChangeId)
+    if (!result.managed) return
+
+    const errors = [...result.errors]
+    const independence = this.deps.reviewerIndependence ?? 'warn'
+    if (result.reviewer !== undefined && independence !== 'off') {
+      const authors = await this.markedCommitAuthors(root, proposal.id)
+      if (authors.includes(result.reviewer)) {
+        const message = `TEAM-REVIEW reviewer ${result.reviewer} 与标记提交的作者相同（same-as-author）`
+        if (independence === 'block') errors.push(message)
+        else console.warn(`[workmate] ${message} — reviewerIndependence=warn`)
       }
-      const reviewerIds = new Set(dispatches.filter((dispatch) => dispatch.role === 'reviewer').map((dispatch) => dispatch.id))
-      if (reviewerIds.size > 0 && !reviewerIds.has(result.reviewer)) {
-        return `TEAM-REVIEW reviewer ${result.reviewer} 不在本 Run 的 reviewer dispatch 中`
-      }
-      return undefined
-    })()
-    const tasksError = result.managed ? undefined : '存在团队 Run 但 TASKS.json 缺失 — 团队证据不可绕过'
-    if (result.ok && runError === undefined && reviewerError === undefined && tasksError === undefined) return
-    const errors = [
-      ...result.errors,
-      ...(tasksError !== undefined ? [tasksError] : []),
-      ...(runError !== undefined ? [runError] : []),
-      ...(reviewerError !== undefined ? [reviewerError] : []),
-    ]
-    const error = new InvalidTransitionError(`团队证据不完整 — ${errors.join('；')}`)
+    }
+
+    if (errors.length === 0) return
+    const error = new InvalidTransitionError(`任务证据不完整 — ${errors.join('；')}`)
     if (gate === 'block') {
       await this.recordGateFailure(proposal, 'archiving', error, undefined, 'team-evidence')
       throw error
     }
-    console.warn(`[workmate] team evidence warning for ${proposal.id}: ${errors.join('；')}`)
+    console.warn(`[workmate] task evidence warning for ${proposal.id}: ${errors.join('；')}`)
+  }
+
+  /**
+   * 标记提交（`[proposal:<id>]`）的作者集合。
+   * 复用 `orchestrate.ts` 的 `collectExecutorIdentities`：同一份 git 事实只读一次口径，
+   * 避免两个门对同一个"作者"给出不同结论。非 git 根返回 `[]` → 调用方按 `undetermined` 降级。
+   */
+  private async markedCommitAuthors(root: string, proposalId: string): Promise<string[]> {
+    return (await collectExecutorIdentities(root, proposalId)).flatMap((identity) =>
+      [identity.name, identity.email].filter((value): value is string => typeof value === 'string' && value !== ''),
+    )
   }
 
   /** Merge every declared target's feature branch into its base (idempotent). */

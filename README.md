@@ -631,7 +631,8 @@ Git 关联、worktree 信息、决策日志、卡点、审查报告与 Wiki 引�
   已完成`，卡片状态**只来自 Super-agent 的 Ticket 投影**，面板不自己算阶段；
   新建待办写 `tasks.json`，指派/回答/停止分别对应"写意图 / 追加 `inputs.jsonl` /
   代理执行器 stop"。执行交给 [Super-agent](docs/SUPERAGENT-INTEGRATION.md) 里的
-  `workmate-superagent-source` 来源，`taskExecutor=team` 可退回旧团队派发。
+  `workmate-superagent-source` 来源。团队执行器已在 `remove-team-executor` 中删除，
+  回退只能停用子包 bundle 并跑回滚脚本（见 `docs/SUPERAGENT-INTEGRATION.md`）。
   执行器离线时待办仍可记录，卡片显示"执行器离线"，不假装已投递。
 - **控制台**（跨提案只读视图）：聚合 KPI（提案数、返工率、首次通过率、周期时间中位数、
   近 7/30 天归档数、agent/人 触发占比）+ 每提案行（状态、该状态停留、周期、返工、门禁

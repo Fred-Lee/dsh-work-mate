@@ -24,7 +24,7 @@ pnpm verify                    # 五条门禁：契约 + 工具链钉版 + 宿�
 pnpm verify:contract           # patch id / package.json / 入口 name 三处一致
 pnpm verify:toolchain          # toolchain.json ↔ package.json 钉版一致
 pnpm verify:host-compat        # dsh peer 范围与宿主基线（借宿主自己的判定函数）
-pnpm verify:built              # 加载 dist/index.js（真实模块求值）并断言宿主工具面（团队 6 工具在内）
+pnpm verify:built              # 加载 dist/index.js（真实模块求值）并断言宿主工具面（20 个工具，不含已删的 team_*）
 pnpm verify:client             # 在 VM 里真求值 dist/client/client.js：load 次数 / id / apply /
                                # inject / external 白名单（**默认拒绝**）——补"单测抓不到、
                                # 只有真机才暴露"那道门；它只管装载契约，不证明 UI 渲染对
@@ -116,40 +116,29 @@ node $DSH web                                                # http://127.0.0.1:
 | `workmate/events.jsonl` | 过程事件流（append-only：状态迁移 / 门禁失败 / 控制带越界） |
 | `workmate/bands.json` | 控制带配置（缺失用内建默认，损坏 fail-closed 报错） |
 | `workmate/decision-cache.json` | 判断缓存（同题复用；损坏 fail-open，仅性能层） |
-| `workmate/team-runs.json` | 团队 Run / Task / Dispatch / 持久化收件箱（原子写、损坏 fail-closed） |
 
 `proposals.json` 写入必须 **tmp + rename 原子写**；文件损坏 fail-closed——启动期报告、
 永不覆盖（board warmUp 教训）。`events.jsonl` 是**只追加**的 JSONL：只增不改，读取端
 容忍撕裂尾行与非法行（忽略并计数，绝不抛错）；事件流损坏不得影响聚合读写。
 度量一律由事件流**现算**（`src/features/proposal/metrics.ts` 纯函数），不落第二份真相。
 
-## 团队编排（2026-10-19，`autonomous-agent-team`）
+## 团队执行器已移除（2026-11-02，`remove-team-executor`）
 
-团队 Run 是**提案之上的执行层**，不替代八态生命周期：
+`src/features/team/` 整个目录、6 个 `workmate_team_*` 工具、4 条 `/api/team/*` REST、
+面板「团队」视图、7 个 `team*` 配置项与 `taskExecutor` 全部删除。理由：它重复了
+Super-agent 已经做得更好的一层（并发、重试、会话、提问），且默认关闭、真机从未跑过。
 
-- 工具面：`workmate_team_prepare`（从 proposal/design/tasks 派生 REQ/PLAN/TASKS，不覆盖已有）、
-  `workmate_team_plan`（TASKS.json → Run + 波次，`start=true` 可立即跑首波）、
-  `workmate_team_run`、`workmate_team_status`、`workmate_team_inbox`、
-  `workmate_team_answer`；
-- 数据：`workmate/team-runs.json` 保存 Run/Task/Dispatch 与**持久化 inbox**；
-  过程事实（`team-dispatch`/`team-settled`/`team-run`）写 `workmate/events.jsonl`；
-- G1：`workmate_team_plan` 先按模板检查 `REQ.md`/`PLAN.md`/`TASKS.json` 完整性与
-  `TASKS.json` DAG；G2 仍由 `planHash` 人工批准，`teamAutoPlan=true` 时批准后只建
-  planned Run（REST 无 agent，不能自动派发）；
-- 执行边界：每个 worker 用 `ctx.subagents.startActivation` 起原生 child，cwd 绑定
-  target worktree；角色按 `teamReadonlyPreset`/`teamWorkspacePreset` 映射 agentPreset，
-  按 `teamRoleModels` 覆盖模型；`teamRequireRolePresets=true`（默认）时缺 preset 拒绝派发；
-- 正证据：worker 报 done 必须有 outcome/reportPath；测试/审查角色必须有 reportPath；
-  `FILES:` 报告会按 Task `writes` 机检，越界或未声明写域按失败处理；worker 以
-  `QUESTION:`/`ESCALATION:` 结束会暂停 Run 并写入 inbox，回答后用 `resetTask` 继续；
-- 独立性：Dispatch 记录 worker sessionId；reviewer Task 若复用实现者会话直接判失败；
-- 预算：并发 3、每 Task 重试 2、单波 30 分钟硬超时、Run 2h / 300k tokens
-  （仅宿主给 usage 才累计，缺失显示「未计量」）/ 20 Dispatch；超限 abort 并上报；
-- G5：批准后 `merging→archiving` 自动逐 target `git merge feature→base`；冲突即 abort、保持 merging；
-  `rejectMerge(category=plan|implementation)` 退回 `implementing`；plan 类还会作废最近一次
-  G2 approve，改完方案需重新 `approvePlan`；
-- 归档证据：`teamEvidenceGate`（默认 block）在 `merging→archiving` 前检查 team-managed
-  变更的 `TEST.md`/`TEAM-REVIEW.md` 段头；`SUMMARY.md` 会映射进归档 manifest 的 `team` 段。
+保留下来的是与执行无关的治理能力：
+
+- `TASKS.json` 仍是任务单一事实源，待办从它派生；
+- `teamEvidenceGate` 保留但判据收窄为「变更目录里有没有 `TASKS.json`」——有任务就必须有
+  `TEST.md` / `TEAM-REVIEW.md`。审查者独立性只按工件署名与提交作者比较，不再看 Dispatch 会话；
+- `events.jsonl` 里历史的 `team-*` 行继续可读（append-only 事实流），但不再产生新的
+  `team-run`；任务层事件改用 `kind: 'task-settled'`。
+
+回退从「三件事」变「两件事」：① 停用 `workmate-superagent-source` bundle；
+② `node scripts/rollback-superagent.mjs` 清理 worktree / 分支 / 端口。
+`workmate/team-runs.json` 若还在磁盘上，说明曾是团队模式，可以手工删除，不影响装载。
 
 ## Super-agent 执行层（2026-11-01，`adopt-superagent-openspec-source`）
 
@@ -159,9 +148,9 @@ node $DSH web                                                # http://127.0.0.1:
 
 - **定位**：面板建待办 → Source 扫描成 Trigger → Super-agent 的 Eval/Ticket → worker；
   提案、OpenSpec、G2、写域机检、归档门、知识桥接仍在 WorkMate，作用于 `ready` 之后；
-- **`taskExecutor`**：默认 `superagent`；`team` 是显式回退（团队 Run 派发恢复），
-  面板标注「回退执行器」。`superagent` 模式下不建 Run、`workmate_team_run` 返回 disabled、
-  `ready→implementing` 只校验基线分支存在，**不预建 worktree**；
+- **唯一执行器**：`superagent`（`taskExecutor` 配置项已在 `remove-team-executor` 删除）。
+  不建 Run、`ready→implementing` 只校验基线分支存在，**不预建 worktree**；
+  回退只能停用子包 bundle + 跑回滚脚本；
 - **三份文件、三个单写者**：`tasks.json`（面板写，原子 + fail-closed）、
   `inputs.jsonl`（面板追加）、`tasks.jsonl`（Source 追加）。执行阶段一律读 Ticket 投影，
   **不镜像**到第四份文件；
@@ -174,8 +163,8 @@ node $DSH web                                                # http://127.0.0.1:
 - **回滚三件事，缺一泄漏**：① `taskExecutor=team`；② 停用子包 bundle；
   ③ `node scripts/rollback-superagent.mjs`（不依赖执行器在线，三级定位目录，
   端口找不到时明确输出"可能泄漏"）；
-- **面板**：默认视图是任务四列（待办/执行中/需要我/已完成）；团队视图在 superagent 模式下
-  只读并把回答/重试链接回任务视图；`GET /api/config` 暴露 `taskExecutor`；
+- **面板**：默认视图是任务四列（待办/执行中/需要我/已完成），另有活动视图（历史 + 搜索）；
+  `GET /api/config` 仍返回常量 `taskExecutor: 'superagent'` 给旧客户端读取；
 - **接入手册**：`docs/SUPERAGENT-INTEGRATION.md`（安装、准入两步、prepare 模板、回滚、
   排查表）；安装自检 `node scripts/verify-source-install.mjs --profile <dir>`；
   无 GitHub 凭据时的引擎级演练 `pnpm verify:drill`（真实 `Engine` + 真实门禁 + 真实
@@ -262,7 +251,6 @@ profile 侧 `@deepseek-ai/schemastery 3.18.5`、`@deepseek-ai/cordis 4.0.5`；�
 | 审查证据机检 | `reviewEvidenceGate` | `'warn'` | `off`/`warn`/`block`；`block` 下反引号引用指向不存在的文件即拦归档；行号越界只 warn；GitNexus 查询结论标注为不可机检 |
 | 计划漂移 | `planDriftGate` | `false` | 只拦**改了没声明**（`undeclared` → failed）；**声明了没改**只产出一条 `warn` 步骤（计划写多了或改在别处，无法从 git 事实区分，不阻断）。提案自己的 `openspec/changes/<id>/` 是计划不是交付物，计入 `excluded` 而不算漂移。想在本机开启：在 `~/.dsh/profiles/<profile>/cordis.patch.yml` 的 workmate 条目加 `planDriftGate: true` |
 | 团队证据 | `teamEvidenceGate` | `'block'` | `off`/`warn`/`block`；有 `TASKS.json` 的变更在归档前必须有 `TEST.md`/`TEAM-REVIEW.md` 及规定段头 |
-| 团队自动建 Run | `teamAutoPlan` | `false` | G2 批准后按完整 `TASKS.json` 建 planned Run（不自动派发） |
 | swarm 逐任务核验 | `swarmReviewRequired` | `false` | `true` 时每个已合并 swarm 任务都必须有独立核验记录（`workmate_swarm_task action=verify`），自评（`same-as-author`）或取不到 git 事实（`undetermined`）都算未核验 |
 | 归档步骤的成败判据 | 无（代码级，不可配） | — | `openspec-archive` 步骤不看退出码，只看**产物事实**：该变更是否真的从 `changes/<id>/` 移入 `changes/archive/<date>-<id>/`。**`openspec archive` 在 delta 解析失败时退出码仍是 0**（只打 `Aborted. No files were changed.`），所以"退出码 0 就报 ok"会让面板显示归档成功而目录原地不动（2026-10-12 四份提案全部命中，人工修 spec 段头才真正归档）。核验不过即 `failed` + `ok=false` + 提案停在 `archiving`，摘要带 CLI 原话与"仍在原地"。无 `specs/` 的变更与幂等重跑都不误伤 |
 
@@ -297,7 +285,6 @@ fix(store): 修复原子写中断后残留 tmp 文件
 | `docs/DESIGN.md` | 技术设计文档 0.1.0-draft（架构、模块、里程碑） |
 | `docs/DSH-INTEGRATION-NOTES.md` | DSH 宿主集成契约（Origin 围栏、bundle 声明、link 安装、证据等级） |
 | `docs/DSH-FIT-AUDIT.md` | DSH 适配度评估（P0/P1/P2 清单、证据、落地进度） |
-| `docs/TEAM-SETUP.md` | 团队角色 preset、工件准备、首次 Run 与证据门操作手册（`taskExecutor=team` 回退线） |
 | `docs/SUPERAGENT-INTEGRATION.md` | 子包安装、explicit 准入两步、prepare 模板、回滚与排查表 |
 | `docs/SUPERAGENT-ACCEPTANCE.md` | 只能真机验证的项：勾选表与阶段对照 |
 | `openspec/specs/` | 已归档能力规格 |

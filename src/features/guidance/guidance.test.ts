@@ -62,7 +62,6 @@ describe('registerGuidance', () => {
       'workmate-knowledge-usage',
       'workmate-daily-loop',
       'workmate-ui-review',
-      'workmate-team-run',
     ])
     const flow = skills.register.mock.calls[0]?.[0] as RuntimeSkill
     expect(flow.description).toContain('WorkMate')
@@ -96,7 +95,7 @@ describe('registerGuidance', () => {
     const skills = fakeSkills()
     const first = fakeCtx({ skills })
     registerGuidance(first.ctx)
-    expect(skills.register).toHaveBeenCalledTimes(7)
+    expect(skills.register).toHaveBeenCalledTimes(6)
 
     const prompt = fakePrompt(2600)
     const second = fakeCtx({ systemPrompt: prompt })

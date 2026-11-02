@@ -7,24 +7,19 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Btn, DisclosureRow, Modal, PathLabel, Pill, Segmented, StateDot, Tag, Tooltip } from './controls'
-import { getBands, getMetrics, getPanelConfig } from './api'
+import { getBands, getMetrics } from './api'
 import type { AggregateMetrics, BandEvaluation, BandsPayload } from './types'
 import {
   advanceProposal,
-  answerTeamQuestion,
   abandonProposal, approvePlan, archiveProposal,
   createProposal,
   getIsolation,
   getProposal,
   getProjectStatus,
-  getTeamRun,
   listProposalEvents,
   listProjectBranches,
   listProjects,
   listProposals,
-  listTeamRuns,
-  getTeamArtifacts,
-  type TeamArtifactView,
   listWorkspaceCandidates,
   reconcileProposal,
   rejectMerge,
@@ -34,14 +29,11 @@ import {
   type ProjectBranches,
   type RegisteredProject,
   type ProposalEventRow,
-  type TeamRunEvent,
   type WorkspaceCandidate,
 } from './api'
 import type { Proposal, ProposalState, ProposalStatusPayload } from './types'
 import { TasksView } from './TasksView'
-import type { TeamRun } from '../features/team/types.ts'
 import { GraphView } from './GraphView'
-import { taskWaves, waveDepth } from './team-waves'
 import { PANEL_STYLE } from './styles'
 
 /** Map lifecycle states onto the shared Tag/StateDot palettes. */
@@ -108,9 +100,7 @@ function relativeTime(iso: string): string {
 
 export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const { projectRoot } = props
-  const [view, setView] = useState<'tasks' | 'board' | 'list' | 'graph' | 'console' | 'team'>(() => initialView())
-  /** 执行器模式：决定团队视图是只读投影（superagent）还是可派发控制台（team 回退）。 */
-  const [taskExecutor, setTaskExecutor] = useState<'superagent' | 'team'>('superagent')
+  const [view, setView] = useState<'tasks' | 'board' | 'list' | 'graph' | 'console'>(() => initialView())
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [details, setDetails] = useState<Record<string, ProposalStatusPayload>>({})
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -162,13 +152,6 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
     } catch {
       setProjects([])
     }
-  }, [])
-
-  useEffect(() => {
-    // 执行器模式是装配期事实，只取一次；取不到就按默认 superagent（只读更安全）。
-    void getPanelConfig()
-      .then((config) => setTaskExecutor(config.taskExecutor === 'team' ? 'team' : 'superagent'))
-      .catch(() => undefined)
   }, [])
 
   useEffect(() => {
@@ -378,7 +361,6 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
               { value: 'tasks', label: '任务' },
               { value: 'board', label: '看板' },
               { value: 'list', label: '列表' },
-              { value: 'team', label: '团队' },
               { value: 'console', label: '控制台' },
               { value: 'graph', label: '知识图谱' },
             ]}
@@ -470,8 +452,6 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           <TasksView onError={setError} />
         ) : view === 'graph' ? (
           <GraphView projectRoot={projectRootDraft || undefined} />
-        ) : view === 'team' ? (
-          <TeamView onError={setError} taskExecutor={taskExecutor} onGoToTasks={() => setView('tasks')} />
         ) : view === 'console' ? (
           <ConsoleView onError={setError} />
         ) : view === 'list' ? (
@@ -976,240 +956,6 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
  * 这里不再直接改写 Run（避免同一个问题有两处入口、两种语义）。
  * `team`（回退）模式保持原行为。
  */
-function TeamView(props: {
-  onError: (message: string) => void
-  taskExecutor?: 'superagent' | 'team'
-  onGoToTasks?: () => void
-}): JSX.Element {
-  const readonly = (props.taskExecutor ?? 'superagent') !== 'team'
-  const [runs, setRuns] = useState<TeamRun[]>([])
-  const [selected, setSelected] = useState<string | null>(null)
-  const [detail, setDetail] = useState<{ run: TeamRun; events: TeamRunEvent[] } | null>(null)
-  const [artifacts, setArtifacts] = useState<TeamArtifactView[]>([])
-  const [loading, setLoading] = useState(true)
-
-  const refresh = useCallback(async () => {
-    setLoading(true)
-    try {
-      const response = await listTeamRuns()
-      setRuns([...(response.runs ?? [])].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)))
-    } catch (cause) {
-      props.onError(cause instanceof Error ? cause.message : String(cause))
-    } finally {
-      setLoading(false)
-    }
-    // The error callback is stable enough for this read-only view.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
-
-  async function open(id: string): Promise<void> {
-    setSelected(id)
-    try {
-      setDetail(await getTeamRun(id))
-      const view = await getTeamArtifacts(id)
-      setArtifacts(view.artifacts ?? [])
-    } catch (cause) {
-      props.onError(cause instanceof Error ? cause.message : String(cause))
-    }
-  }
-
-  useEffect(() => {
-    if (selected === null && runs.length > 0) void open(runs[0]!.id)
-    // Auto-select the newest run so the console is not an empty page.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runs])
-
-  async function answer(runId: string, messageId: string): Promise<void> {
-    const reply = window.prompt('回答 worker 的提问（会写回 Run 的 inbox）')
-    if (reply === null || reply.trim() === '') return
-    try {
-      await answerTeamQuestion(runId, messageId, reply)
-      await open(runId)
-      await refresh()
-    } catch (cause) {
-      props.onError(cause instanceof Error ? cause.message : String(cause))
-    }
-  }
-
-  const shown = detail?.run ?? runs.find((run) => run.id === selected)
-
-  return (
-    <div className="wm-team">
-      <aside className="wm-team-side">
-      <div className="wm-team-head">
-        <h3>团队 Run</h3>
-        {readonly ? <span className="wm-tier">只读投影</span> : <span className="wm-tier">回退执行器</span>}
-        <button className="wm-btn mini" type="button" onClick={() => void refresh()}>
-          刷新
-        </button>
-      </div>
-      {readonly && (
-        <div className="wm-empty">
-          团队 Run 仅作历史投影：派发、回答与重试都在任务视图完成（Super-agent 承担执行）。
-        </div>
-      )}
-      {loading ? (
-        <div className="wm-empty">加载中…</div>
-      ) : runs.length === 0 ? (
-        <div className="wm-empty">还没有团队 Run — 用 workmate_team_plan 从 TASKS.json 创建</div>
-      ) : (
-        <div className="wm-team-list">
-          {runs.map((run) => {
-            const done = run.tasks.filter((task) => task.status === 'done').length
-            return (
-              <button
-                className={`wm-team-row${selected === run.id ? ' active' : ''}`}
-                key={run.id}
-                type="button"
-                title={run.id}
-                onClick={() => void open(run.id)}
-              >
-                <div>
-                  <b>{run.id}</b>
-                  <div className="wm-card-id">
-                    {run.proposalId} · {run.template}
-                  </div>
-                </div>
-                <span className="wm-tier">{run.status}</span>
-                <span className="wm-progress-label">
-                  {done}/{run.tasks.length} tasks
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      )}
-      </aside>
-
-      <section className="wm-team-main">
-      {shown !== undefined ? (
-        <div className="wm-team-detail">
-          <h4>
-            {shown.id} · {shown.status}
-          </h4>
-          <div className="wm-progress-label">
-            {shown.proposalId} · {shown.template} · parallel {shown.budget.maxParallel} · 关键路径 {waveDepth(shown.tasks)} 波 · token {shown.tokensUsed !== undefined ? `${shown.tokensUsed}/${shown.budget.maxTokens}` : '未计量'}
-          </div>
-          {(shown.inbox ?? [])
-            .filter((message) => message.status === 'open' && (message.kind === 'question' || message.kind === 'escalation'))
-            .map((message) => (
-              <div className="wm-team-question" key={message.id}>
-                <b>{message.kind}</b> {message.taskId ?? ''}：{message.body}
-                {readonly ? (
-                  <button
-                    className="wm-btn mini"
-                    type="button"
-                    onClick={() => props.onGoToTasks?.()}
-                    title="执行由 Super-agent 承担：回答在任务视图完成"
-                  >
-                    去任务视图回答
-                  </button>
-                ) : (
-                  <button className="wm-btn mini" type="button" onClick={() => void answer(shown.id, message.id)}>
-                    回答
-                  </button>
-                )}
-              </div>
-            ))}
-          <div className="wm-team-roles">
-            {[...new Set(shown.tasks.map((task) => task.role))].map((role) => {
-              const roleTasks = shown.tasks.filter((task) => task.role === role)
-              const active = roleTasks.filter((task) => task.status === 'dispatched' || task.status === 'running').length
-              return (
-                <span className={`wm-team-role${active > 0 ? ' active' : ''}`} key={role}>
-                  {role} · {roleTasks.length}
-                  {active > 0 ? ` · 运行 ${active}` : ''}
-                </span>
-              )
-            })}
-          </div>
-          {shown.tasks.some((task) => task.status === 'dispatched' || task.status === 'running') && (
-            <div className="wm-team-current">
-              当前 worker：
-              {shown.tasks
-                .filter((task) => task.status === 'dispatched' || task.status === 'running')
-                .map((task) => `${task.id}（${task.role}）`)
-                .join('、')}
-            </div>
-          )}
-          <div className="wm-team-waves">
-            {taskWaves(shown.tasks).map((wave, index) => (
-              <div className="wm-team-wave" key={index}>
-                <div className="wm-team-wave-head">波次 {index + 1}</div>
-                {wave.map((task) => (
-                  <div className={`wm-team-chip ${task.status}`} key={task.id}>
-                    {task.id} · {task.role} · {task.status}
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-          <table className="wm-team-table">
-            <thead>
-              <tr>
-                <th>Task</th>
-                <th>角色</th>
-                <th>状态</th>
-                <th>依赖</th>
-                <th>Dispatch / 身份 / 报告</th>
-                <th>尝试</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.tasks.map((task) => (
-                <tr key={task.id}>
-                  <td>{task.id}</td>
-                  <td>{task.role}</td>
-                  <td>{task.status}</td>
-                  <td>{task.dependsOn !== undefined && task.dependsOn.length > 0 ? task.dependsOn.join(', ') : '—'}</td>
-                  <td>
-                    {(shown.dispatches ?? [])
-                      .filter((dispatch) => dispatch.taskId === task.id)
-                      .map((dispatch) => `${dispatch.id}${dispatch.sessionId !== undefined ? ` · ${dispatch.sessionId}` : ''}${dispatch.reportPath !== undefined ? ` · ${dispatch.reportPath}` : ''}`)
-                      .join(' / ') || '—'}
-                  </td>
-                  <td>{task.attempts}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {artifacts.length > 0 && (
-            <div className="wm-team-artifacts">
-              {artifacts.map((artifact) => (
-                <details className="wm-team-artifact" key={artifact.name}>
-                  <summary>
-                    {artifact.name}
-                    {artifact.content === undefined ? '（缺失）' : ` · ${artifact.content.length} 字符`}
-                  </summary>
-                  {artifact.content !== undefined && (
-                    <pre className="wm-team-artifact-body">{artifact.content}</pre>
-                  )}
-                </details>
-              ))}
-            </div>
-          )}
-          {detail !== null && detail.events.length > 0 && (
-            <div className="wm-team-events">
-              {detail.events.map((event, index) => (
-                <div key={`${event.at}-${index}`} className="wm-action-note">
-                  {event.kind} {event.taskId ?? ''} {event.status ?? ''} {event.detail ?? ''}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="wm-empty">选择左侧 Run 查看任务与工件</div>
-      )}
-      </section>
-    </div>
-  )
-}
-
 function ProposalDrawer(props: {
   proposal: Proposal
   detail: ProposalStatusPayload | undefined
@@ -1877,14 +1623,13 @@ function CreateModal(props: {
  * ignores the query, the standalone page honours it, screenshots and docs links
  * stay reproducible.
  */
-function initialView(): 'tasks' | 'board' | 'list' | 'graph' | 'console' | 'team' {
+function initialView(): 'tasks' | 'board' | 'list' | 'graph' | 'console' {
   // 主视图是「任务」（change `adopt-superagent-openspec-source`）：提案看板降为并列页签。
   if (typeof window === 'undefined') return 'tasks'
   const requested = new URLSearchParams(window.location.search).get('view')
   return requested === 'console' ||
     requested === 'graph' ||
     requested === 'list' ||
-    requested === 'team' ||
     requested === 'board' ||
     requested === 'tasks'
     ? requested
