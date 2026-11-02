@@ -128,13 +128,16 @@ export function TasksView(props: { onError: (message: string) => void; pollMs?: 
             ? '读取中…'
             : board.health?.online === true
               ? `执行器在线 · ${board.health.endpoint}`
-              : `执行器离线 · ${board.health?.reason ?? '未知原因'}`}
+              : '执行器离线'}
           {board?.health?.paused === true ? ' · 已暂停' : ''}
         </span>
         <span className="wm-tasks-count">{cards.length} 个任务 · {board?.attention ?? 0} 个需要你</span>
-        {(board?.notes ?? []).map((note) => (
-          <Tag key={note} tone="warning">{note}</Tag>
-        ))}
+        {(board?.notes ?? [])
+          // 「执行器离线」的细节由下面的红色横幅统一说明，这里只留它能做的补充提示。
+          .filter((note) => board?.health?.online !== false || !note.startsWith('执行器离线'))
+          .map((note) => (
+            <Tag key={note} tone="warning">{note}</Tag>
+          ))}
         {(leftovers ?? []).length > 0 && (
           <Tooltip
             label={`Ticket 已结束但目录仍在：${leftovers.map((entry) => entry.directory).join('、')}`}

@@ -574,7 +574,10 @@ describe('panel scroll contract (fix-panel-scroll)', () => {
     expect(board).toMatch(/repeat\(4,/)
     expect(PANEL_STYLE).toMatch(/@media \(max-width: 640px\) \{ \.wm-tasks-board/)
     expect(PANEL_STYLE).toMatch(/@media \(max-width: 720px\) \{[^}]*\.wm-header/)
-    expect(PANEL_STYLE).toMatch(/\.wm-toolbar \{[^}]*overflow-x: auto/)
+    // 320 实测：视图切换条本身比整行宽（290 > 256），横向滚动会把「知识图谱」与
+    // 「＋新提案」截在视口外——改成按钮换行（真机截图确认）。
+    expect(PANEL_STYLE).toMatch(/\.wm-toolbar \{[^}]*flex-wrap: wrap/)
+    expect(PANEL_STYLE).toMatch(/@media \(max-width: 420px\) \{[^@]*?\.wm-seg button \{ padding: 0 8px; \}/)
     expect(cssBlock('.wm-task-title')).toMatch(/-webkit-line-clamp: 2/)
   })
 

@@ -93,9 +93,15 @@ export const PANEL_STYLE = `
 @media (max-width: 720px) {
   .wm-header { flex-wrap: wrap; row-gap: 8px; padding: 10px 14px; }
   .wm-brand { flex: 1 1 auto; min-width: 0; }
-  .wm-toolbar { margin-left: 0; width: 100%; justify-content: flex-start; overflow-x: auto; }
+  .wm-toolbar { margin-left: 0; width: 100%; flex-wrap: wrap; justify-content: flex-start; overflow-x: visible; }
   .wm-count { white-space: nowrap; flex: none; }
-  .wm-seg { flex: none; }
+  .wm-seg { flex: 1 1 auto; flex-wrap: wrap; }
+}
+/* 320：视图切换条比整行还宽（实测 290 > 256）。允许按钮换行，不要横向滚动——
+   滚动条能滚，但截断的「知识图谱」与「＋新提案」看起来就是坏了（真机截图）。 */
+@media (max-width: 420px) {
+  .wm-seg { padding: 2px; }
+  .wm-seg button { padding: 0 8px; }
 }
 .wm-pills { display: inline-flex; background: var(--wm-code); border-radius: 999px; padding: 3px; }
 .wm-pill {
