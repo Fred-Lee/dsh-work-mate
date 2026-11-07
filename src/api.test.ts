@@ -166,6 +166,17 @@ describe('proposal REST API', () => {
     await expect(call('GET', '/api/ghost')).resolves.toMatchObject({ status: 404 })
   })
 
+  it('rejects proposal ids that are not a single safe path segment', async () => {
+    for (const id of ['../evil', 'a/b', 'a\\b', '..', '.hidden', 'has space']) {
+      const result = await call('POST', '/api/proposals', { id, title: '穿越' })
+      expect(result.status).toBe(400)
+      expect((result.body as { error: string }).error).toContain('只允许字母、数字')
+    }
+    await expect(call('POST', '/api/proposals', { id: 'Fix_42.v2', title: '合法' })).resolves.toMatchObject({
+      status: 200,
+    })
+  })
+
   it('auto-generates an id when the create body omits it (chat entry)', async () => {
     const created = await call('POST', '/api/proposals', { title: '只有标题' })
     expect(created.status).toBe(200)

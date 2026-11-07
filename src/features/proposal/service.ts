@@ -135,6 +135,12 @@ export class ProposalServiceImpl implements ProposalService {
   async upsert(input: UpsertProposalInput): Promise<Proposal> {
     const id = input.id.trim()
     if (!id) throw new Error('proposal id must be a non-empty string')
+    // 首字符必须是字母数字：挡掉 `..`、隐藏目录与任何以符号开头的怪 id；
+    // 不允许 `/`、`\` 与空白，保证 openspec/changes/<id> 永远是单个安全路径段
+    // （review 2026-11-08：id 此前无校验，`../../x` 可经 generateChangeDir 在项目外建目录）。
+    if (!/^[a-z0-9][a-z0-9._-]*$/i.test(id)) {
+      throw new Error(`proposal id 只允许字母、数字与 . _ -（不能含路径分隔符）: ${JSON.stringify(id)}`)
+    }
 
     const proposals = await this.store.load()
     const timestamp = this.now().toISOString()
