@@ -519,7 +519,7 @@ pnpm dsh web                                            # 启动，默认 http:/
 | `reviewerIndependence` | `'warn'` | 审查者独立性：`off`/`warn`/`block`。`block` 下 review.md 的 reviewer 缺失或与 `[proposal:<id>]` 提交的 author 同一身份即拦归档；取不到 git 事实只 warn |
 | `reviewEvidenceGate` | `'warn'` | review.md 反引号引用机检：`off`/`warn`/`block`。`block` 下引用文件不存在即拦归档，行号越界只 warn |
 | `decisionEnabled` | `false` | 判断层总开关（门禁里发起模型调用必须显式开启） |
-| `decisionProvider` | `'agent'` | 判断 provider：`agent`（宿主 LLM）/ `rules`（确定性兜底）/ `jev`（占位，待 key） |
+| `decisionProvider` | `'agent'` | 判断 provider：`agent`（宿主 LLM）/ `rules`（确定性兜底）/ `jev`（TypeSafe System One 客户端，baseUrl 可配：云 Jev 或本机 Ollama） |
 | `decisionLlmProvider` / `decisionModel` | `''` | `agent` 用的路由与模型；留空取第一个已注册路由的默认模型 |
 | `decisionSamples` | `1` | 同一题采样次数；>1 时一致率作为 certainty 代理（留痕里记 samples） |
 | `decisionTimeoutMs` | `4000` | 单次判断超时 |
@@ -529,6 +529,10 @@ pnpm dsh web                                            # 启动，默认 http:/
 | `reviewGradeMax` | `5` | 一次归档最多让判断层给多少条未打标签的审查发现归级 |
 | `decisionCacheEnabled` | `true` | 判断缓存：同题（state/选项/provider/model/采样数全等）复用上次结论，命中标记 `cached: true` |
 | `decisionCacheMax` | `500` | 缓存条目上限（按时间淘汰）；文件损坏 fail-open，绝不挡住门禁 |
+| `decisionSystemoneUrl` | `'http://127.0.0.1:11434'` | `jev` provider 的 System One 地址（Ollama 的 `/v1/systemone` 挂在同一个 base 上） |
+| `decisionSystemoneModel` | `''` | `jev` 用的模型名；**空 = 该 provider 不可用**（判断链照常降级到 `agent → rules`） |
+| `decisionSystemoneKeepAlive` | `'60s'` | 请求里的 Ollama `keep_alive`：本机判断模型约 9 GiB，不值得常驻 |
+| `decisionSystemoneTimeoutMs` | `60000` | `jev` 单次请求超时，**必须覆盖冷加载**。故意不复用 `decisionTimeoutMs`(4s)：冷模型要从磁盘读约 9 GB，实测 TTFB **18.6–23.5 s**，20 s 会让 keep-alive 过期后的第一次判断**时好时坏地静默降级**（实测留痕 `aborted after 20012ms (timeout 20000ms)`）。**注意本超时只覆盖响应头**：body 读取阶段不受它约束（见 `review.md` 的 `MED-1`） |
 | `gitnexusWikiLang` / `gitnexusWikiTimeoutMs` | `''` / `900000` | wiki 输出语言（本机设为 `chinese`）与生成超时 |
 | `gitnexusApiKeyKeychainService` | `''` | macOS 钥匙串服务名（本机 `ESP_XKW_KEY`）。**harness 环境里没有 key 也能生成**：子进程凭据按「环境变量 → 配置的变量名 → 钥匙串 → `~/.gitnexus/config.json`」解析，只报来源不回声值 |
 | `gitnexusApiKeyFromEnv` | `''` | 把该环境变量的值**仅对子进程**映射为 `GITNEXUS_API_KEY`（GitNexus 只认这个名字）；已在环境里的 `GITNEXUS_API_KEY` 不会被覆盖。本机设为 `ESP_XKW_KEY`——key 存 macOS 钥匙串，不在任何配置文件里 |
@@ -742,9 +746,57 @@ WorkMate 不再自带任务级并行载体（swarm 已于 2026-11-02 的 `remove
 矛盾且没给 `supersedes` 时，`act` 档直接拒绝并要求补 `supersedes`（原先只机械校验
 "supersedes 指向的 id 存不存在"，判不出"你其实在推翻某条旧决策"）。没开判断层时行为完全不变。
 
-> Jev 接入方式：把 `decisionProvider` 设为 `jev` 并配置 TypeSafe key 后，只需实现一个
-> `DecisionProvider` 适配器（`POST https://api.typesafe.ai/v1/systemone`，`state` +
-> 类型化题目 → 选项概率），调用方与门禁逻辑一行不改。
+### 5.9.1 `jev` provider：本机 Ollama 也能当判官（无需 key）
+
+`jev` 已是**可用实现**（`src/features/decision/systemone.ts`）：一个 baseUrl 可配的
+TypeSafe System One 客户端。Ollama 的 `POST /v1/systemone` 就是该协议的本机实现
+（官方文档原文 "follows TypeSafe's Jev API"），所以同一份代码既能打云 Jev，也能打本机：
+
+```yaml
+decisionProvider: jev
+decisionSystemoneModel: nimble          # 空 = 不可用（不会静默回落到别的模型）
+decisionSystemoneUrl: http://127.0.0.1:11434
+```
+
+调用方与门禁逻辑**一行不改**（8 处消费点只调 `decision.decide()`），判断链变为
+`jev → agent → rules`。
+
+**三条写死在本 provider 里的语义**（每条都有一个"看起来能跑"的错误默认值）：
+
+1. **certainty 取选项概率，不取 `confidence`**：`choice` 取 `max(probabilities)`，
+   `noul` 取 `max(noul, 1-noul)`。Ollama 把 `confidence` 定义为
+   `1 - H(p)/ln(N)`（"分布集中度…Not calibrated correctness"），而 WorkMate 的
+   act/review 阈值问的是"该不该行动"——拿它当 certainty 会把阈值判据悄悄换掉。
+2. **题面超限即弃权，不截断**：请求体上限 64 KiB（无图时），超限返回"无结论"并降级。
+   静默截断会让留痕里的依据与模型实际看到的题面不一致。
+3. **枚举外/非 2xx/非法 JSON/超时 → 无结论**，绝不回落到 `options[0]`；
+   `available()` 只看配置（不做启动期探测并缓存——Ollama 可能在本 harness 之后才起）。
+
+**首判会冷加载（务必知道）**：`keep_alive` 到期后第一次判断要从磁盘读约 9 GB，
+实测 TTFB 18.6–23.5 s，所以默认超时定在 `60s`；调小会让首判在 20 s 附近**时好时坏地
+静默降级到 `agent`**（现象是"本地模型好像没生效"）。想稳定就走预热（先打一次再归档）。
+
+> 已知边界（`review.md` 的 `HIGH-1` / `MED-1`）：provider 的 `timeoutMs` 实际只覆盖
+> **响应头到达**那一段，`await response.json()` 不受它约束；同一函数体的 `finally` 还会
+> 摘掉外部 `AbortSignal` 监听，使编排的取消信号在 body 阶段失效。
+
+**机器约束（务必先看再选模型）**：判断模型必须同时满足
+「权重 ≤ Metal 工作集上限 − 约 0.5 GiB 的 MLX 固定保留」。本机
+（MacBookPro18,3 / M1 Pro / 16 GiB / 默认 `iogpu.wired_limit_mb=0`）实测：
+
+| 模型 | 权重 | 本机结果 |
+|---|---|---|
+| `clef-flash` | 11.54 GiB | ❌ 加载失败：`model requires 11.5 GiB but only 11.3 GiB are available (after 512.0 MiB overhead)`；`OLLAMA_GPU_OVERHEAD=0` 无效 |
+| `clef` | 15.89 GiB | ❌ 同上 |
+| `nimble` 9B | 8.87 GiB | ✅ 落地选择（Ollama 公开基准 75.7%，Jev 1.13 为 76.0%） |
+| `tev1:0.8b` | ~0.6 GiB | ✅ 只作链路冒烟用 |
+
+那个 512 MiB 是 MLX 的固定保留，**与系统空闲内存无关**——"关掉浏览器/编辑器腾内存"这条路
+已被实测证伪。要硬上 clef-flash 得改 `sudo sysctl iogpu.wired_limit_mb`（需要 root，
+且 16 GiB 机器只剩约 4 GiB 给系统），属机器运维取舍，不是代码方案。
+
+> 云 Jev 同理：把 `decisionSystemoneUrl` 指向部署地址、按部署要求配 key 即可，
+> 不需要改任何调用方。
 
 ---
 

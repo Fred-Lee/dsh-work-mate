@@ -161,6 +161,24 @@ export interface Config {
   taskJudgementGate?: boolean
   /** How many untagged review findings one archive run may grade. @default 5 */
   reviewGradeMax?: number
+  /**
+   * Base URL of the System One server used by the `jev` provider (Ollama's
+   * `/v1/systemone`, or a cloud Jev deployment). @default 'http://127.0.0.1:11434'
+   */
+  decisionSystemoneUrl?: string
+  /** System One model for the `jev` provider; empty = provider unavailable. @default '' */
+  decisionSystemoneModel?: string
+  /**
+   * How long the System One server keeps the model resident between judgements
+   * (Ollama `keep_alive`); short on purpose — the local model is ~9 GiB. @default '60s'
+   */
+  decisionSystemoneKeepAlive?: string
+  /**
+   * Per-request timeout for the `jev` provider. Deliberately NOT `decisionTimeoutMs`:
+   * a cold 9 GiB local model needs to be read from disk, and 4s would time out on
+   * every first judgement after the keep-alive expires. @default 20000
+   */
+  decisionSystemoneTimeoutMs?: number
   /** Cache judgement answers so repeated questions cost nothing. @default true */
   decisionCacheEnabled?: boolean
   /** Cached judgement entries to keep (oldest evicted first). @default 500 */
@@ -295,6 +313,10 @@ export const Config: z<Config> = z.object({
     .description('States a high-risk proposal must also get human approval for.'),
   taskJudgementGate: z.boolean().default(false).description('Block archiving on a judged-unsatisfied task.'),
   reviewGradeMax: z.number().default(5).description('How many untagged review findings one archive run may grade.'),
+  decisionSystemoneUrl: z.string().default('http://127.0.0.1:11434').description('System One base URL for the jev provider.'),
+  decisionSystemoneModel: z.string().default('').description('System One model for the jev provider; empty = unavailable.'),
+  decisionSystemoneKeepAlive: z.string().default('60s').description('Ollama keep_alive for the jev provider.'),
+  decisionSystemoneTimeoutMs: z.number().default(60000).description('Per-request timeout for the jev provider. Covers the COLD model load: measured TTFB on this machine is 18.6-23.5s while a 9GB model is read from disk, so 20s makes the first judgement fail intermittently.'),
   decisionCacheEnabled: z.boolean().default(true).description('Cache judgement answers (repeated questions cost nothing).'),
   decisionCacheMax: z.number().default(500).description('Cached judgement entries to keep.'),
   gitnexusWikiLang: z.string().default('').description('Language for gitnexus wiki; empty = GitNexus default.'),
@@ -357,6 +379,10 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   highRiskExtraGates: ['implementing'],
   taskJudgementGate: false,
   reviewGradeMax: 5,
+  decisionSystemoneUrl: 'http://127.0.0.1:11434',
+  decisionSystemoneModel: '',
+  decisionSystemoneKeepAlive: '60s',
+  decisionSystemoneTimeoutMs: 60000,
   decisionCacheEnabled: true,
   decisionCacheMax: 500,
   gitnexusWikiLang: '',
