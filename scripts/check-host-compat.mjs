@@ -69,9 +69,51 @@ export function hostLibCandidates(explicit) {
   const candidates = []
   if (explicit !== undefined) candidates.push(explicit)
   if (process.env['DSH_APP_BOOT_LIB'] !== undefined) candidates.push(process.env['DSH_APP_BOOT_LIB'])
+  // The installed host ships its own app-boot build; prefer it so the gate evaluates with the
+  // code that actually runs. Harness checkouts stay as fallbacks for source-level development.
+  for (const root of globalRoots()) {
+    candidates.push(join(root, '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-app-boot', 'lib', 'index.js'))
+  }
   candidates.push(resolve(REPO_ROOT, '..', 'deepseek-harness', 'packages', 'boot', 'app-boot', 'lib', 'index.js'))
   candidates.push(join(homedir(), 'Documents', 'workspace', 'deepseek-harness', 'packages', 'boot', 'app-boot', 'lib', 'index.js'))
   return candidates
+}
+
+/**
+ * Global installation roots, most specific first. Node lives at `<prefix>/bin/node`, so the
+ * unix global root is `<prefix>/lib/node_modules`; keep the direct sibling layout as a fallback.
+ */
+export function globalRoots() {
+  const roots = []
+  const bin = dirname(process.execPath)
+  for (const root of [join(dirname(bin), 'lib', 'node_modules'), join(bin, 'node_modules')]) {
+    if (existsSync(root) && !roots.includes(root)) roots.push(root)
+  }
+  return roots
+}
+
+/** Version of the kernel copy the running installation would answer peers from. */
+export function installedKernelVersion() {
+  // Since the 0.2.2 line the kernel ships inside the installed @deepseek-ai/dsh host and
+  // linked importers' peer imports resolve to it (routeLinked in the host's
+  // profile-resolution/resolver.ts). The ~/.dsh/profiles/node_modules copy predates that
+  // model; keep reading it as a fallback so older installations still get the drift check.
+  const manifests = []
+  for (const root of globalRoots()) {
+    manifests.push(join(root, '@deepseek-ai', 'dsh', 'node_modules', '@deepseek-ai', 'dsh-tools', 'package.json'))
+    manifests.push(join(root, '@deepseek-ai', 'dsh-tools', 'package.json'))
+  }
+  manifests.push(join(homedir(), '.dsh', 'profiles', 'node_modules', '@deepseek-ai', 'dsh-tools', 'package.json'))
+  for (const manifest of manifests) {
+    if (!existsSync(manifest)) continue
+    try {
+      const version = JSON.parse(readFileSync(manifest, 'utf8')).version
+      if (typeof version === 'string') return version
+    } catch {
+      // an unreadable manifest is treated as absent; the next candidate decides
+    }
+  }
+  return undefined
 }
 
 /**
@@ -92,18 +134,6 @@ export async function loadHostEvaluator(explicit) {
     }
   }
   return undefined
-}
-
-/** Version of the kernel copy the running installation would answer peers from. */
-export function installedKernelVersion() {
-  const manifest = join(homedir(), '.dsh', 'profiles', 'node_modules', '@deepseek-ai', 'dsh-tools', 'package.json')
-  if (!existsSync(manifest)) return undefined
-  try {
-    const version = JSON.parse(readFileSync(manifest, 'utf8')).version
-    return typeof version === 'string' ? version : undefined
-  } catch {
-    return undefined
-  }
 }
 
 function readJson(file, problems, label) {

@@ -230,16 +230,16 @@ Super-agent 已经做得更好的一层（并发、重试、会话、提问）�
 工件账本与 plan-drift 已落地（M15）。判断层（M16）插件默认关闭，但**本机 web profile 已开启**（`cordis.patch.yml` 的 workmate 行：`decisionEnabled=true`、3 次采样、缓存开启）；插件侧默认仍是关闭，
 `decisionProvider` 可切 `agent` / `rules` / `jev`（`jev` 仅接口占位，需 TypeSafe key 才有适配器）。
 
-已知环境事实（2026-10-19 复核）：本机 profile **运行内核线是 `@deepseek-ai/dsh-tools 0.2.1-rc.2`**
-（`~/.dsh/profiles/node_modules` 实装），但 rc.2 是 workspace 构建、**未发布到 npm registry**，
-所以本仓库 devDependency 仍钉**可构建的 `0.2.1-alpha.1`**；`toolchain.json profile.dsh` 记录运行
-基线 rc.2，`require`/devDependencies 记录构建基线 alpha.1，`peer` 保持 `*` 让两条线都能装载。
-profile 侧 `@deepseek-ai/schemastery 3.18.5`、`@deepseek-ai/cordis 4.0.5`；本仓库构建用
-`schemastery 3.18.5-alpha.1`、`cordis ^4.0.2`（与 alpha.1 线一致）。社区侧：`dsh-better-sidebar` 0.24.1+ 已适配，
-`dsh-mnemon` / `@linxin666/*` / `@changfenhuang/dsh-annotation` 亦可用；
-`dsh-auto-review`、`dsh-mcp-adapter`、`@open-agfs/dsh-agfs`、`dsh-outline`
-**暂无兼容 0.2.x 的版本**（peer 停在 0.1.x）；`@deepseek-ai/dsh-mcp-client`
-与 `@deepseek-ai/dsh-subagent-claude-code` 需升到 0.2.1-alpha.1。
+已知环境事实（2026-11-08 复核）：**dsh 主体现为全局 npm 包 `@deepseek-ai/dsh@0.2.2-rc.1`**（npm 已发布，
+11-06 起运行中），内核 `@deepseek-ai/dsh-tools@0.2.2-rc.1` 随宿主安装并在安装域内解析——
+linked 插件对 `@deepseek-ai/dsh-*` 的 peer import 由宿主的运行时拦截（`routeLinked`）指向**宿主自己的副本**，
+所以构建基线（devDependencies）与运行基线可以是同一条线，旧的「workspace 构建、未发布」拆分不再需要。
+profile 层遗留的 `~/.dsh/profiles/node_modules/@deepseek-ai/dsh-tools@0.2.2-alpha.2` 是旧模型的残留，
+不参与 linked 插件的解析；`check-host-compat` 的 drift 检查已改为优先读安装域副本、遗留路径只作回退。
+本仓库 devDependencies 钉 `dsh-tools 0.2.2-rc.1` + `schemastery 3.19.0` + `cordis 4.1.0`（与宿主 peer 对齐），
+`toolchain.json profile.dsh = 0.2.2-rc.1`，`peer` 保持 `*` 让未来任何线都能装载。
+社区侧：`dsh-better-sidebar` 0.28、`dsh-mnemon` 0.5.24、`dsh-vision-router` ^3.0.4 已在本机 profile；
+`@deepseek-ai/dsh-mcp-client` 仍钉 0.2.1-alpha.1（profile 依赖里，惰性）。
 
 ## 归档门禁（2026-10-10 加固）
 

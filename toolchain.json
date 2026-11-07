@@ -1,15 +1,15 @@
 {
   "manifestVersion": 1,
   "profile": {
-    "dsh": "0.2.1-rc.2",
-    "note": "Verified runtime baseline: the local web profile serves @deepseek-ai/dsh-tools 0.2.1-rc.2. The build-against line remains 0.2.1-alpha.1 because rc.2 is a workspace build not published to the npm registry; peerDependencies['@deepseek-ai/dsh-tools'] stays '*' so the host loads the plugin on either line. Compatibility is decided ONLY by peerDependencies named '@deepseek-ai/dsh' or starting with '@deepseek-ai/dsh-' (semver.satisfies(runtime, range, {includePrerelease:true})); dependencies are never consulted. At runtime the host resolves a linked importer's peers from the running installation, so the plugin executes against the host kernel copies."
+    "dsh": "0.2.2-rc.1",
+    "note": "Verified runtime baseline: the global dsh host runs @deepseek-ai/dsh 0.2.2-rc.1 and serves @deepseek-ai/dsh-tools 0.2.2-rc.1 to plugins through its installation-scope resolution, and 0.2.2-rc.1 IS published to the npm registry, so the build-against line now equals the runtime line. peerDependencies remain \"*\" so the host loads the plugin on any future line. Compatibility is decided ONLY by peerDependencies named \"@deepseek-ai/dsh\" or starting with \"@deepseek-ai/dsh-\" (semver.satisfies(runtime, range, {includePrerelease:true})); dependencies are never consulted."
   },
   "require": {
-    "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-tools": "0.2.1-alpha.1"
+    "@deepseek-ai/cordis": "^4.1.0",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.1"
   },
   "runtime": {
-    "@deepseek-ai/schemastery": "3.18.5"
+    "@deepseek-ai/schemastery": "3.19.0"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
