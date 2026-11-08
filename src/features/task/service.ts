@@ -11,6 +11,7 @@ import { projectTask, type PanelLane, type PanelSubstate, type Projection, type 
 import type { SuperagentClient } from '../superagent/client.ts'
 import type { PortAllocator } from '../worktree/port-allocator.ts'
 import { planTaskPorts } from './plan.ts'
+import { ticketIdsFromResults } from './reclaim.ts'
 
 export interface TicketObservation {
   task: TaskRecord
@@ -285,9 +286,14 @@ export class TaskServiceImpl {
     if (health.online && tickets.online === false) notes.push(`读取 Ticket 失败：${tickets.reason ?? '未知原因'}`)
 
     const file = await this.deps.store.load()
+    // 优先用 Source 的送达记录绑定（ack 行带 taskId→ticketId），标题只是兜底——
+    // Ticket 标题由执行器从 intent 派生，可能与任务标题截断不一致（真机 2026-11-09）。
+    const ticketIds = await ticketIdsFromResults(this.deps.store.paths.results).catch(() => ({}) as Record<string, string>)
+    const byTicketId = new Map(tickets.tickets.map((ticket) => [ticket.id, ticket]))
     const byTitle = new Map(tickets.tickets.map((ticket) => [ticket.title, ticket]))
     const cards: TaskCard[] = file.tasks.map((task) => {
-      const ticket = byTitle.get(task.title)
+      const boundId = ticketIds[task.id]
+      const ticket = (boundId !== undefined ? byTicketId.get(boundId) : undefined) ?? byTitle.get(task.title)
       const submitted = task.attempt > 0 && task.assigned
       const projection = projectTask({
         task,

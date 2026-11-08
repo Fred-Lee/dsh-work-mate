@@ -441,4 +441,29 @@ describe('G2 交接：ensureImplementationTasks', () => {
     const file = await store.load()
     expect(file.tasks).toHaveLength(6)
   })
+
+  it('投影按送达记录绑定 Ticket，标题不一致也不失配（真机 2026-11-09）', async () => {
+    const { client } = fakeClient({
+      tickets: [{
+        id: 'ticket-abc',
+        title: '在 README 顶部补一段五分钟上手说明', // 执行器派生的标题（与任务标题不同）
+        stage: 'working',
+        directory: '/repo/.workmates/readme-quickstart',
+      }],
+    })
+    const svc = service(client)
+    const created = await svc.create({ intent: '在 README 顶部补一段五分钟上手说明（执行链路真机验证）', repo: 'r' })
+    await svc.assign(created.id)
+    // Source 的 ack 行：taskId → ticketId 绑定（标题与任务标题不同）
+    await writeFile(
+      store.paths.results,
+      JSON.stringify({ seq: 1, taskId: created.id, kind: 'ack', ticketId: 'ticket-abc', text: '收到' }) + '\n',
+      'utf8',
+    )
+
+    const board = await svc.board()
+    const card = board.cards.find((entry) => entry.task.id === created.id)
+    expect(card?.ticket?.id).toBe('ticket-abc')
+    expect(card?.lane).toBe('working')
+  })
 })

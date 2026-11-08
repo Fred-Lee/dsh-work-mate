@@ -124,7 +124,7 @@ export interface Config {
    * 必须与 Super-agent 侧 source 实例配置的 taskFile 指向同一个文件。@default ''
    */
   taskFile?: string
-  /** Super-agent 管理 API 的 loopback 端点。@default 'http://127.0.0.1:3082' */
+  /** Super-agent 管理 API 的 loopback 端点（挂在本宿主 web 服务的 /orchestrator/api 下）。@default 'http://127.0.0.1:3080' */
   superagentEndpoint?: string
   /** 代理请求超时（毫秒）。@default 5000 */
   superagentTimeoutMs?: number
@@ -283,7 +283,7 @@ export const Config: z<Config> = z.object({
     .description('Absolute path of the task file; empty = <DSH home>/<workmateHome>/tasks.json. Must match the Super-agent Source config.'),
   superagentEndpoint: z
     .string()
-    .default('http://127.0.0.1:3082')
+    .default('http://127.0.0.1:3080')
     .description('Loopback endpoint of the Super-agent management API.'),
   superagentTimeoutMs: z
     .number()
@@ -363,7 +363,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   reviewEvidenceGate: 'warn',
   teamEvidenceGate: 'block',
   taskFile: '',
-  superagentEndpoint: 'http://127.0.0.1:3082',
+  superagentEndpoint: 'http://127.0.0.1:3080',
   superagentTimeoutMs: 5000,
   superagentPollSeconds: 5,
   lifecycleMainBranch: 'main',
