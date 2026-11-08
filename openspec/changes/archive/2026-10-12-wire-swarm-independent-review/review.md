@@ -131,7 +131,7 @@
 
 | 输入 | independence | 返回 |
 | --- | --- | --- |
-| `reviewer: "李志杰"`（= 提交作者 `李志杰 <lizhijie@xueyi.com>`），不传 `projectRoot` | `same-as-author` | note 指名同一身份 + warning「归档门会视为未核验」 |
+| `reviewer: "李志杰"`（= 提交作者 `李志杰 <553093733@qq.com>`），不传 `projectRoot` | `same-as-author` | note 指名同一身份 + warning「归档门会视为未核验」 |
 | `reviewer: "independent-auditor@example.com"`，不传 `projectRoot` | `independent` | note「不在执行者身份集合内（1 个执行者）」 |
 | 同上，但 `projectRoot: <非 git 目录>` | `undetermined` | note「无执行者身份事实」+ **新增的 warning**「取不到仓库作者事实…会视为未核验」 |
 
