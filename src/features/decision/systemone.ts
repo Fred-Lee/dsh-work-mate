@@ -146,9 +146,6 @@ export class SystemOneProvider implements DecisionProvider {
         elapsedMs: Date.now() - started,
       })
       return undefined
-    } finally {
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', onAbort)
     }
 
     if (!response.ok) {
@@ -163,19 +160,30 @@ export class SystemOneProvider implements DecisionProvider {
       return undefined
     }
 
-    let payload: unknown
+    // MED-1（change `add-systemone-decision-provider` 审查）：timer 与外部 signal 必须
+    // 活到 body 读完为止——否则服务器在握手后挂起 body 时（实测 undici 默认
+    // bodyTimeout ≈ 301s），`timeoutMs` 与调用方的取消都形同虚设。
     try {
-      payload = await response.json()
+      const payload: unknown = await response.json()
+      return await this.parseAnswer(question, model, payload)
     } catch (error) {
+      const aborted = Boolean(signal?.aborted) || controller.signal.aborted
       await recordDiagnostic({
         node: question.node,
         provider: this.name,
         model,
-        failure: `invalid JSON: ${describe(error)}`,
+        failure: aborted
+          ? `aborted after ${Date.now() - started}ms (timeout ${timeoutMs}ms)`
+          : error instanceof SyntaxError
+            ? `invalid JSON: ${describe(error)}`
+            : `body read threw:${describe(error)}`,
+        elapsedMs: Date.now() - started,
       })
       return undefined
+    } finally {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
     }
-    return await this.parseAnswer(question, model, payload)
   }
 
   /**

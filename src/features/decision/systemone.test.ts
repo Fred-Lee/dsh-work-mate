@@ -189,6 +189,24 @@ describe('systemone provider — every failure is "no conclusion", never a defau
 
     expect(await instance.ask(choiceQuestion)).toBeUndefined()
   })
+
+  it('covers the body read with the same timeout, not just the response headers (MED-1)', async () => {
+    // 握手正常返回，但 body 永不到达：修复前 json() 会挂在 undici 默认 bodyTimeout 上。
+    const hangingBody = (async (_url: unknown, init?: RequestInit) => {
+      const signal = init?.signal
+      return {
+        ok: true,
+        status: 200,
+        json: () =>
+          new Promise((_resolve, reject) => {
+            signal?.addEventListener('abort', () => reject(new Error('body aborted')), { once: true })
+          }),
+      } as unknown as Response
+    }) as unknown as typeof fetch
+    const instance = new SystemOneProvider({ model: 'nimble', fetchImpl: hangingBody, timeoutMs: 20 })
+
+    expect(await instance.ask(choiceQuestion)).toBeUndefined()
+  })
 })
 
 describe('systemone provider in the chain (D6) — model answers cache, rules answers do not', () => {

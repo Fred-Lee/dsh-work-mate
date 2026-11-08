@@ -134,7 +134,7 @@
   该修复只改默认值与文案，不触碰 provider 逻辑与任何降级语义（超时仍返回无结论）。
   > 残余风险（`LOW-11`）：修复后 23 742 ms 已用掉 60 s 预算的 40%，机器更繁忙时仍有降级可能；
   > 想彻底稳就走预热，而不是无限加大超时。
-- [ ] MED-1 **超时只覆盖响应头，body 读取不受 `timeoutMs` 约束；外部 `AbortSignal` 也不生效。**
+- [x] MED-1 已解决（2026-11-08）：timer 与外部 signal 的存活期延到 body 读完——fetch 后的 finally 不再提前清理，json() 抛错按 aborted/invalid JSON/body read 三分类写诊断；新增回归用例「握手返回但 body 挂起 → timeoutMs 20ms 打断」（修复前该用例挂满 30s 超时）。
   代码事实：`timer` 在 `src/features/decision/systemone.ts:126` 设置，`finally` 在 `:146-149`
   **同一函数体内**就 `clearTimeout(timer)` 并 `removeEventListener('abort', …)`，而
   `await response.json()` 在 `:165` 才执行 —— 即超时与取消都只覆盖 `fetch` 的"拿到响应头"阶段。
@@ -185,13 +185,13 @@
   （`src/config.ts:276`，profile 未覆盖），故不阻断归档。
   修复方向：对后续实现提交守标记纪律（`533d5f6` 已在主干前，无法追溯）；`markedCommits`
   补 `--all`；或让漂移度量回退到"工作区变更 vs 声明"而非只认标记提交。
-- [ ] MED-4 **`tasks.md` 第 9 项引用的行号与实际落点不符。**
+- [x] MED-4 已解决（2026-11-08）：tasks.md 第 9 项改为符号名引用（`this.mainBranch`），不再引用会漂移的行号。
   第 9 项写"替换 `src/features/archive/service.ts:327`/`:353` 的 `'main'` 字面量"，
   实测这两行不是 `'main'` 字面量；真正被替换的是 `:341`/`:368` 的 `const trunk = this.mainBranch`
   与 `:397` 的 `worktree.create({ … mainBranch })`，`:144` 的 `?? 'main'` 兜底**有意保留**。
   影响：后续维护者按行号定位会找不到目标。修复方向：改成符号名引用（`this.mainBranch`）而非行号。
   不阻断归档。
-- [ ] MED-5 **`README.md:783` 的"云 Jev 按部署要求配 key 即可"与实现不符。**
+- [x] MED-5 已解决（2026-11-08）：README 改为「当前实现不发凭据，有鉴权云端会 403；指向免鉴权端点或本机反代，凭据透传留待后续变更」。
   证据：`systemone.ts:132` 的请求头只有 `content-type`，全文件无 `Authorization`/key/bearer；
   配置面也无凭据字段（`src/config.ts:121-134` 只有 url/model/keep_alive/timeout）。
   实测云端 `POST https://api.typesafe.ai/v1/systemone` 无凭据返回

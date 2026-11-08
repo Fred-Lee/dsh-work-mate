@@ -15,7 +15,7 @@
 - [x] 8. 落地后重导出项目 wiki：`workmate_wiki_export`，让 `index.md`/`changelog.md` 与迭代笔记反映最终状态；若届时已能产出 GitNexus 模块页（当前 `modules: 0`），顺带确认迭代笔记能链接到受影响模块 <!-- 无仓库内写入：产物落在 vault -->
   <!-- 已执行（决策前的部分）：`workmate_wiki_export` → iterations: 71、modules: 0、pages: 0、classify.unanswered: 71、git.committed: true；迭代笔记 WorkMate/dsh-Helmsman/iterations/add-systemone-decision-provider.md 已刷新。**"链接到受影响模块"这半条未完成且当前不可能完成**：modules: 0 意味着没有模块页可链（记入 review.md 的 LOW-10，不是假勾）。归档编排第 8 步会在 archived 后再自动导出一次，届时笔记的 status 变为 archived、提交行由 manifest 填充。 -->
 
-- [x] 9. **前置**：主干可配 —— 新增 `Config.lifecycleMainBranch`（默认 `'main'`，本机配 `'feat/workmate'`），替换 `src/features/archive/service.ts:327`/`:353` 的 `'main'` 字面量，并把它透传给 `worktree.create`（`WorktreeManager` 已支持 `mainBranch` 入参，`manager.ts:142` 默认值不变） <!-- writes: src/config.ts, src/features/archive/service.ts, src/index.ts -->（与第 2/4 项同文件，**不得并行**）
+- [x] 9. **前置**：主干可配 —— 新增 `Config.lifecycleMainBranch`（默认 `'main'`，本机配 `'feat/workmate'`），替换归档路径里的 `'main'` 兜底为 `this.mainBranch`（`const trunk` 两处与 `worktree.create` 的 `mainBranch` 透传；`WorktreeManager` 入参默认值不变），`service.ts` 里对无配置时的 `?? 'main'` 兜底有意保留 <!-- writes: src/config.ts, src/features/archive/service.ts, src/index.ts -->（与第 2/4 项同文件，**不得并行**）
 
 ## 验收命令（每步都跑，不以退出码判定）
 

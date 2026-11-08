@@ -795,7 +795,8 @@ decisionSystemoneUrl: http://127.0.0.1:11434
 已被实测证伪。要硬上 clef-flash 得改 `sudo sysctl iogpu.wired_limit_mb`（需要 root，
 且 16 GiB 机器只剩约 4 GiB 给系统），属机器运维取舍，不是代码方案。
 
-> 云 Jev 同理：把 `decisionSystemoneUrl` 指向部署地址、按部署要求配 key 即可，
+> 云 Jev 的注意点：当前实现不发凭据（请求头只有 content-type），有鉴权的云端会 403——
+> 指向免鉴权端点或本机反代；凭据透传留待后续变更。把 `decisionSystemoneUrl` 指向部署地址即可，
 > 不需要改任何调用方。
 
 ---
