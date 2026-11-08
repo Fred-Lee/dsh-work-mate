@@ -214,7 +214,12 @@
 - [ ] LOW-6 **云 Jev 端点完全未验证** — 无凭据实测 403，且实现不发凭据（见 `MED-5`）。
   `README.md:748-752` 的 yaml 只覆盖本机 URL，`design.md:26` 的"云 Jev 与本机 Ollama 走同一个实现"
   在本轮**只有理论依据（官方文档"follows TypeSafe's Jev API"），无实测支持**。
-- [ ] LOW-7 **未在真实 DSH harness 会话里以 `decisionProvider: jev` 跑过一次真判断。**
+- [x] LOW-7 已解决（2026-11-08 真机）：本机 profile 切 `decisionProvider: jev`（model `nimble`、
+  `keepAlive 30m`、timeoutMs 60s），宿主 0.2.2-rc.1 下经 REST 建提案触发 injection-risk——
+  注入标记文本（override-zh + dangerous-command）→ `provider:"jev"`、`choice:"risky"`、
+  `certainty 0.927`（act 档）、`degraded:false`、latency 39 870ms（含模型冷加载，60s 超时覆盖）。
+  同会话无标记文本走 prescreen 直接规则判 benign（`detail.prescreen:"no injection markers"`），
+  不经 provider 链——预筛短路与设计一致。
   本轮全部证据来自带外直接调用 provider（`scripts/systemone-acceptance.mjs`）与出货的
   `DecisionService`（`/tmp/svcrun`，provider 链手工注入）。本机 profile
   （`~/.dsh/profiles/web/cordis.patch.yml`）仍是 `decisionProvider: agent`，即**装配路径未以 jev 真跑**。
