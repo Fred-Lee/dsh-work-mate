@@ -34,10 +34,25 @@ export async function branchExists(root: string, branch: string): Promise<boolea
 
 /** True when `branch` is an ancestor of `onto` (i.e. its content is merged in). */
 export async function isMergedInto(root: string, branch: string, onto: string): Promise<boolean> {
+  // 合并可能发生在远端（GitLab MR / GitHub PR），本地基线分支会落后。
+  // 先 best-effort 取回基线引用（只取 onto 一个引用，避免远端已删除的
+  // feature 分支让整次 fetch 失败），再按「本地基线或 origin/<基线> 任一可达」判定。
+  // 本地-only 仓库 / 离线 / 无该远端引用：fetch 失败静默，行为与不 fetch 时一致。
+  const fetched = await gitExec(['fetch', 'origin', onto], root, 15_000)
+    .then(() => true)
+    .catch(() => false)
   try {
     await gitExec(['merge-base', '--is-ancestor', branch, onto], root, 10_000)
     return true
   } catch {
+    if (fetched) {
+      try {
+        await gitExec(['merge-base', '--is-ancestor', branch, `origin/${onto}`], root, 10_000)
+        return true
+      } catch {
+        // fall through to the local-only verdict
+      }
+    }
     return false
   }
 }

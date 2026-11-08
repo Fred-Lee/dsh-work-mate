@@ -725,6 +725,10 @@ export class LifecycleServiceImpl {
         const removed = await this.deps.worktree.remove({
           projectRoot: root,
           proposalId: proposal.id,
+          // MED-6（systemone 审查）：legacy 单 target 记录没有 targets 可给
+          // baseBranch，必须显式透传配置主干，否则守卫落回字面 'main'，
+          // 主干配置为其他分支时已归档提案的 worktree 永远收不回。
+          mainBranch: this.mainBranch,
           ...(options.signal !== undefined ? { signal: options.signal } : {}),
         })
         cleanup = removed.summary

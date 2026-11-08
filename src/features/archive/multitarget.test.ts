@@ -48,12 +48,13 @@ const lifecycleWith = (
       summary: string
     }>
   },
+  mainBranch = 'main',
 ): LifecycleServiceImpl =>
   new LifecycleServiceImpl({
     proposals,
     worktree: worktree as never,
     openspecRoot: 'openspec',
-    mainBranch: 'main',
+    mainBranch,
     approvalsRequired: [],
     resolveProjectRoots: async () => roles,
     orchestrate: async () => ({ ok: true, steps: [] }),
@@ -169,5 +170,40 @@ describe('archiving 仍逐 target 回收遗留 worktree', () => {
       { projectRoot: repoA, project: 'a' },
       { projectRoot: repoB, project: 'b' },
     ])
+  })
+
+  it('passes the configured trunk to reclaim for legacy scalar proposals (MED-6)', async () => {
+    // legacy 单 target 记录没有显式 targets，回收的 baseBranch 由
+    // effectiveTargets 用配置主干生成——主干配置为非 'main' 分支时，
+    // remove 收到的必须是配置值而非字面 'main' 兜底（fix-panel-scroll 实测卡死）。
+    await proposals.upsert({
+      id: 'legacy-p',
+      title: 'legacy scalar',
+      projects: ['a'],
+    })
+    await proposals.patchFields('legacy-p', { worktreePath: '/wt/legacy' })
+    await proposals.setStatus('legacy-p', 'archiving')
+
+    const removed: Array<{ projectRoot: string; baseBranch?: string; mainBranch?: string }> = []
+    const lifecycle = lifecycleWith(
+      [{ project: 'a', root: repoA }],
+      {
+        remove: async (input) => {
+          removed.push({
+            projectRoot: input.projectRoot,
+            baseBranch: (input as { baseBranch?: string }).baseBranch,
+            mainBranch: (input as { mainBranch?: string }).mainBranch,
+          })
+          return { removed: true, summary: 'removed' }
+        },
+      },
+      'master', // 主干不是 'main'，验证透传的是配置值而非兜底字面量
+    )
+
+    const outcome = await lifecycle.runArchive('legacy-p')
+
+    expect(outcome.proposal.status).toBe('archived')
+    // 守卫用的是 baseBranch（由配置主干生成）；断言它不是字面 'main' 兜底。
+    expect(removed).toEqual([{ projectRoot: repoA, baseBranch: 'master' }])
   })
 })

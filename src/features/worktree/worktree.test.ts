@@ -133,4 +133,39 @@ describe('WorktreeManager (real git)', () => {
     await expect(manager.allocationFor('p1', 'b')).resolves.toEqual(b.ports)
     await expect(manager.ports().get('p1')).resolves.toBeUndefined()
   })
+
+  it('judges a remote merge as merged: local base lags, origin/<base> is ahead', async () => {
+    // 场景（harden-archive-reclaim）：MR 在远端合并，本地基线分支没拉取。
+    // 先建 origin（bare），推 main；feature 分支提交后在"远端"合并进 main，
+    // 本地 main 停留在合并前——修复前 isMergedInto 判 false（假报未合并）。
+    const origin = await mkdtemp(join(tmpdir(), 'wm-wt-origin-'))
+    try {
+      await git(['init', '--bare', '-b', 'main', origin], origin)
+      await git(['remote', 'add', 'origin', origin], project)
+      await git(['push', '-q', 'origin', 'main'], project)
+
+      const feature = await placeWorktree(makeManager(), 'remote-p1')
+      await writeFile(join(feature, 'r.txt'), 'r', 'utf8')
+      await git(['add', '-A'], feature)
+      await git(['commit', '-m', 'wip [proposal:remote-p1]', '-q'], feature)
+      await git(['push', '-q', 'origin', 'feature/remote-p1'], project)
+
+      // "远端合并"：用临时 clone 合并并推回 origin 的 main；本地 main 不动。
+      const mirror = await mkdtemp(join(tmpdir(), 'wm-wt-mirror-'))
+      await git(['clone', '-q', origin, mirror], mirror)
+      await git(['config', 'user.email', 't@t'], mirror)
+      await git(['config', 'user.name', 't'], mirror)
+      await git(['merge', 'origin/feature/remote-p1', '-q', '--no-edit'], mirror)
+      await git(['push', '-q', 'origin', 'main'], mirror)
+      await rm(mirror, { recursive: true, force: true })
+
+      // 本地基线落后于 bare 仓库的 main（本地没有 fetch，origin/main 跟踪引用是旧的）：
+      // 修复前 isMergedInto 只看本地引用，这里判 false。
+      expect(await gitish(['rev-parse', 'main'], project)).not.toBe(await gitish(['rev-parse', 'main'], origin))
+      const { isMergedInto } = await import('./git.ts')
+      await expect(isMergedInto(project, 'feature/remote-p1', 'main')).resolves.toBe(true)
+    } finally {
+      await rm(origin, { recursive: true, force: true })
+    }
+  }, 30_000)
 })
