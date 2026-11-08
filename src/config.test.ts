@@ -24,7 +24,7 @@ describe('resolveConfig', () => {
       reviewEvidenceGate: 'warn',
       teamEvidenceGate: 'block',
       taskFile: '',
-      superagentEndpoint: 'http://127.0.0.1:3082',
+      superagentEndpoint: 'http://127.0.0.1:3080',
       superagentTimeoutMs: 5000,
       superagentPollSeconds: 5,
       lifecycleMainBranch: 'main',
