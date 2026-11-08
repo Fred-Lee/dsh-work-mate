@@ -27,7 +27,67 @@ draft → proposing → reviewing → ready → implementing → merging → arc
 
 ---
 
+## 五分钟上手
+
+> 从 clone 到在面板里点出第一个提案，约 5 分钟。完整流程、截图与每个门禁的来由见
+> [§0](#0-使用说明从装好到第一次归档配图)。
+
+**前提**：Node `^22.19 || >=24`、pnpm `>=10`、git；建提案时需要 `openspec` CLI
+（`npm i -g @fission-ai/openspec`）。DSH 宿主装全局包即可：`npm i -g @deepseek-ai/dsh`，
+`dsh --version` 能打印就绪。下文用 `dsh` 指全局 CLI；若你是从 DSH 仓库源码起宿主，
+等价命令是 `node <DSH 仓库>/apps/cli/lib/bin.js`。
+
+```bash
+# ① 构建（clone 后一次；改过服务端代码要重跑）
+pnpm install && pnpm build
+
+# ② 装进 DSH 的 web profile：传源码目录，profile 里落成 link:
+dsh plugin --profile web add /绝对路径/dsh-Helmsman
+
+# ③ 确认装载：应打印 `id: workmate` 及其 config 段
+dsh --profile web --dump-config | grep -A 2 workmate
+
+# ④ 启动宿主：默认 http://127.0.0.1:3080
+dsh web
+```
+
+> link 模式下改代码要 `pnpm build` 后**重启宿主**才生效；只改面板 UI 时刷新页面即可。
+
+**打开面板**（三个入口渲染同一个组件，细节见 §0.2）：左栏最下方的 WorkMate 图标
+（点它把中央区从对话切成工作台）、右侧 dock 的「🛠 WorkMate」标签（需
+`dsh-better-sidebar`，可选）、或独立页 `http://127.0.0.1:3080/workmate/`。
+
+**第一个提案（约 2 分钟）**
+
+> `API=http://127.0.0.1:3080/workmate/api`
+
+1. 注册项目（一次）：
+   `curl -X POST $API/projects -H 'content-type: application/json' -d '{"name":"demo","root":"/abs/path/to/demo"}'`；
+   也可以直接让 agent 调对应 `workmate_*` 工具。
+2. 右上「＋ 新提案」→ 填标题、勾选项目（id 留空自动生成）→ 自动生成
+   `openspec/changes/<id>/` 三件套。
+3. 详情区逐步「推进到 X ›」：`draft → proposing → reviewing → ready`；硬前置
+   （提案文件、分支、已合并）不满足时会给出可读原因，不会静默跳步。
+
+**30 秒自检**（三行都应通过）：
+
+```bash
+curl -s -o /dev/null -w 'panel %{http_code}\n' http://127.0.0.1:3080/workmate/            # 200
+curl -s -o /dev/null -w 'api   %{http_code}\n' http://127.0.0.1:3080/workmate/api/proposals  # 200
+dsh --profile web --dump-config | grep -c workmate                                         # ≥ 1
+```
+
+**要跑通执行链路**（面板待办 → Super-agent Ticket → worker）：另需把
+`packages/superagent-source` 装进 Super-agent 的 profile，并按 explicit 两步准入，
+见 [`docs/SUPERAGENT-INTEGRATION.md`](docs/SUPERAGENT-INTEGRATION.md)；没有 GitHub 凭据时
+可先跑引擎级演练 `pnpm verify:drill`（Super-agent 原型仓库不在相邻目录时用
+`SUPERAGENT_ROOT=<路径>` 指定）。出问题先看 [§11 故障排查](#11-故障排查)。
+
+---
+
 ## 目录
+
+- [五分钟上手](#五分钟上手)
 
 0. [使用说明：从装好到第一次归档（配图）](#0-使用说明从装好到第一次归档配图)
 1. [环境要求](#1-环境要求)
