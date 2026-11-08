@@ -32,7 +32,9 @@ export interface TicketsResult {
   reason?: string
 }
 
-const TICKETS_PATHS = ['/orchestrator/api/tickets?state=open', '/orchestrator/api/tickets']
+// 不带 state 过滤：完成列需要看到已结束的 Ticket（open 过滤会把它们藏掉）。
+// 完成列需要已结束的 Ticket、执行列需要进行中的：两态各取一次后合并。
+const TICKET_STATES = ['open', 'ended'] as const
 
 const normalize = (raw: unknown): TicketView | undefined => {
   if (typeof raw !== 'object' || raw === null) return undefined
@@ -115,8 +117,9 @@ export class SuperagentClient {
   /** 读 Ticket 列表；先试 `state=open`，不支持时退回全量。 */
   async tickets(): Promise<TicketsResult> {
     let lastReason = ''
-    for (const path of TICKETS_PATHS) {
-      const result = await this.getJson(path)
+    const merged = new Map<string, TicketView>()
+    for (const state of TICKET_STATES) {
+      const result = await this.getJson(`/orchestrator/api/tickets?state=${state}`)
       if (!result.ok) {
         lastReason = result.reason
         continue
@@ -131,9 +134,11 @@ export class SuperagentClient {
         lastReason = '响应里没有 items 数组'
         continue
       }
-      const tickets = items.map(normalize).filter((ticket): ticket is TicketView => ticket !== undefined)
-      return { online: true, tickets }
+      for (const ticket of items.map(normalize).filter((ticket): ticket is TicketView => ticket !== undefined)) {
+        merged.set(ticket.id, ticket)
+      }
     }
+    if (merged.size > 0 || lastReason === '') return { online: true, tickets: [...merged.values()] }
     return { online: false, tickets: [], reason: lastReason || '无法读取 Ticket 列表' }
   }
 
