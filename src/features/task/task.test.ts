@@ -422,4 +422,23 @@ describe('G2 交接：ensureImplementationTasks', () => {
     })
     expect(result.created[0]?.ports).toHaveLength(5)
   })
+
+  it('并发 create/reply 的 id 与 seq 互不重复（harden-write-races）', async () => {
+    const { client } = fakeClient()
+    const svc = service(client)
+    const created = await Promise.all(
+      Array.from({ length: 6 }, (_, index) => svc.create({ intent: `并发任务 ${index}`, repo: 'r' })),
+    )
+    const ids = created.map((task) => task.id)
+    expect(new Set(ids).size).toBe(ids.length)
+
+    const task = created[0]!
+    const replies = await Promise.all(Array.from({ length: 5 }, () => svc.reply(task.id, '并发回答')))
+    const seqs = replies.map((reply) => reply.seq).sort((left, right) => left - right)
+    expect(new Set(seqs).size).toBe(seqs.length)
+    expect(seqs).toEqual([1, 2, 3, 4, 5])
+
+    const file = await store.load()
+    expect(file.tasks).toHaveLength(6)
+  })
 })

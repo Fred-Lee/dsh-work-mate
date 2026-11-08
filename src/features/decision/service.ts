@@ -7,6 +7,9 @@
  * consumers must treat `review`/`abstain` as "do not take the optimistic path" —
  * never as permission (`act` is not a gate bypass either; see design D4).
  */
+import { mkdir, appendFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
 import { DecisionCache, cacheKey } from './cache.ts'
 import type { DecisionAnswer, DecisionConfig, DecisionOutcome, DecisionProvider, DecisionQuestion } from './types.ts'
 
@@ -26,6 +29,17 @@ export const DECISION_DEFAULTS: DecisionConfig = {
   thresholds: { act: 0.8, review: 0.6 },
   cacheEnabled: true,
   cacheMax: 500,
+}
+
+/** Diagnostics share the agent provider's file so one place explains a silent judge. */
+async function recordDiagnostic(line: Record<string, unknown>): Promise<void> {
+  try {
+    const file = join(homedir(), '.dsh', 'workmate', 'decision-diagnostics.jsonl')
+    await mkdir(dirname(file), { recursive: true })
+    await appendFile(file, `${JSON.stringify({ at: new Date().toISOString(), ...line })}\n`, 'utf8')
+  } catch {
+    /* diagnostics must never break a judgement */
+  }
 }
 
 export class DecisionService {
@@ -85,7 +99,23 @@ export class DecisionService {
 
     if (this.cache !== undefined) {
       const hit = await this.cache.get(key)
-      if (hit !== undefined) {
+      // change `validate-decision-cache`：缓存是 fail-open 可写文件，命中必须过与
+      // 活路径同级的形状校验——否则一条手改的 {choice, certainty} 就能旁路判断层
+      // "只收紧不放松"的前提。失效按未命中处理（重算并覆盖写回），留诊断。
+      const trusted =
+        hit !== undefined &&
+        Number.isFinite(hit.certainty) &&
+        hit.certainty >= 0 &&
+        hit.certainty <= 1 &&
+        question.options.includes(hit.choice)
+      if (hit !== undefined && !trusted) {
+        await recordDiagnostic({
+          node: question.node,
+          provider: 'cache',
+          failure: `cache entry rejected: choice=${JSON.stringify(hit.choice)} certainty=${String(hit.certainty)}`,
+        })
+      }
+      if (hit !== undefined && trusted) {
         const outcome = this.toOutcome(question, {
           choice: hit.choice,
           certainty: hit.certainty,

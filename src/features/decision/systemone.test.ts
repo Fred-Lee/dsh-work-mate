@@ -7,7 +7,7 @@
  * would still produce a plausible-looking certainty, which is exactly why it needs a
  * test rather than a comment.
  */
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -254,6 +254,54 @@ describe('systemone provider in the chain (D6) — model answers cache, rules an
 
       expect(first?.cached).toBeUndefined()
       expect(second).toMatchObject({ cached: true, provider: 'jev', choice: 'high' })
+      expect(calls).toHaveLength(1)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('recomputes when a cache entry is poisoned (validate-decision-cache)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wm-systemone-'))
+    try {
+      const cacheFile = join(dir, 'decision-cache.json')
+      const { impl, calls } = fakeFetch({ body: answerBody })
+      const service = new DecisionService({
+        config: { enabled: true, provider: 'jev' },
+        providers: [new SystemOneProvider({ model: 'nimble', fetchImpl: impl }), new RulesProvider()],
+        cacheFile,
+      })
+      // 预热一条合法缓存，然后手改：choice 枚举外 + certainty 越界。
+      await service.decide(choiceQuestion)
+      const poisoned = JSON.parse(await readFile(cacheFile, 'utf8'))
+      for (const key of Object.keys(poisoned.entries)) {
+        poisoned.entries[key] = { choice: 'everything-is-fine', certainty: 1, provider: 'jev', at: poisoned.entries[key].at }
+      }
+      await writeFile(cacheFile, `${JSON.stringify(poisoned)}\n`, 'utf8')
+
+      const again = await service.decide(choiceQuestion)
+
+      // 枚举外/越界的缓存值不得升格为结论：按未命中重算并覆盖写回。
+      expect(again).toMatchObject({ choice: 'high' })
+      expect(again?.cached).toBeFalsy()
+      expect(calls.length).toBeGreaterThanOrEqual(2)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('still serves a well-formed cache hit (validate-decision-cache)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wm-systemone-'))
+    try {
+      const cacheFile = join(dir, 'decision-cache.json')
+      const { impl, calls } = fakeFetch({ body: answerBody })
+      const service = new DecisionService({
+        config: { enabled: true, provider: 'jev' },
+        providers: [new SystemOneProvider({ model: 'nimble', fetchImpl: impl }), new RulesProvider()],
+        cacheFile,
+      })
+      await service.decide(choiceQuestion)
+      const second = await service.decide(choiceQuestion)
+      expect(second).toMatchObject({ cached: true, choice: 'high' })
       expect(calls).toHaveLength(1)
     } finally {
       await rm(dir, { recursive: true, force: true })

@@ -274,3 +274,27 @@ describe('abandon keeps the actor honest (abandon-tool-entry)', () => {
     await rm(dir, { recursive: true, force: true })
   })
 })
+
+describe('并发聚合写不丢失（harden-write-races）', () => {
+  it('并发 addDecision 与 setStatus 全部生效', async () => {
+    const dir0 = await mkdtemp(join(tmpdir(), 'wm-race-'))
+    try {
+      const store = new ProposalStore({ homeRoot: dir0, subdir: 'workmate' })
+      const svc = new ProposalServiceImpl(store)
+      await svc.upsert({ id: 'race-p', title: '竞态' })
+
+      await Promise.all([
+        ...Array.from({ length: 5 }, (_, index) =>
+          svc.addDecision('race-p', { decision: `决策 ${index}`, rationale: `理由 ${index}` }),
+        ),
+        ...Array.from({ length: 3 }, () => svc.setStatus('race-p', 'proposing')),
+      ])
+
+      const stored = await svc.get('race-p')
+      expect(stored?.decisions).toHaveLength(5)
+      expect(stored?.status).toBe('proposing')
+    } finally {
+      await rm(dir0, { recursive: true, force: true })
+    }
+  })
+})

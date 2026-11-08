@@ -72,6 +72,18 @@ export class TaskServiceImpl {
     this.now = deps.now ?? (() => new Date())
   }
 
+  /** 写互斥：同进程内的 load→mutate→save 段串行（change `harden-write-races`）。 */
+  private writeLock: Promise<unknown> = Promise.resolve()
+
+  private serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.writeLock.then(fn, fn)
+    this.writeLock = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
   /** 注入回写钩子（index 装配时调用；测试也可单独设置）。 */
   setObservationHook(
     hook: (observed: ReadonlyArray<TicketObservation>) => Promise<{ updated: string[]; conflicts: string[] }>,
@@ -85,6 +97,10 @@ export class TaskServiceImpl {
   }
 
   async create(input: CreateTaskInput): Promise<TaskRecord> {
+    return this.serialize(() => this.createLocked(input))
+  }
+
+  private async createLocked(input: CreateTaskInput): Promise<TaskRecord> {
     const intent = input.intent.trim()
     if (intent === '') throw new Error('目标不能为空')
     const now = this.now()
@@ -116,6 +132,10 @@ export class TaskServiceImpl {
 
   /** 指派 / 重试：置 assigned 并递增 attempt；不改 Ticket。 */
   async assign(taskId: string, options: { retry?: boolean } = {}): Promise<TaskRecord> {
+    return this.serialize(() => this.assignLocked(taskId, options))
+  }
+
+  private async assignLocked(taskId: string, options: { retry?: boolean } = {}): Promise<TaskRecord> {
     const file = await this.deps.store.load()
     const task = this.require(file.tasks, taskId)
     this.assertConnectable(task)
@@ -130,6 +150,16 @@ export class TaskServiceImpl {
 
   /** 停止：既在本地标记放弃（Source 不再投递），也代理执行器的 stop。 */
   async stop(taskId: string): Promise<{ task: TaskRecord; stopped?: string }> {
+    // D2：互斥只包文件标记段；执行器代理（网络）留在锁外，避免慢网拖住后续写入。
+    const marked = await this.serialize(() => this.stopMarkLocked(taskId))
+    const tickets = await this.deps.superagent.tickets()
+    const ticket = tickets.tickets.find((entry) => entry.title === marked.task.title && entry.ended === undefined)
+    if (ticket === undefined) return { task: marked.task }
+    const result = await this.deps.superagent.action(ticket.id, 'stop')
+    return { task: marked.task, ...(result.ok ? { stopped: ticket.id } : { stopped: undefined }) }
+  }
+
+  private async stopMarkLocked(taskId: string): Promise<{ task: TaskRecord }> {
     const file = await this.deps.store.load()
     const task = this.require(file.tasks, taskId)
     task.abandoned = true
@@ -137,15 +167,15 @@ export class TaskServiceImpl {
     task.updatedAt = this.now().toISOString()
     await this.deps.store.save(file)
     await this.event(task, 'task-stop', '')
-    const tickets = await this.deps.superagent.tickets()
-    const ticket = tickets.tickets.find((entry) => entry.title === task.title && entry.ended === undefined)
-    if (ticket === undefined) return { task }
-    const result = await this.deps.superagent.action(ticket.id, 'stop')
-    return { task, ...(result.ok ? { stopped: ticket.id } : { stopped: undefined }) }
+    return { task }
   }
 
   /** 重新打开：清 abandoned，不递增 attempt（下一个扫描周期重投同一 attempt）。 */
   async reopen(taskId: string): Promise<TaskRecord> {
+    return this.serialize(() => this.reopenLocked(taskId))
+  }
+
+  private async reopenLocked(taskId: string): Promise<TaskRecord> {
     const file = await this.deps.store.load()
     const task = this.require(file.tasks, taskId)
     task.abandoned = false
@@ -158,6 +188,10 @@ export class TaskServiceImpl {
 
   /** 回答：只追加到 inputs.jsonl，不重走 Eval。 */
   async reply(taskId: string, text: string, options: { by?: string; replyTo?: string } = {}): Promise<{ seq: number }> {
+    return this.serialize(() => this.replyLocked(taskId, text, options))
+  }
+
+  private async replyLocked(taskId: string, text: string, options: { by?: string; replyTo?: string } = {}): Promise<{ seq: number }> {
     const value = text.trim()
     if (value === '') throw new Error('回答不能为空')
     const file = await this.deps.store.load()
@@ -182,6 +216,15 @@ export class TaskServiceImpl {
    * 或提案回退再前进，都不会在任务表里堆出一串重复项。
    */
   async ensureImplementationTasks(input: {
+    proposalId: string
+    title: string
+    targets: ReadonlyArray<{ project: string; baseBranch: string }>
+    acceptance?: string
+  }): Promise<{ created: TaskRecord[]; existing: TaskRecord[] }> {
+    return this.serialize(() => this.ensureImplementationTasksLocked(input))
+  }
+
+  private async ensureImplementationTasksLocked(input: {
     proposalId: string
     title: string
     targets: ReadonlyArray<{ project: string; baseBranch: string }>

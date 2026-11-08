@@ -120,6 +120,18 @@ export class ProposalServiceImpl implements ProposalService {
     private readonly events?: EventLog,
   ) {}
 
+  /** 聚合写互斥：同进程内的 load→mutate→save 段串行（change `harden-write-races`）。 */
+  private writeLock: Promise<unknown> = Promise.resolve()
+
+  private serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.writeLock.then(fn, fn)
+    this.writeLock = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
   rootDir(): string {
     return this.store.rootDir
   }
@@ -133,6 +145,10 @@ export class ProposalServiceImpl implements ProposalService {
   }
 
   async upsert(input: UpsertProposalInput): Promise<Proposal> {
+    return this.serialize(() => this.upsertLocked(input))
+  }
+
+  private async upsertLocked(input: UpsertProposalInput): Promise<Proposal> {
     const id = input.id.trim()
     if (!id) throw new Error('proposal id must be a non-empty string')
     // 首字符必须是字母数字：挡掉 `..`、隐藏目录与任何以符号开头的怪 id；
@@ -196,6 +212,10 @@ export class ProposalServiceImpl implements ProposalService {
   }
 
   async addDecision(id: string, input: AddDecisionInput): Promise<DecisionEntry> {
+    return this.serialize(() => this.addDecisionLocked(id, input))
+  }
+
+  private async addDecisionLocked(id: string, input: AddDecisionInput): Promise<DecisionEntry> {
     const decision = input.decision.trim()
     const rationale = input.rationale.trim()
     if (!decision) throw new Error('decision must be a non-empty string')
@@ -265,6 +285,10 @@ export class ProposalServiceImpl implements ProposalService {
   }
 
   async patchFields(id: string, patch: Partial<Proposal>): Promise<Proposal> {
+    return this.serialize(() => this.patchFieldsLocked(id, patch))
+  }
+
+  private async patchFieldsLocked(id: string, patch: Partial<Proposal>): Promise<Proposal> {
     const proposals = await this.store.load()
     const existing = proposals.find((proposal) => proposal.id === id)
     if (!existing) throw new Error(`proposal not found: ${id}`)
@@ -283,6 +307,10 @@ export class ProposalServiceImpl implements ProposalService {
   }
 
   async addApproval(id: string, input: AddApprovalInput): Promise<ApprovalRecord> {
+    return this.serialize(() => this.addApprovalLocked(id, input))
+  }
+
+  private async addApprovalLocked(id: string, input: AddApprovalInput): Promise<ApprovalRecord> {
     const proposals = await this.store.load()
     const existing = proposals.find((proposal) => proposal.id === id)
     if (!existing) throw new Error(`proposal not found: ${id}`)
@@ -337,6 +365,10 @@ export class ProposalServiceImpl implements ProposalService {
   }
 
   async setStatus(id: string, status: Proposal['status'], meta: StatusMeta = {}): Promise<Proposal> {
+    return this.serialize(() => this.setStatusLocked(id, status, meta))
+  }
+
+  private async setStatusLocked(id: string, status: Proposal['status'], meta: StatusMeta = {}): Promise<Proposal> {
     const proposals = await this.store.load()
     const existing = proposals.find((proposal) => proposal.id === id)
     if (!existing) throw new Error(`proposal not found: ${id}`)
