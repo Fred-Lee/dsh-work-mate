@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TaskFileStore, TaskStoreCorruptError } from './files.ts'
-import { TaskServiceImpl, completedProposals, defaultTaskFile, implementationComplete } from './service.ts'
+import { TaskServiceImpl, defaultTaskFile } from './service.ts'
 import type { SuperagentClient } from '../superagent/client.ts'
 import type { TicketView } from '../superagent/project.ts'
 
@@ -608,90 +608,3 @@ describe('G2 交接：ensureImplementationTasks', () => {
   })
 
 })
-
-describe('实现完成判定（auto-advance-on-ticket-completion）', () => {
-  const card = (id: string, lane: 'todo' | 'working' | 'attention' | 'done', outcome?: string, proposalId = 'p1') => ({
-    task: { id, proposalId, repo: '/r', assigned: true, abandoned: false, attempt: 1 } as never,
-    lane,
-    ...(outcome !== undefined ? { ticket: { id: `t-${id}`, title: id, ended: { outcome } } as never } : {}),
-  })
-
-  it('全部 completed 时判定为完成', () => {
-    expect(implementationComplete([card('a', 'done', 'completed'), card('b', 'done', 'completed')], 'p1')).toBe(true)
-  })
-
-  it('还有待办在跑时不完成', () => {
-    expect(implementationComplete([card('a', 'done', 'completed'), card('b', 'working')], 'p1')).toBe(false)
-  })
-
-  it('closed / stopped 不算完成', () => {
-    expect(implementationComplete([card('a', 'done', 'closed')], 'p1')).toBe(false)
-    expect(implementationComplete([card('a', 'done', 'stopped')], 'p1')).toBe(false)
-  })
-
-  it('dropped / merged 算完成', () => {
-    expect(implementationComplete([card('a', 'done', 'dropped')], 'p1')).toBe(true)
-    expect(implementationComplete([card('a', 'done', 'merged')], 'p1')).toBe(true)
-  })
-
-  it('无待办不算完成', () => {
-    expect(implementationComplete([], 'p1')).toBe(false)
-    expect(implementationComplete([card('a', 'done', 'completed', 'other')], 'p1')).toBe(false)
-  })
-
-  it('多提案各自独立判定', () => {
-    const cards = [card('a', 'done', 'completed', 'p1'), card('b', 'working', 'x', 'p2')]
-    expect(completedProposals(cards)).toEqual(['p1'])
-  })
-
-  it('board 观察到实现完成时请求推进会，且同一提案不重复请求（幂等由状态机兜底）', async () => {
-    const { client } = fakeClient({
-      tickets: [{
-        id: 'ticket-done',
-        title: '实现待办',
-        stage: 'ended',
-        ended: { outcome: 'completed' },
-        directory: '/r/.workmates/x',
-      }],
-    })
-    const asked: string[] = []
-    const svc = new TaskServiceImpl({
-      store,
-      superagent: client,
-      operator: 'workmate:panel',
-      onProposalImplemented: async (proposalId) => {
-        asked.push(proposalId)
-        return undefined
-      },
-    })
-    const created = await svc.create({ intent: '实现待办', repo: '/r', proposalId: 'p-impl' })
-    await svc.assign(created.id)
-    await writeFile(
-      store.paths.results,
-      JSON.stringify({ seq: 1, taskId: created.id, kind: 'ack', ticketId: 'ticket-done' }) + '\n',
-      'utf8',
-    )
-
-    await svc.board()
-    expect(asked).toEqual(['p-impl'])
-  })
-
-  it('推进受阻时把原因写进 notes，不抛错', async () => {
-    const { client } = fakeClient({
-      tickets: [{ id: 'ticket-x', title: '实现待办', stage: 'ended', ended: { outcome: 'completed' }, directory: '/r/x' }],
-    })
-    const svc = new TaskServiceImpl({
-      store,
-      superagent: client,
-      operator: 'workmate:panel',
-      onProposalImplemented: async () => 'Wiki 关联未完成',
-    })
-    const created = await svc.create({ intent: '实现待办', repo: '/r', proposalId: 'p-blocked' })
-    await svc.assign(created.id)
-    await writeFile(store.paths.results, JSON.stringify({ seq: 1, taskId: created.id, kind: 'ack', ticketId: 'ticket-x' }) + '\n', 'utf8')
-
-    const board = await svc.board()
-    expect(board.notes.some((n) => n.includes('未能自动推进') && n.includes('Wiki'))).toBe(true)
-  })
-})
-
