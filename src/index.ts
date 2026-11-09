@@ -14,6 +14,7 @@
  *   - client half (dist/client/client.js) → better-sidebar tab + two chat
  *     entries — every registration lazily injected, zero hard dependency
  */
+import { existsSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool, type InferValue, type JsonValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -583,16 +584,18 @@ export function apply(ctx: Context, config: Config = {}): void {
             const { ticketIdsFromResults } = await import('./features/task/reclaim.ts')
             return ticketIdsFromResults(join(store.rootDir, 'tasks.jsonl'))
           })()
-          const entries = boarded.cards
-            .map((card) => {
-              const ticketId = ticketIds[card.task.id] ?? card.ticket?.id ?? card.task.ticketId
-              // 执行器离线时只有任务记录里的缓存目录可读（task 22 的第一级定位）。
-              const directory = card.ticket?.directory ?? card.task.directory
-              if (ticketId === undefined || directory === undefined) return undefined
-              if (card.lane !== 'done') return undefined
-              return { taskId: card.task.id, repo: card.task.repo, directory, ticketId }
-            })
-            .filter((entry): entry is { taskId: string; repo: string; directory: string; ticketId: string } => entry !== undefined)
+          const entries: Array<{ taskId: string; repo: string; directory: string; ticketId: string }> = []
+          for (const card of boarded.cards) {
+            const ticketId = ticketIds[card.task.id] ?? card.ticket?.id ?? card.task.ticketId
+            // 执行器离线时只有任务记录里的缓存目录可读（task 22 的第一级定位）。
+            const directory = card.ticket?.directory ?? card.task.directory
+            if (ticketId === undefined || directory === undefined) continue
+            if (card.lane !== 'done') continue
+            // 目录必须**真的还在磁盘上**才算遗留：Ticket 结束后目录可能已被人工清掉，
+            // 只按记录判定会把已清理的条目一直挂在面板上（实测 2026-11-09）。
+            if (!existsSync(directory)) continue
+            entries.push({ taskId: card.task.id, repo: card.task.repo, directory, ticketId })
+          }
           return { entries }
         },
         reclaim: async (taskId, options) => {
