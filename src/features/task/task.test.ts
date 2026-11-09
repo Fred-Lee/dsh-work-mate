@@ -17,25 +17,41 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true })
 })
 
-const fakeClient = (options: { tickets?: TicketView[]; online?: boolean; reason?: string; actions?: boolean } = {}): {
+const fakeClient = (
+  options: {
+    tickets?: TicketView[]
+    online?: boolean
+    reason?: string
+    actions?: boolean
+    /** 多端点聚合后的逐端点健康（模拟 SuperagentPool 的产出）。 */
+    endpoints?: Array<{ endpoint: string; online: boolean; reason?: string; paused?: boolean }>
+  } = {},
+): {
   client: SuperagentClient
-  called: Array<{ ticketId: string; action: string }>
+  called: Array<{ ticketId: string; action: string; endpoint?: string }>
 } => {
-  const called: Array<{ ticketId: string; action: string }> = []
+  const called: Array<{ ticketId: string; action: string; endpoint?: string }> = []
   const online = options.online ?? true
   const client = {
     async health() {
-      return online
-        ? { online: true, endpoint: 'http://127.0.0.1:3082' }
-        : { online: false, endpoint: 'http://127.0.0.1:3082', reason: options.reason ?? '连接被拒' }
+      return {
+        ...(online
+          ? { online: true, endpoint: 'http://127.0.0.1:3082' }
+          : { online: false, endpoint: 'http://127.0.0.1:3082', reason: options.reason ?? '连接被拒' }),
+        ...(options.endpoints !== undefined ? { endpoints: options.endpoints } : {}),
+      }
     },
     async tickets() {
       return online
-        ? { online: true, tickets: options.tickets ?? [] }
+        ? {
+            online: true,
+            tickets: options.tickets ?? [],
+            ...(options.endpoints !== undefined ? { endpoints: options.endpoints } : {}),
+          }
         : { online: false, tickets: [], reason: options.reason ?? '连接被拒' }
     },
-    async action(ticketId: string, action: 'retry' | 'stop') {
-      called.push({ ticketId, action })
+    async action(ticketId: string, action: 'retry' | 'stop', endpoint?: string) {
+      called.push({ ticketId, action, ...(endpoint !== undefined ? { endpoint } : {}) })
       return { ok: options.actions ?? true }
     },
   } as unknown as SuperagentClient
@@ -130,6 +146,42 @@ describe('TaskServiceImpl.assign / stop / reopen', () => {
     const svc = service(client, { executorRepo: 'dsh-Helmsman' })
     const created = await svc.create({ intent: '做', repo: 'other-repo', mode: 'record' })
     await expect(svc.assign(created.id)).rejects.toThrowError(/还没有接入执行器/)
+  })
+
+  // change `support-multi-repo-executors`：判定从单值改成集合，错误要点名仓库与集合。
+  it('集合判定：不在已接入集合内时拒绝指派，错误点明仓库与集合', async () => {
+    const { client } = fakeClient()
+    const svc = service(client, { executorRepos: ['/repo/a'] })
+    const created = await svc.create({ intent: '做', repo: '/repo/b', mode: 'record' })
+    await expect(svc.assign(created.id)).rejects.toThrowError(
+      /仓库 \/repo\/b 还没有接入执行器（已接入：\/repo\/a）/,
+    )
+  })
+
+  it('集合判定：集合内的仓库可指派（多仓库都行）', async () => {
+    const { client } = fakeClient()
+    const svc = service(client, { executorRepos: ['/repo/a', '/repo/b'] })
+    for (const repo of ['/repo/a', '/repo/b']) {
+      const created = await svc.create({ intent: '做', repo, mode: 'record' })
+      expect((await svc.assign(created.id)).assigned).toBe(true)
+    }
+  })
+
+  it('executorRepo 单值仍兼容（长度 1 的特例，与集合合并去重）', async () => {
+    const { client } = fakeClient()
+    // 单值与集合同时给、且重复/带空串：归一后仍只包含 '/repo/a'。
+    const svc = service(client, { executorRepo: '/repo/a', executorRepos: ['/repo/a', '  '] })
+    const allowed = await svc.create({ intent: '做', repo: '/repo/a', mode: 'record' })
+    expect((await svc.assign(allowed.id)).assigned).toBe(true)
+    const denied = await svc.create({ intent: '做', repo: '/repo/b', mode: 'record' })
+    await expect(svc.assign(denied.id)).rejects.toThrowError(/已接入：\/repo\/a）/)
+  })
+
+  it('空集合不限制：所有仓库都可指派（与旧行为一致）', async () => {
+    const { client } = fakeClient()
+    const svc = service(client, { executorRepos: [], executorRepo: '' })
+    const created = await svc.create({ intent: '做', repo: 'any-repo', mode: 'record' })
+    expect((await svc.assign(created.id)).assigned).toBe(true)
   })
 
   it('stop 标记放弃并代理执行器的 stop', async () => {
@@ -287,8 +339,83 @@ describe('TaskServiceImpl.board', () => {
     expect(ids).toContain('task-concurrent')
   })
 
-  it('四列互斥：一张卡只出现在一列', async () => {
+  // change `support-multi-repo-executors`：集合判定 + 多端点聚合。
+  it('未接入仓库的卡片带 unservedRepo，已接入的不带', async () => {
     const { client } = fakeClient()
+    const svc = service(client, { executorRepos: ['/repo/a'] })
+    await svc.create({ intent: 'a', repo: '/repo/a', mode: 'record' })
+    await svc.create({ intent: 'b', repo: '/repo/b', mode: 'record' })
+    const board = await svc.board()
+    const served = board.cards.find((card) => card.task.repo === '/repo/a')!
+    const unserved = board.cards.find((card) => card.task.repo === '/repo/b')!
+    expect(served.connectable).toBe(true)
+    expect(served.unservedRepo).toBeUndefined()
+    expect(unserved.connectable).toBe(false)
+    expect(unserved.unservedRepo).toBe('/repo/b')
+  })
+
+  it('单端点客户端：endpoints 合成为长度 1 的数组，旧 health 形状不变', async () => {
+    const { client } = fakeClient()
+    const svc = service(client)
+    await svc.create({ intent: '做', repo: 'r', mode: 'superagent' })
+    const board = await svc.board()
+    expect(board.health).toEqual({ online: true, endpoint: 'http://127.0.0.1:3082' })
+    expect(board.endpoints).toEqual([{ endpoint: 'http://127.0.0.1:3082', online: true }])
+  })
+
+  it('多端点：单个离线端点不抹掉在线端点的 Ticket 投影，notes 给出离线原因', async () => {
+    const endpoints = [
+      { endpoint: 'http://127.0.0.1:3082', online: true },
+      { endpoint: 'http://127.0.0.1:3083', online: false, reason: '请求超时' },
+    ]
+    const { client } = fakeClient({
+      endpoints,
+      tickets: [{ id: 'tkt-1', title: '做', stage: 'working', endpoint: 'http://127.0.0.1:3082' }],
+    })
+    const svc = service(client)
+    await svc.create({ intent: '做', repo: 'r', mode: 'superagent' })
+    const board = await svc.board()
+    // 旧面板读单值 health：取首端点；完整集合在 endpoints。
+    expect(board.health).toEqual({ online: true, endpoint: 'http://127.0.0.1:3082' })
+    expect(board.endpoints).toEqual(endpoints)
+    expect(board.notes).toContain('执行器离线（http://127.0.0.1:3083）：请求超时')
+    const card = board.cards[0]!
+    expect(card.ticket?.id).toBe('tkt-1')
+    expect(card.ticket?.endpoint).toBe('http://127.0.0.1:3082')
+    expect(card.lane).toBe('working')
+  })
+
+  it('多端点全离线：health 用聚合原因，逐端点原因进 notes', async () => {
+    const endpoints = [
+      { endpoint: 'http://127.0.0.1:3082', online: false, reason: '连接被拒' },
+      { endpoint: 'http://127.0.0.1:3083', online: false, reason: '请求超时' },
+    ]
+    const aggregate = '所有执行器均不可达：http://127.0.0.1:3082（连接被拒）、http://127.0.0.1:3083（请求超时）'
+    const { client } = fakeClient({ online: false, reason: aggregate, endpoints })
+    const svc = service(client)
+    await svc.create({ intent: '做', repo: 'r', mode: 'superagent' })
+    const board = await svc.board()
+    expect(board.health.online).toBe(false)
+    expect(board.health.endpoint).toBe('http://127.0.0.1:3082')
+    expect(board.health.reason).toBe(aggregate)
+    expect(board.endpoints).toEqual(endpoints)
+    expect(board.notes).toContain(`执行器离线：${aggregate}`)
+    expect(board.notes).toContain('执行器离线（http://127.0.0.1:3083）：请求超时')
+  })
+
+  it('stop 把 Ticket 所属端点交给 action 路由（多端点）', async () => {
+    const { client, called } = fakeClient({
+      tickets: [{ id: 'tkt-1', title: '做', endpoint: 'http://127.0.0.1:3083' }],
+    })
+    const svc = service(client)
+    const created = await svc.create({ intent: '做', repo: 'r', mode: 'superagent' })
+    expect((await svc.stop(created.id)).stopped).toBe('tkt-1')
+    expect(called).toEqual([
+      { ticketId: 'tkt-1', action: 'stop', endpoint: 'http://127.0.0.1:3083' },
+    ])
+  })
+
+  it('四列互斥：一张卡只出现在一列', async () => {    const { client } = fakeClient()
     const svc = service(client)
     await svc.create({ intent: 'a', repo: 'r', mode: 'record' })
     await svc.create({ intent: 'b', repo: 'r', mode: 'superagent' })

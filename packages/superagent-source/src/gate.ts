@@ -16,6 +16,11 @@ export interface GateTask {
   dependsOn: readonly string[]
   assigned: boolean
   abandoned: boolean
+  /**
+   * 待办所属仓库。门控本身**不看**它（依赖门控语义单一，design D3）；它随 `ready`
+   * 一起带出去，供 `scanOnce` 按实例 `repos` 过滤。
+   */
+  repo: string
 }
 
 export interface GateInput<T extends GateTask> {

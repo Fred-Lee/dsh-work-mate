@@ -17,6 +17,16 @@ export interface SuperagentOptions {
   fetch?: typeof fetch
 }
 
+/** 单个执行器端点的健康快照（多端点部署时由 `SuperagentPool` 聚合）。 */
+export interface EndpointHealth {
+  endpoint: string
+  online: boolean
+  /** 离线原因（网络、超时、非 2xx、响应不是预期形状）。 */
+  reason?: string
+  /** 执行器暂停时它自己的 state 会给 `paused: true`。 */
+  paused?: boolean
+}
+
 export interface SuperagentHealth {
   online: boolean
   endpoint: string
@@ -24,12 +34,19 @@ export interface SuperagentHealth {
   reason?: string
   /** 执行器暂停时它自己的 state 会给 `paused: true`。 */
   paused?: boolean
+  /**
+   * 逐端点健康；单端点 `SuperagentClient` 不填（它只有一个端点），
+   * 由 `SuperagentPool` 聚合后给出。
+   */
+  endpoints?: EndpointHealth[]
 }
 
 export interface TicketsResult {
   online: boolean
   tickets: TicketView[]
   reason?: string
+  /** 逐端点读取结果；单端点 `SuperagentClient` 不填。 */
+  endpoints?: EndpointHealth[]
 }
 
 // 不带 state 过滤：完成列需要看到已结束的 Ticket（open 过滤会把它们藏掉）。
@@ -155,5 +172,139 @@ export class SuperagentClient {
     } catch (error) {
       return { ok: false, reason: error instanceof Error ? error.message : String(error) }
     }
+  }
+}
+
+/* ── 多端点聚合（change `support-multi-repo-executors`, design D5） ───────── */
+
+export interface SuperagentPoolOptions {
+  /** 端点列表（构造时去重、去空、去尾斜杠）。 */
+  endpoints: string[]
+  timeoutMs: number
+  /** 测试注入；默认全局 fetch。 */
+  fetch?: typeof fetch
+}
+
+export type SuperagentPoolHealth = SuperagentHealth & { endpoints: EndpointHealth[] }
+export type SuperagentPoolTickets = TicketsResult & { endpoints: EndpointHealth[] }
+
+/** 全离线时的人话原因：面板直接显示它，不必让使用者去猜是哪台掉线。 */
+const unreachableReason = (offline: ReadonlyArray<EndpointHealth>): string =>
+  `所有执行器均不可达：${offline.map((entry) => `${entry.endpoint}（${entry.reason ?? '未知原因'}）`).join('、')}`
+
+/**
+ * 多执行器端点的聚合器：每个端点一个 `SuperagentClient`，**逐个独立**探活与取 Ticket。
+ *
+ * 失败隔离是这里的全部意义（design D5）：一个端点不可达只把它自己标成 offline，
+ * 不影响其它端点的健康与 Ticket 投影，更不会让整块任务视图变成离线。
+ * 单端点行为与 `SuperagentClient` 等价，所以装配处可以一律用它。
+ */
+export class SuperagentPool {
+  private readonly endpointList: readonly string[]
+  private readonly clients: readonly SuperagentClient[]
+
+  constructor(options: SuperagentPoolOptions) {
+    // 去重去空：同一端点写两遍只会让面板把"N 个执行器"数错。
+    this.endpointList = [
+      ...new Set(
+        options.endpoints
+          .map((endpoint) => endpoint.trim().replace(/\/+$/, ''))
+          .filter((endpoint) => endpoint !== ''),
+      ),
+    ]
+    this.clients = this.endpointList.map(
+      (endpoint) =>
+        new SuperagentClient({
+          endpoint,
+          timeoutMs: options.timeoutMs,
+          ...(options.fetch !== undefined ? { fetch: options.fetch } : {}),
+        }),
+    )
+  }
+
+  /** 全部端点任一在线即 `online: true`；`endpoint` 取首端点（旧客户端兼容）。 */
+  async health(): Promise<SuperagentPoolHealth> {
+    if (this.endpointList.length === 0) {
+      return { online: false, endpoint: '', reason: '没有配置执行器端点', endpoints: [] }
+    }
+    const endpoints = await Promise.all(
+      this.clients.map(async (client, index): Promise<EndpointHealth> => {
+        const health = await client.health()
+        return {
+          endpoint: this.endpointList[index]!,
+          online: health.online,
+          ...(health.reason !== undefined ? { reason: health.reason } : {}),
+          ...(health.paused === true ? { paused: true } : {}),
+        }
+      }),
+    )
+    const online = endpoints.filter((entry) => entry.online)
+    const offline = endpoints.filter((entry) => !entry.online)
+    return {
+      online: online.length > 0,
+      // 首端点：旧面板只认单值，保留它才能让未升级的客户端继续显示「主执行器」。
+      endpoint: this.endpointList[0]!,
+      ...(online.length === 0 ? { reason: unreachableReason(offline) } : {}),
+      // 只有在线端点全部暂停时才把整池标成暂停：个别暂停不该让旧面板显示「已暂停」。
+      ...(online.length > 0 && online.every((entry) => entry.paused === true) ? { paused: true } : {}),
+      endpoints,
+    }
+  }
+
+  /** 合并各在线端点的 Ticket；每条打上来源端点，离线端点不产生 Ticket 但原因可见。 */
+  async tickets(): Promise<SuperagentPoolTickets> {
+    if (this.endpointList.length === 0) {
+      return { online: false, tickets: [], reason: '没有配置执行器端点', endpoints: [] }
+    }
+    const results = await Promise.all(this.clients.map((client) => client.tickets()))
+    const endpoints: EndpointHealth[] = []
+    const merged = new Map<string, TicketView>()
+    for (const [index, result] of results.entries()) {
+      const endpoint = this.endpointList[index]!
+      endpoints.push({
+        endpoint,
+        online: result.online,
+        ...(result.reason !== undefined ? { reason: result.reason } : {}),
+      })
+      if (!result.online) continue
+      for (const ticket of result.tickets) {
+        // 保留先到的那份：同一 Ticket 被两个端点报出来说明端点配置有问题，
+        // 此时丢数据比显示两份更糟，路由仍按第一个来源端点走。
+        if (!merged.has(ticket.id)) merged.set(ticket.id, { ...ticket, endpoint })
+      }
+    }
+    const online = endpoints.filter((entry) => entry.online)
+    const offline = endpoints.filter((entry) => !entry.online)
+    return {
+      online: online.length > 0,
+      tickets: [...merged.values()],
+      ...(online.length === 0 ? { reason: unreachableReason(offline) } : {}),
+      endpoints,
+    }
+  }
+
+  /**
+   * 代理写动作（retry / stop）。路由顺序：
+   *   1. Ticket 所属端点（调用方从投影里把 `ticket.endpoint` 带上来）优先；
+   *   2. 未给或它失败，再对在线端点依次尝试——执行器重启后 Ticket 可能换到另一个端点。
+   */
+  async action(
+    ticketId: string,
+    action: 'retry' | 'stop',
+    endpoint?: string,
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const healths = await Promise.all(this.clients.map((client) => client.health()))
+    const online = healths.flatMap((health, index) => (health.online ? [index] : []))
+    const preferred =
+      endpoint !== undefined ? this.endpointList.indexOf(endpoint.trim().replace(/\/+$/, '')) : -1
+    const order = [...(preferred >= 0 ? [preferred] : []), ...online.filter((index) => index !== preferred)]
+    if (order.length === 0) return { ok: false, reason: '没有在线的执行器端点' }
+    let lastReason: string | undefined
+    for (const index of order) {
+      const result = await this.clients[index]!.action(ticketId, action)
+      if (result.ok) return result
+      lastReason = result.reason
+    }
+    return { ok: false, ...(lastReason !== undefined ? { reason: lastReason } : {}) }
   }
 }

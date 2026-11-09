@@ -1,0 +1,120 @@
+{
+  "cards": [
+    {
+      "lane": "todo",
+      "substate": "unassigned",
+      "task": {
+        "id": "task-demo-1",
+        "title": "在仓库 repo-a 修登录超时",
+        "intent": "在仓库 repo-a 修登录超时",
+        "repo": "/srv/repo-a",
+        "baseBranch": "main",
+        "acceptance": "",
+        "priority": "P1",
+        "mode": "record",
+        "dependsOn": [],
+        "assigned": false,
+        "abandoned": false,
+        "attempt": 0,
+        "createdBy": "workmate:panel",
+        "createdAt": "2026-11-09T04:00:00.000Z",
+        "updatedAt": "2026-11-09T04:00:00.000Z"
+      },
+      "connectable": true
+    },
+    {
+      "lane": "todo",
+      "substate": "unassigned",
+      "task": {
+        "id": "task-demo-2",
+        "title": "在仓库 repo-b 补导出接口",
+        "intent": "在仓库 repo-b 补导出接口",
+        "repo": "/srv/repo-b",
+        "baseBranch": "main",
+        "acceptance": "",
+        "priority": "P1",
+        "mode": "record",
+        "dependsOn": [],
+        "assigned": false,
+        "abandoned": false,
+        "attempt": 0,
+        "createdBy": "workmate:panel",
+        "createdAt": "2026-11-09T04:01:00.000Z",
+        "updatedAt": "2026-11-09T04:01:00.000Z"
+      },
+      "connectable": false,
+      "unservedRepo": "/srv/repo-b"
+    }
+  ],
+  "lanes": {
+    "todo": [
+      {
+        "lane": "todo",
+        "substate": "unassigned",
+        "task": {
+          "id": "task-demo-1",
+          "title": "在仓库 repo-a 修登录超时",
+          "intent": "在仓库 repo-a 修登录超时",
+          "repo": "/srv/repo-a",
+          "baseBranch": "main",
+          "acceptance": "",
+          "priority": "P1",
+          "mode": "record",
+          "dependsOn": [],
+          "assigned": false,
+          "abandoned": false,
+          "attempt": 0,
+          "createdBy": "workmate:panel",
+          "createdAt": "2026-11-09T04:00:00.000Z",
+          "updatedAt": "2026-11-09T04:00:00.000Z"
+        },
+        "connectable": true
+      },
+      {
+        "lane": "todo",
+        "substate": "unassigned",
+        "task": {
+          "id": "task-demo-2",
+          "title": "在仓库 repo-b 补导出接口",
+          "intent": "在仓库 repo-b 补导出接口",
+          "repo": "/srv/repo-b",
+          "baseBranch": "main",
+          "acceptance": "",
+          "priority": "P1",
+          "mode": "record",
+          "dependsOn": [],
+          "assigned": false,
+          "abandoned": false,
+          "attempt": 0,
+          "createdBy": "workmate:panel",
+          "createdAt": "2026-11-09T04:01:00.000Z",
+          "updatedAt": "2026-11-09T04:01:00.000Z"
+        },
+        "connectable": false,
+        "unservedRepo": "/srv/repo-b"
+      }
+    ],
+    "working": [],
+    "attention": [],
+    "done": []
+  },
+  "health": {
+    "online": true,
+    "endpoint": "http://127.0.0.1:3080"
+  },
+  "endpoints": [
+    {
+      "endpoint": "http://127.0.0.1:3080",
+      "online": true
+    },
+    {
+      "endpoint": "http://127.0.0.1:3971",
+      "online": false,
+      "reason": "请求超时"
+    }
+  ],
+  "attention": 0,
+  "notes": [
+    "执行器离线（http://127.0.0.1:3971）：请求超时"
+  ]
+}

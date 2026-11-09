@@ -160,6 +160,13 @@ Super-agent 已经做得更好的一层（并发、重试、会话、提问）�
 - **准入走 explicit**：Trigger `actor = { source: 'workmate', id: 'workmate:<createdBy>' }`、
   `human: true`、`addressed: 'mention'`；部署方把该身份加入来源 `workmate` 的
   `policy.allowed` 即可，**不需要接受规则**（explicit 绕过 `assessmentOutcome`）；
+- **多仓库 = 多执行器**（`support-multi-repo-executors`）：一个 Super-agent 部署仍只服务
+  一个仓库（`deployment.repository` / `executor.directory` 单值），多仓靠多个部署；
+  WorkMate 侧 `executorRepos`（已接入仓库集合，空 = 不限）决定面板可指派性，
+  `superagentEndpoints` 多端点聚合（单个离线只影响它服务的那批待办）。同一进程要注册多个
+  Source 实例时，由插件条目的 `config.kind` 给唯一 id（默认 `workmate`，重复即被宿主拒绝），
+  实例的 `repos` 只投自己负责的仓库、跳过条目计入健康摘要。详见
+  `docs/SUPERAGENT-INTEGRATION.md` §10；
 - **回滚两件事，缺一泄漏**：① 停用子包 bundle；② `node scripts/rollback-superagent.mjs`
   （不依赖执行器在线，三级定位目录，端口找不到时明确输出"可能泄漏"）。
   `taskExecutor` 配置已随 `remove-team-executor` 删除，没有第三条可关。

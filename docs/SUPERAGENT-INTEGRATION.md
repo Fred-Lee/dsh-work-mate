@@ -243,3 +243,115 @@ node --experimental-transform-types scripts/verify-superagent-offline.mjs \
 | 分支未合并被拒删 | 正常保护 | 合并后重跑，或确认后 `--force` |
 | 装完 Source 没生效 | bundle patch 不热加载 | 重启 Super-agent，再跑 §8 自检 |
 | `--dump-config` 没有 `workmate` 条目 | bundle 未进 `dsh.profile.bundles` | 重装子包，或手工把包名加进 `bundles` 后 `pnpm install` |
+
+## 10. 多仓库部署（多实例）
+
+> 适用变更：`support-multi-repo-executors`。一个执行器仍只服务一个仓库
+> （`deployment.repository` / `executor.directory` 是单值，这是 Super-agent 的既有语义），
+> 多仓库靠**多个执行器**承担；本变更让 Source 实例按仓库过滤、让面板按"已接入仓库集合"
+> 如实显示可指派性，并允许同一进程注册多个本来源实例。
+
+### 10.1 两种部署形态
+
+| 形态 | 用途 | 实例 id |
+| --- | --- | --- |
+| 每仓一个执行器（标准） | 真正的多仓执行：每个仓库一个 Super-agent 部署（独立 profile/进程、独立 `stateDir`、`deployment.repository`、`executor.directory`） | 各自进程内用默认 `workmate` 即可——kind 注册表是**进程内**的，不同进程不会互撞 |
+| 同一进程多实例 | 一个进程里注册多个本来源实例（同一 `taskFile` 按 `repos` 分流读取，或 profile 内多条 entry 装载）。它们共享同一执行器，**不能**用来跨仓干活 | 必须显式给唯一 `kind`（`workmate` / `workmate-b`），重复 kind 会被宿主直接拒绝 |
+
+WorkMate 的任务文件只有一份（`tasks.json`，面板独占写），所有仓库的待办都在里面。
+所以每个执行器的 Source 实例都要读同一份文件、各自按 `repos` 过滤：不归本实例的待办
+**不投递**、不推进任何游标，并在健康摘要里记「跳过 N 条（非本实例仓库）」——这样人能区分
+"没活干"与"这条是别的仓库的活"。
+
+### 10.2 实例 id（kind）从哪来
+
+注册发生在插件 `apply` 阶段，而 Source 设置**按已注册的 kind 存**（`settings.sources[kind]`）：
+第二个实例必须先有 `workmate-b` 这个 kind，才有地方填它的 `taskFile` / `repos`。因此实例 id
+只能由装载它的**插件条目**给：
+
+```yaml
+# Super-agent profile 的 cordis patch（与 bundle 自带的那条并列）
+- insert:
+    - id: workmate-superagent-source-b
+      name: workmate-superagent-source
+      config:
+        kind: workmate-b
+```
+
+- 默认实例（旧部署）**什么都不用改**：不写 `config.kind` 就是 `workmate`；
+- 同一个包可以在 profile 里出现多条 entry（宿主按 entry **id** 实例化，`name` 可重复）；
+  本包自己的 `cordis.patch.yml` 仍只有一条，`pnpm verify:source` 不受影响；
+- 非法的 id（大写 / 下划线 / 数字开头等，必须匹配 `^[a-z][a-z0-9-]*$`）会让**装载失败**：
+  注册表用 kind 作键，不能静默歪写。装在没有 Super-agent 的 profile 时仍然安静跳过；
+- 来源设置页里的「实例 ID」是**只读事实**（`facts`）：它不是注册来源，改它不会换实例；
+  换 id 必须改 profile 条目的 `config.kind` 并重启宿主。设置里若显式写了不同的 `kind`，
+  健康条目会报"不一致"错误，而不是静默忽略；
+- 所有按实例派生的标识都随 id 走：注册键、健康条目名、state 键
+  （`workmate-source:<id>:cursor|tickets`）、Trigger `source`、Thread/Channel 前缀、
+  `find()` 结果、来源页标题（默认实例仍是「WorkMate 待办」，其余为「WorkMate 待办（workmate-b）」）。
+- 升级兼容：默认实例旧的无实例段 state 键（`workmate-source:cursor|tickets`）**只读回退**，
+  新写入一律带实例段；已结束 Ticket 的映射不会因为升级丢失。
+
+### 10.3 每个实例的配置
+
+`source.repos` 是本实例负责的仓库**绝对路径**数组（空 = 不限制，旧行为）。面板里的
+「负责的仓库」是逗号分隔的文本框——Super-agent 的 `rows` 字段只能编辑记录数组，装不下
+`string[]`；用 JSON / API 写配置时直接写数组即可。元素必须是绝对路径，否则配置不可用并在
+健康里报错（相对路径不可能与待办里的绝对 `repo` 相等，放行只会静默零投递）。
+
+**四处必须一致**（design D7；错一处就是"验的是 A 仓、建在 B 仓"的静默错位）：
+
+| 位置 | 必须指向 | 错位的后果 |
+| --- | --- | --- |
+| `source.repos`（本实例） | 该执行器负责的仓库绝对路径 | 别的仓库的待办被投给这个执行器（或在它这里全被跳过） |
+| `deployment.repository` | 同一个仓库（git URL / `group/project` / 绝对路径） | `git ls-remote` 与 PR 归属验的是 A 仓 |
+| `executor.directory` | 同一个仓库下的 `.workmates`（`prepare` 的 `$PWD` 是它的父级） | worktree 建在 B 仓，`git -C "$PWD"` 失败或提交进错仓 |
+| `stateDir` | **每个执行器独立**（不要两个部署共用一个） | SQLite 锁冲突、游标/Ticket 混在一起 |
+
+部署前检查清单：
+
+- [ ] 每个仓库一个 Super-agent 部署；`stateDir` 互不相同；
+- [ ] 每个部署的 `deployment.repository` 与 `executor.directory` 指向同一个仓库（见上表）；
+- [ ] 每个 Source 实例的 `repos` 只含本部署负责的仓库；`taskFile` 指向 WorkMate 的同一份绝对路径；
+- [ ] 每个实例的 `policy.allowed` 各自配好（`actor.id` 仍是 `workmate:<createdBy>`，
+      但 policy 按来源 kind 存：同进程多实例时两份都要配）；
+- [ ] 改完**重启 Super-agent**（kind 注册在 `apply` 阶段，bundle patch 与 entry 不热加载）。
+
+### 10.4 WorkMate 侧配置（面板）
+
+```yaml
+# ~/.dsh/profiles/<profile>/cordis.patch.yml 的 workmate 条目
+config:
+  executorRepos:                 # 哪些仓库有执行器；空 = 不限制（旧行为）
+    - /Users/me/work/repo-a
+    - /Users/me/work/repo-b
+  superagentEndpoints:           # 每个执行器一个管理 API 端点；空 = 退回单值 superagentEndpoint
+    - http://127.0.0.1:3080
+    - http://127.0.0.1:3090
+```
+
+- `executorRepos` 与单值 `executorRepo`（兼容写法）合并成集合：只有集合内的 `repo` 才显示
+  「指派」；否则卡片显示「未接入执行器（仓库 X）」并禁用指派。集合为空 = 不限制，保持旧行为；
+- 指派到集合外的仓库会被**服务端拒绝**（错误信息点明仓库与已接入集合），不只是 UI 禁用；
+- `superagentEndpoints` 与单值 `superagentEndpoint` 同理：面板对每个端点独立探活、独立取
+  Ticket，一个端点离线只影响它服务的那批待办，顶部显示「N 个执行器，M 个离线」；
+  `TaskBoard.health` 保留单值（首个端点）给旧客户端读，新字段 `endpoints` 给出逐端点状态；
+- 端点离线时无法逐卡归因到具体执行器（主包没有 repo→endpoint 映射），因此卡片保持原投影、
+  离线原因进 `notes` 与 `endpoints`，不伪造状态。
+
+### 10.5 重启边界
+
+`kind` / entry 的增删、`dsh.profile.bundles` 变更都必须**重启 Super-agent** 才生效；WorkMate
+侧的 `executorRepos` / `superagentEndpoints` 是普通插件配置，同样需要宿主重启后生效
+（本机：`pnpm build` 后重装/重载 profile）。不要指望热重载。
+
+### 10.6 排查（多仓相关）
+
+| 现象 | 最可能的原因 | 处理 |
+| --- | --- | --- |
+| 面板显示「未接入执行器（仓库 X）」 | 该仓库不在 `executorRepos`（或落在 `executorRepo` 单值外） | 加上对应仓库；确认该仓确实已有执行器 |
+| 待办一直"待接受"，健康显示「跳过 N 条（非本实例仓库）」 | 实例的 `repos` 没包含这条待办的 `repo`，或路径写法不同 | 用绝对路径、与待办 `repo` 逐字一致（尾斜杠会被规范化，basename 不会猜） |
+| 第二个实例没出现在来源页 | entry 没加进 profile / kind 非法导致装载失败 / 未重启 | 查宿主日志里 `workmate-superagent-source` 的报错；确认 kind 匹配 `^[a-z][a-z0-9-]*$` |
+| 设置页改了「实例 ID」没反应 | id 由插件条目 `config.kind` 决定，设置页是只读 fact | 改 profile entry 的 `config.kind` 后重启 |
+| 两个实例健康互相覆盖 / 注册报 already registered | 两个实例用了同一个 `kind` | 每个实例一个唯一 id（宿主对重复 kind 直接抛） |
+| 两个实例读到同一待办并重复投递 | 实例的 `repos` 都是空（不限制）且共用同一 `taskFile` | 给每个实例配不相交的 `repos`；空 `repos` 是"所有仓库都投" |

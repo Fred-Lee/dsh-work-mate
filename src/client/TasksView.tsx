@@ -119,22 +119,38 @@ export function TasksView(props: { onError: (message: string) => void; pollMs?: 
 
   const drawer = drawerId === null ? undefined : byId.get(drawerId)
 
+  // 多端点健康聚合（change `support-multi-repo-executors`）：
+  // 超过 1 个端点时显示「N 个执行器，M 个离线」。单端点或旧服务端不提供 `endpoints`
+  // 时沿用 `health` 单值（旧文案与状态点不回归）。整块离线只在**所有**端点都离线时成立，
+  // 单个端点不可达只影响它自己服务的那批待办。
+  const endpoints = board?.endpoints ?? []
+  const multiEndpoint = endpoints.length > 1
+  const offlineEndpoints = endpoints.filter((entry) => entry.online === false)
+  const healthOnline = multiEndpoint
+    ? endpoints.some((entry) => entry.online === true)
+    : board?.health?.online === true
+  const boardOffline = multiEndpoint
+    ? offlineEndpoints.length === endpoints.length
+    : board?.health?.online === false
+
   return (
     <div className="wm-tasks">
       <div className="wm-tasks-bar">
-        <span className={`wm-conn-dot ${board?.health?.online === true ? 'ok' : 'off'}`} aria-hidden />
+        <span className={`wm-conn-dot ${healthOnline ? 'ok' : 'off'}`} aria-hidden />
         <span className="wm-tasks-health">
           {board === undefined
             ? '读取中…'
-            : board.health?.online === true
-              ? `执行器在线 · ${board.health.endpoint}`
-              : '执行器离线'}
+            : multiEndpoint
+              ? `${endpoints.length} 个执行器，${offlineEndpoints.length} 个离线`
+              : board.health?.online === true
+                ? `执行器在线 · ${board.health.endpoint}`
+                : '执行器离线'}
           {board?.health?.paused === true ? ' · 已暂停' : ''}
         </span>
         <span className="wm-tasks-count">{cards.length} 个任务 · {board?.attention ?? 0} 个需要你</span>
         {(board?.notes ?? [])
           // 「执行器离线」的细节由下面的红色横幅统一说明，这里只留它能做的补充提示。
-          .filter((note) => board?.health?.online !== false || !note.startsWith('执行器离线'))
+          .filter((note) => !boardOffline || !note.startsWith('执行器离线'))
           .map((note) => (
             <Tag key={note} tone="warning">{note}</Tag>
           ))}
@@ -151,9 +167,9 @@ export function TasksView(props: { onError: (message: string) => void; pollMs?: 
         </Btn>
       </div>
 
-      {board?.health?.online === false && (
+      {boardOffline && board !== undefined && (
         <div className="wm-error" role="alert">
-          执行器离线：{board.health.reason ?? '未知原因'}。待办仍可记录，恢复后由 Source 扫描投递。
+          执行器离线：{board.health?.reason ?? '未知原因'}。待办仍可记录，恢复后由 Source 扫描投递。
         </div>
       )}
 
@@ -231,6 +247,9 @@ function TaskCardView(props: {
   const { card, busy } = props
   const primary = primaryActionOf(card)
   const subtitle = card.note ?? SUBSTATE_LABEL[card.substate]
+  // 未接入执行器：把原因写在卡片正文里（不塞进 title/hover），
+  // 仓库优先用服务端给出的 unservedRepo，旧服务端缺失时回退 task.repo。
+  const unservedRepo = card.connectable ? undefined : card.unservedRepo ?? card.task.repo
 
   useEffect(() => {
     // 保留占位：卡片本身不做自动刷新，由外层轮询驱动。
@@ -255,6 +274,9 @@ function TaskCardView(props: {
       </button>
       {card.note !== undefined && card.substate !== 'unassigned' && (
         <div className="wm-task-note">{card.note}</div>
+      )}
+      {unservedRepo !== undefined && (
+        <div className="wm-task-note">未接入执行器（仓库 {unservedRepo}）</div>
       )}
       <div className="wm-task-actions">
         {primary.kind !== 'none' && (

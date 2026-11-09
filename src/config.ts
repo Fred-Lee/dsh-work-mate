@@ -124,8 +124,22 @@ export interface Config {
    * 必须与 Super-agent 侧 source 实例配置的 taskFile 指向同一个文件。@default ''
    */
   taskFile?: string
+  /**
+   * 已接入执行器的仓库集合（与待办的 `repo` 逐字比较）。
+   * 空集合 = 不限制：未配置限制的部署一律允许指派（旧行为）。@default []
+   */
+  executorRepos?: string[]
+  /**
+   * 单执行器仓库；`executorRepos` 长度为 1 时的兼容写法，装配时合并进集合。@default ''
+   */
+  executorRepo?: string
   /** Super-agent 管理 API 的 loopback 端点（挂在本宿主 web 服务的 /orchestrator/api 下）。@default 'http://127.0.0.1:3080' */
   superagentEndpoint?: string
+  /**
+   * 多执行器端点列表；非空时优先于 `superagentEndpoint`（后者是长度为 1 的兼容特例）。
+   * 每个端点独立探活与取 Ticket，单个离线只影响它自己（change `support-multi-repo-executors`）。@default []
+   */
+  superagentEndpoints?: string[]
   /** 代理请求超时（毫秒）。@default 5000 */
   superagentTimeoutMs?: number
   /** 面板读取 Ticket 投影的间隔（秒）。@default 5 */
@@ -281,10 +295,22 @@ export const Config: z<Config> = z.object({
     .string()
     .default('')
     .description('Absolute path of the task file; empty = <DSH home>/<workmateHome>/tasks.json. Must match the Super-agent Source config.'),
+  executorRepos: z
+    .array(z.string())
+    .default([])
+    .description('Repos that have a Super-agent executor (compared verbatim with a task repo); empty = no restriction.'),
+  executorRepo: z
+    .string()
+    .default('')
+    .description('Single-executor repo; compatibility shortcut for executorRepos of length 1.'),
   superagentEndpoint: z
     .string()
     .default('http://127.0.0.1:3080')
     .description('Loopback endpoint of the Super-agent management API.'),
+  superagentEndpoints: z
+    .array(z.string())
+    .default([])
+    .description('Super-agent endpoints for multi-executor deployments; non-empty overrides superagentEndpoint.'),
   superagentTimeoutMs: z
     .number()
     .default(5000)
@@ -363,7 +389,10 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   reviewEvidenceGate: 'warn',
   teamEvidenceGate: 'block',
   taskFile: '',
+  executorRepos: [],
+  executorRepo: '',
   superagentEndpoint: 'http://127.0.0.1:3080',
+  superagentEndpoints: [],
   superagentTimeoutMs: 5000,
   superagentPollSeconds: 5,
   lifecycleMainBranch: 'main',

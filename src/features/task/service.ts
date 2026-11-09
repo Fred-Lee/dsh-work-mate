@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import type { EventLog } from '../proposal/events.ts'
 import type { TaskFileStore, TaskRecord } from './files.ts'
 import { projectTask, type PanelLane, type PanelSubstate, type Projection, type TicketView } from '../superagent/project.ts'
-import type { SuperagentClient } from '../superagent/client.ts'
+import type { EndpointHealth, SuperagentHealth, TicketsResult } from '../superagent/client.ts'
 import type { PortAllocator } from '../worktree/port-allocator.ts'
 import { planTaskPorts } from './plan.ts'
 import { ticketIdsFromResults } from './reclaim.ts'
@@ -18,11 +18,29 @@ export interface TicketObservation {
   ticket: TicketView
 }
 
+/**
+ * 任务服务真正用到的最小 facade：探活、Ticket 列表、写动作。
+ *
+ * 收敛成这个形状而不是依赖具体类，是为了让单端点 `SuperagentClient`、
+ * 多端点 `SuperagentPool` 与测试里的 fake client 都能直接注入
+ * （`action` 的第三个参数可选，单端点实现自然满足）。
+ */
+export interface SuperagentFacade {
+  health(): Promise<SuperagentHealth>
+  tickets(): Promise<TicketsResult>
+  action(ticketId: string, action: 'retry' | 'stop', endpoint?: string): Promise<{ ok: boolean; reason?: string }>
+}
+
 export interface TaskServiceDeps {
   store: TaskFileStore
-  superagent: SuperagentClient
+  superagent: SuperagentFacade
   events?: EventLog
-  /** 该执行器接管的仓库名；与 task.repo 不一致时不可指派。 */
+  /**
+   * 已接入执行器的仓库集合（与 `task.repo` 逐字比较）。
+   * 空 = 不限制（未配置的部署一律允许指派，保持旧行为）。
+   */
+  executorRepos?: string[]
+  /** 单值兼容字段；构造时与 `executorRepos` 合并去重（长度 1 的特例）。 */
   executorRepo?: string
   /** 默认操作者。 */
   operator?: string
@@ -55,6 +73,11 @@ export interface TaskCard extends Projection {
   ticket?: TicketView
   /** 该仓库是否被当前执行器接管。 */
   connectable: boolean
+  /**
+   * 不可指派时给出待办仓库，供面板显示「未接入执行器（仓库 X）」。
+   * 可指派时不填（旧客户端读不到也不影响）。
+   */
+  unservedRepo?: string
   /** 已观察到的 Ticket（有它才可能有目录与分支）。 */
   ticketId?: string
 }
@@ -62,7 +85,13 @@ export interface TaskCard extends Projection {
 export interface TaskBoard {
   cards: TaskCard[]
   lanes: Record<PanelLane, TaskCard[]>
+  /**
+   * 单值健康：保留旧形状（首端点），未升级的客户端照旧读它。
+   * 多端点部署时它是首端点的投影，完整集合在 `endpoints`。
+   */
   health: { online: boolean; endpoint: string; reason?: string; paused?: boolean }
+  /** 逐端点健康（多端点部署时给出；单端点时为长度 1 的数组）。 */
+  endpoints: EndpointHealth[]
   /** 需要人的数量（侧栏徽标用）。 */
   attention: number
   /** 读不到资产/连接的原因汇总。 */
@@ -73,9 +102,17 @@ const idOf = (now: Date, index: number): string => `task-${now.getTime().toStrin
 
 export class TaskServiceImpl {
   private readonly now: () => Date
+  /** 已接入仓库集合；空集合 = 不限制（旧行为）。构造时归一，判定不再重复解析。 */
+  private readonly executorRepos: ReadonlySet<string>
 
   constructor(private readonly deps: TaskServiceDeps) {
     this.now = deps.now ?? (() => new Date())
+    // 兼容：executorRepos 为主，executorRepo 是长度 1 的特例；去重、去空串。
+    this.executorRepos = new Set(
+      [...(deps.executorRepos ?? []), deps.executorRepo ?? '']
+        .map((repo) => repo.trim())
+        .filter((repo) => repo !== ''),
+    )
   }
 
   /** 写互斥：同进程内的 load→mutate→save 段串行（change `harden-write-races`）。 */
@@ -161,7 +198,8 @@ export class TaskServiceImpl {
     const tickets = await this.deps.superagent.tickets()
     const ticket = tickets.tickets.find((entry) => entry.title === marked.task.title && entry.ended === undefined)
     if (ticket === undefined) return { task: marked.task }
-    const result = await this.deps.superagent.action(ticket.id, 'stop')
+    // 多端点时按 Ticket 来源端点路由（单端点客户端忽略第三个参数）。
+    const result = await this.deps.superagent.action(ticket.id, 'stop', ticket.endpoint)
     return { task: marked.task, ...(result.ok ? { stopped: ticket.id } : { stopped: undefined }) }
   }
 
@@ -290,7 +328,24 @@ export class TaskServiceImpl {
   async board(): Promise<TaskBoard> {
     const notes: string[] = []
     const health = await this.deps.superagent.health()
+    // 单端点客户端的 health/tickets 不带 endpoints：按单值合成，后续只处理这一种形状。
+    const endpoints: EndpointHealth[] =
+      health.endpoints !== undefined && health.endpoints.length > 0
+        ? health.endpoints
+        : [{
+            endpoint: health.endpoint,
+            online: health.online,
+            ...(health.reason !== undefined ? { reason: health.reason } : {}),
+            ...(health.paused === true ? { paused: true } : {}),
+          }]
     if (!health.online) notes.push(`执行器离线：${health.reason ?? '未知原因'}`)
+    // 多端点：把每个离线端点的原因都写进 notes。一个端点掉线不该静默，
+    // 但也不能把它算成整块离线（health.online 是"任一在线"）。
+    if (endpoints.length > 1) {
+      for (const entry of endpoints) {
+        if (!entry.online) notes.push(`执行器离线（${entry.endpoint}）：${entry.reason ?? '未知原因'}`)
+      }
+    }
     const tickets = health.online ? await this.deps.superagent.tickets() : { online: false, tickets: [], reason: health.reason }
     if (health.online && tickets.online === false) notes.push(`读取 Ticket 失败：${tickets.reason ?? '未知原因'}`)
 
@@ -310,11 +365,13 @@ export class TaskServiceImpl {
         submitted,
         ...(tickets.online === false && submitted ? { failure: tickets.reason ?? '执行器离线' } : {}),
       })
+      const connectable = this.connectable(task)
       return {
         ...projection,
         task,
         ...(ticket !== undefined ? { ticket } : {}),
-        connectable: this.connectable(task),
+        connectable,
+        ...(connectable ? {} : { unservedRepo: task.repo }),
       }
     })
 
@@ -355,25 +412,32 @@ export class TaskServiceImpl {
 
     const lanes: Record<PanelLane, TaskCard[]> = { todo: [], working: [], attention: [], done: [] }
     for (const card of cards) lanes[card.lane].push(card)
+    // 单值 health 取首端点（旧客户端只会看到「主执行器」）。全离线时改用聚合原因，
+    // 让旧面板的横幅能说出每台为什么掉线——首端点自己的原因本来就在聚合原因里。
+    const primary = endpoints[0] ?? { endpoint: health.endpoint, online: health.online }
     return {
       cards,
       lanes,
       health: {
-        online: health.online,
-        endpoint: health.endpoint,
-        ...(health.reason !== undefined ? { reason: health.reason } : {}),
-        ...(health.paused === true ? { paused: true } : {}),
+        online: primary.online,
+        endpoint: primary.endpoint,
+        ...(health.online === false && health.reason !== undefined
+          ? { reason: health.reason }
+          : primary.reason !== undefined
+            ? { reason: primary.reason }
+            : {}),
+        ...(primary.paused === true ? { paused: true } : {}),
       },
+      endpoints,
       attention: lanes.attention.length,
       notes,
     }
   }
 
-  /** 某仓库是否可指派：未配置执行器仓库时一律允许（单仓默认）。 */
+  /** 某仓库是否可指派：集合为空时一律允许（未配置限制 = 旧行为）。 */
   private connectable(task: TaskRecord): boolean {
-    const repo = this.deps.executorRepo
-    if (repo === undefined || repo === '') return true
-    return task.repo === repo
+    if (this.executorRepos.size === 0) return true
+    return this.executorRepos.has(task.repo.trim())
   }
 
   /**
@@ -409,9 +473,10 @@ export class TaskServiceImpl {
   }
 
   private assertConnectable(task: TaskRecord): void {
-    if (!this.connectable(task)) {
-      throw new Error(`仓库 ${task.repo} 还没有接入执行器（当前执行器服务 ${this.deps.executorRepo}），不能指派`)
-    }
+    if (this.connectable(task)) return
+    // 错误里点明仓库与已接入集合：否则面板只会说"不能指派"，人去翻配置才知道差在哪。
+    const served = [...this.executorRepos].join('、')
+    throw new Error(`仓库 ${task.repo} 还没有接入执行器（已接入：${served}），不能指派`)
   }
 
   private require(tasks: TaskRecord[], taskId: string): TaskRecord {

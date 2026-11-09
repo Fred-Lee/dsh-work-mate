@@ -206,12 +206,30 @@ export function listProposalEvents(id: string): Promise<{ events: ProposalEventR
 
 /* ── 任务（change `adopt-superagent-openspec-source`） ───────────────────── */
 
+/**
+ * 单个执行器端点的健康（change `support-multi-repo-executors`）。
+ *
+ * 多端点部署时由服务端逐端点取 health 后聚合；单端点或旧服务端不提供
+ * `TaskBoardView.endpoints`，此时面板仍读单值 `health`（兼容投影）。
+ */
+export interface TaskEndpointView {
+  endpoint: string
+  online: boolean
+  reason?: string
+  paused?: boolean
+}
+
 export interface TaskCardView {
   lane: PanelLane
   substate: PanelSubstate
   note?: string
   task: TaskRecord
   connectable: boolean
+  /**
+   * 待办的仓库不在「已接入执行器的仓库集合」内时，服务端给出该仓库。
+   * 面板据此显示「未接入执行器（仓库 X）」；旧服务端不提供，回退 `task.repo`。
+   */
+  unservedRepo?: string
   ticket?: {
     id: string
     title: string
@@ -226,7 +244,10 @@ export interface TaskCardView {
 export interface TaskBoardView {
   cards: TaskCardView[]
   lanes: Record<PanelLane, TaskCardView[]>
+  /** 单值健康（保留兼容）：单端点部署或旧服务端读它。 */
   health: { online: boolean; endpoint: string; reason?: string; paused?: boolean }
+  /** 多端点部署的逐端点健康；单端点 / 旧服务端不提供。 */
+  endpoints?: TaskEndpointView[]
   attention: number
   notes: string[]
 }

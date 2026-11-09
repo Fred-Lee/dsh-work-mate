@@ -24,7 +24,10 @@ describe('resolveConfig', () => {
       reviewEvidenceGate: 'warn',
       teamEvidenceGate: 'block',
       taskFile: '',
+      executorRepos: [],
+      executorRepo: '',
       superagentEndpoint: 'http://127.0.0.1:3080',
+      superagentEndpoints: [],
       superagentTimeoutMs: 5000,
       superagentPollSeconds: 5,
       lifecycleMainBranch: 'main',
@@ -75,6 +78,23 @@ describe('resolveConfig', () => {
   it('keeps explicit overrides', () => {
     expect(resolveConfig({ workmateHome: 'wm-test', basePort: 3010 })).toMatchObject({
       workmateHome: 'wm-test',
+    })
+  })
+
+  // 多仓库执行器（change `support-multi-repo-executors`）：
+  // 新字段必须是"显式配置即生效"，旧单值字段继续可用（兼容特例）。
+  it('accepts multi-repo and multi-endpoint overrides', () => {
+    expect(
+      resolveConfig({
+        executorRepos: ['/repo/a', '/repo/b'],
+        superagentEndpoints: ['http://127.0.0.1:3080', 'http://127.0.0.1:3081'],
+      }),
+    ).toMatchObject({
+      executorRepos: ['/repo/a', '/repo/b'],
+      superagentEndpoints: ['http://127.0.0.1:3080', 'http://127.0.0.1:3081'],
+      // 未覆盖的兼容单值字段仍取默认值。
+      executorRepo: '',
+      superagentEndpoint: 'http://127.0.0.1:3080',
     })
   })
 

@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import type { Trigger } from './contract.ts'
 import type { InputRow, TaskRecord } from './files.ts'
-import { buildInputTrigger, buildTaskTrigger, healthSummaryOf, scanOnce, type WatchHost } from './watch.ts'
+import {
+  buildInputTrigger,
+  buildTaskTrigger,
+  healthSummaryOf,
+  normalizeRepoPath,
+  repoMatches,
+  scanOnce,
+  type ScanOutcome,
+  type WatchHost,
+} from './watch.ts'
 import type { TaskGateStatus } from './gate.ts'
 
 const task = (id: string, overrides: Partial<TaskRecord> = {}): TaskRecord => ({
@@ -61,7 +70,13 @@ function fakeHost(options: { terminals?: Record<string, TaskGateStatus>; cursor?
   return { host, received, duplicates, cursorWrites }
 }
 
-const base = { maxPerScan: 5, interactive: true, now: () => new Date('2026-11-02T00:10:00.000Z') }
+const base = {
+  source: 'workmate',
+  repos: [] as readonly string[],
+  maxPerScan: 5,
+  interactive: true,
+  now: () => new Date('2026-11-02T00:10:00.000Z'),
+}
 
 describe('buildTaskTrigger', () => {
   it('字段与 spec 一致', () => {
@@ -80,6 +95,24 @@ describe('buildTaskTrigger', () => {
     const trigger = buildTaskTrigger(task('task-1', { proposalId: 'add-thing' }), 't')
     expect(trigger.meta['proposalId']).toBe('add-thing')
   })
+
+  it('不传 source 时仍是默认实例（旧调用点语义不变）', () => {
+    const trigger = buildTaskTrigger(task('task-1'), 't')
+    expect(trigger.id).toBe('workmate:task-1:1')
+    expect(trigger.source).toBe('workmate')
+    expect(trigger.threads).toEqual([{ source: 'workmate', id: 'task-1' }])
+    expect(trigger.channel?.source).toBe('workmate')
+  })
+
+  it('传 source 时 Trigger / Thread / Channel 全带实例前缀，但 actor 仍是 workmate 的人身份', () => {
+    const trigger = buildTaskTrigger(task('task-1'), 't', 'workmate-b')
+    expect(trigger.id).toBe('workmate-b:task-1:1')
+    expect(trigger.source).toBe('workmate-b')
+    expect(trigger.threads).toEqual([{ source: 'workmate-b', id: 'task-1' }])
+    expect(trigger.channel?.source).toBe('workmate-b')
+    // actor.source 不随实例走：触发者身份是「人」，policy.allowed 按它查名单（见 contract.ts）。
+    expect(trigger.actor).toEqual({ source: 'workmate', id: 'workmate:fred' })
+  })
 })
 
 describe('buildInputTrigger', () => {
@@ -95,6 +128,14 @@ describe('buildInputTrigger', () => {
   it('agent 的 from 用行的 by', () => {
     const trigger = buildInputTrigger({ ...input(1, 'task-1'), by: 'workmate:lisi' }, task('task-1'))
     expect(trigger.actor).toEqual({ source: 'workmate', id: 'workmate:lisi' })
+  })
+
+  it('传 source 时回答也投进实例自己的 Thread', () => {
+    const trigger = buildInputTrigger(input(7, 'task-1'), task('task-1'), 'workmate-b')
+    expect(trigger.id).toBe('workmate-b:task-1:in:7')
+    expect(trigger.source).toBe('workmate-b')
+    expect(trigger.threads).toEqual([{ source: 'workmate-b', id: 'task-1' }])
+    expect(trigger.actor.source).toBe('workmate')
   })
 })
 
@@ -214,20 +255,27 @@ describe('scanOnce', () => {
 })
 
 describe('healthSummaryOf', () => {
+  const outcome = (overrides: Partial<ScanOutcome> = {}): ScanOutcome => ({
+    submitted: [],
+    replied: [],
+    duplicates: [],
+    deferred: 0,
+    skippedByRepo: 0,
+    waitingOnDependency: [],
+    blockedByDependency: [],
+    cycles: [],
+    readOnly: 0,
+    ...overrides,
+  })
+
   it('只读模式给只读摘要', () => {
-    const summary = healthSummaryOf(
-      { submitted: [], replied: [], duplicates: [], deferred: 0, waitingOnDependency: ['x'], blockedByDependency: [], cycles: [], readOnly: 3 },
-      [],
-    )
+    const summary = healthSummaryOf(outcome({ waitingOnDependency: ['x'], readOnly: 3 }), [])
     expect(summary.detail).toContain('只读')
     expect(summary.detail).toContain('等待依赖')
   })
 
   it('正常投递给投递摘要', () => {
-    const summary = healthSummaryOf(
-      { submitted: ['a'], replied: [1], duplicates: [], deferred: 2, waitingOnDependency: [], blockedByDependency: [], cycles: [], readOnly: 0 },
-      [],
-    )
+    const summary = healthSummaryOf(outcome({ submitted: ['a'], replied: [1], deferred: 2 }), [])
     expect(summary.detail).toContain('投递 1')
     expect(summary.detail).toContain('回答 1')
     expect(summary.detail).toContain('待投递 2')
@@ -235,10 +283,118 @@ describe('healthSummaryOf', () => {
   })
 
   it('有环时暂停', () => {
-    const summary = healthSummaryOf(
-      { submitted: [], replied: [], duplicates: [], deferred: 0, waitingOnDependency: [], blockedByDependency: [], cycles: [['a', 'b', 'a']], readOnly: 0 },
-      [],
-    )
+    const summary = healthSummaryOf(outcome({ cycles: [['a', 'b', 'a']] }), [])
     expect(summary.state).toBe('paused')
+  })
+
+  it('跳过 N 条（非本实例仓库）写进摘要，投递与只读两种分支都有', () => {
+    const delivered = healthSummaryOf(outcome({ submitted: ['a'], skippedByRepo: 2 }), [])
+    expect(delivered.detail).toContain('跳过 2 条（非本实例仓库）')
+    // 只读 + 全部被跳过：必须能看出"不是没活，是别人的活"。
+    const idle = healthSummaryOf(outcome({ readOnly: 0, skippedByRepo: 3 }), [])
+    expect(idle.detail).toContain('跳过 3 条（非本实例仓库）')
+    const cycles = healthSummaryOf(outcome({ cycles: [['a', 'b', 'a']], skippedByRepo: 1 }), [])
+    expect(cycles.detail).toContain('跳过 1 条（非本实例仓库）')
+  })
+})
+
+describe('仓库匹配（repos 过滤）', () => {
+  it('normalizeRepoPath 容忍末尾斜杠与重复分隔符，不做 basename 猜测', () => {
+    expect(normalizeRepoPath('/srv/a/')).toBe('/srv/a')
+    expect(normalizeRepoPath('/srv//a/./')).toBe('/srv/a')
+    expect(normalizeRepoPath('  /srv/a  ')).toBe('/srv/a')
+    expect(normalizeRepoPath('')).toBe('')
+    // 同名不同路径不得相等（否则会把待办投给同名的另一个仓库）。
+    expect(normalizeRepoPath('/srv/a/svc')).not.toBe(normalizeRepoPath('/srv/b/svc'))
+  })
+
+  it('repos 为空不限制；非空时按规范化路径相等匹配', () => {
+    expect(repoMatches('/srv/a', [])).toBe(true)
+    expect(repoMatches('/srv/a/', ['/srv/a'])).toBe(true)
+    expect(repoMatches('/srv/a', ['/srv/a/'])).toBe(true)
+    expect(repoMatches('/srv/b', ['/srv/a'])).toBe(false)
+    // 待办没写仓库：无法归属，宁可跳过（会在 skippedByRepo 里可见）。
+    expect(repoMatches('', ['/srv/a'])).toBe(false)
+  })
+
+  it('只投 repo 命中的待办，其余计入 skippedByRepo', async () => {
+    const fake = fakeHost()
+    const tasks = [task('a', { repo: '/srv/a' }), task('b', { repo: '/srv/b' }), task('c', { repo: '/srv/a/' })]
+    const outcome = await scanOnce(fake.host, { ...base, repos: ['/srv/a'], tasks, inputs: [] })
+    expect(outcome.submitted).toEqual(['a', 'c'])
+    expect(outcome.skippedByRepo).toBe(1)
+    expect(fake.received.map((trigger) => trigger.meta['taskId'])).toEqual(['a', 'c'])
+  })
+
+  it('repos 为空时不限制仓库', async () => {
+    const fake = fakeHost()
+    const outcome = await scanOnce(fake.host, {
+      ...base,
+      repos: [],
+      tasks: [task('a', { repo: '/srv/a' }), task('b', { repo: '/srv/b' })],
+      inputs: [],
+    })
+    expect(outcome.submitted).toEqual(['a', 'b'])
+    expect(outcome.skippedByRepo).toBe(0)
+  })
+
+  it('只读模式下 readOnly 只数本实例的待办', async () => {
+    const outcome = await scanOnce(fakeHost().host, {
+      ...base,
+      interactive: false,
+      repos: ['/srv/a'],
+      tasks: [task('a', { repo: '/srv/a' }), task('b', { repo: '/srv/b' })],
+      inputs: [],
+    })
+    expect(outcome.readOnly).toBe(1)
+    expect(outcome.skippedByRepo).toBe(1)
+  })
+
+  it('被跳过的待办不推进游标：换成本实例后下一轮照常投递', async () => {
+    const fake = fakeHost()
+    const tasks = [task('b', { repo: '/srv/b' })]
+    const first = await scanOnce(fake.host, { ...base, repos: ['/srv/a'], tasks, inputs: [] })
+    expect(first.submitted).toEqual([])
+    expect(first.skippedByRepo).toBe(1)
+    // 游标只服务 inputs 回答：没有回答行时一条都不写。
+    expect(fake.cursorWrites).toEqual([])
+    // 本实例接管该仓库后，同一份任务表立刻能投——说明跳过没有消费掉任何东西。
+    const second = await scanOnce(fake.host, { ...base, repos: ['/srv/b'], tasks, inputs: [] })
+    expect(second.submitted).toEqual(['b'])
+  })
+
+  it('依赖门控先算、仓库过滤后做：跳过的待办仍可能出现在 waiting 里', async () => {
+    const fake = fakeHost()
+    const outcome = await scanOnce(fake.host, {
+      ...base,
+      repos: ['/srv/a'],
+      tasks: [task('a', { repo: '/srv/a' }), task('b', { repo: '/srv/b', dependsOn: ['a'] })],
+      inputs: [],
+    })
+    // 门控是纯函数、语义单一（design D3）：它只回答"依赖满足了吗"，不知道也不该知道
+    // b 归别的实例；归属由 skippedByRepo 单独表达，两种等待因此可区分。
+    expect(outcome.submitted).toEqual(['a'])
+    expect(outcome.waitingOnDependency).toEqual(['b'])
+    expect(outcome.skippedByRepo).toBe(0)
+  })
+
+  it('两个实例用不相交 repos 扫描同一份任务表：各投各的、不重复', async () => {
+    // spec 场景「同一待办不会被两个实例重复投递」在不限制 repos 时物理上不可能成立
+    // （两个实例都会投同一条，这是配置问题，不是代码能去重的）。这里用**分区**表达它的
+    // 可判定版本：不相交 repos 下，同一份任务表的每条待办只属于一个实例。
+    const tasks = [task('a', { repo: '/srv/a' }), task('b', { repo: '/srv/b' }), task('c', { repo: '/srv/a///' })]
+    const instanceA = fakeHost()
+    const instanceB = fakeHost()
+    const outcomeA = await scanOnce(instanceA.host, { ...base, source: 'workmate', repos: ['/srv/a'], tasks, inputs: [] })
+    const outcomeB = await scanOnce(instanceB.host, { ...base, source: 'workmate-b', repos: ['/srv/b'], tasks, inputs: [] })
+    expect(outcomeA.submitted).toEqual(['a', 'c'])
+    expect(outcomeB.submitted).toEqual(['b'])
+    // 两个实例投出的 Trigger ID 前缀不同，即便 taskId 相同也不会被宿主互相当成重复。
+    expect(instanceA.received.map((trigger) => trigger.id)).toEqual(['workmate:a:1', 'workmate:c:1'])
+    expect(instanceB.received.map((trigger) => trigger.id)).toEqual(['workmate-b:b:1'])
+    // 并集恰好覆盖整张表，没有一条被投两次。
+    const delivered = [...outcomeA.submitted, ...outcomeB.submitted]
+    expect(delivered.sort()).toEqual(['a', 'b', 'c'])
+    expect(new Set(delivered).size).toBe(delivered.length)
   })
 })
