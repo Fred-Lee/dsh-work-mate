@@ -52,6 +52,7 @@ const PATCHABLE = new Set([
   'risk',
   'abandonedAt',
   'abandonedReason',
+  'autoAdvancedAt',
 ])
 
 export interface UpsertProposalInput {

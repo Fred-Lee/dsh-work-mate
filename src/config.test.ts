@@ -28,6 +28,7 @@ describe('resolveConfig', () => {
       executorRepo: '',
       superagentEndpoint: 'http://127.0.0.1:3080',
       superagentEndpoints: [],
+      advanceScanSeconds: 60,
       superagentTimeoutMs: 5000,
       superagentPollSeconds: 5,
       lifecycleMainBranch: 'main',

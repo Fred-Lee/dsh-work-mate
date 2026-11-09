@@ -45,6 +45,7 @@ export interface ProposalEvent {
     | 'team-run'
     // 任务层自己的事实（创建/指派/停止/回答），由 `TaskServiceImpl` 写入。
     | 'task-settled'
+    | 'advance-scan'
   from?: ProposalState
   to?: ProposalState
   actor: EventActor
@@ -108,6 +109,7 @@ const isEvent = (value: unknown): value is ProposalEvent => {
       record['kind'] === 'team-settled' ||
       record['kind'] === 'team-run' ||
       record['kind'] === 'task-settled' ||
+      record['kind'] === 'advance-scan' ||
       record['kind'] === 'band-breach' ||
       record['kind'] === 'approval' ||
       record['kind'] === 'decision')

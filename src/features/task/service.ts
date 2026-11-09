@@ -319,6 +319,47 @@ export class TaskServiceImpl {
     return { created, existing }
   }
 
+  /**
+   * **只读**的任务卡视图：只做任务表 + Ticket 投影，不写任何文件、不获取提案写锁。
+   *
+   * change `auto-advance-implemented-to-merging` design D1：自动推进的扫描必须走
+   * 这条只读路径。`board()` 会 `cacheObservedTickets`（写盘）并触发观察钩子，
+   * 从扫描里调它正是上次死锁的成因。
+   */
+  async cards(): Promise<TaskCard[]> {
+    const file = await this.deps.store.load()
+    const health = await this.deps.superagent.health()
+    if (!health.online) {
+      return file.tasks.map((task) => ({
+        ...projectTask({ task, submitted: task.attempt > 0 && task.assigned }),
+        task,
+        connectable: this.connectable(task),
+      }))
+    }
+    const tickets = await this.deps.superagent.tickets()
+    const ticketIds = await ticketIdsFromResults(this.deps.store.paths.results).catch(
+      () => ({}) as Record<string, string>,
+    )
+    const byTicketId = new Map(tickets.tickets.map((ticket) => [ticket.id, ticket]))
+    const byTitle = new Map(tickets.tickets.map((ticket) => [ticket.title, ticket]))
+    return file.tasks.map((task) => {
+      const boundId = ticketIds[task.id]
+      const ticket = (boundId !== undefined ? byTicketId.get(boundId) : undefined) ?? byTitle.get(task.title)
+      const submitted = task.attempt > 0 && task.assigned
+      return {
+        ...projectTask({
+          task,
+          ...(ticket !== undefined ? { ticket } : {}),
+          submitted,
+          ...(tickets.online === false && submitted ? { failure: tickets.reason ?? '执行器离线' } : {}),
+        }),
+        task,
+        ...(ticket !== undefined ? { ticket } : {}),
+        connectable: this.connectable(task),
+      }
+    })
+  }
+
   /** 面板视图：任务表 + Ticket 投影 + 连接状态。 */
   async board(): Promise<TaskBoard> {
     const notes: string[] = []

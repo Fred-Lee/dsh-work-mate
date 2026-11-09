@@ -62,6 +62,12 @@ function fakeCtx(available: Record<string, unknown>): {
       },
     },
     get: (key: string) => available[key],
+    // cordis `ctx.effect(fn)` registers a disposable and returns its disposer.
+    // The plugin now uses it for the auto-advance scheduler's clearInterval.
+    effect: (fn: () => unknown) => {
+      const disposer = fn()
+      return typeof disposer === 'function' ? disposer : undefined
+    },
     inject: (deps: readonly string[], callback: (scope: never) => void) => {
       if (deps.every((dep) => available[dep] !== undefined)) callback(scopeFor() as never)
       return {}

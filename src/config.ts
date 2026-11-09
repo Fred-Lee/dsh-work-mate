@@ -140,6 +140,13 @@ export interface Config {
    * 每个端点独立探活与取 Ticket，单个离线只影响它自己（change `support-multi-repo-executors`）。@default []
    */
   superagentEndpoints?: string[]
+
+  /**
+   * 「实现完成后自动推进到 merging」的扫描间隔（秒）。独立低频调度器，
+   * 不走请求路径——见 change `auto-advance-implemented-to-merging`。
+   * @default 60
+   */
+  advanceScanSeconds?: number
   /** 代理请求超时（毫秒）。@default 5000 */
   superagentTimeoutMs?: number
   /** 面板读取 Ticket 投影的间隔（秒）。@default 5 */
@@ -311,6 +318,12 @@ export const Config: z<Config> = z.object({
     .array(z.string())
     .default([])
     .description('Super-agent endpoints for multi-executor deployments; non-empty overrides superagentEndpoint.'),
+  advanceScanSeconds: z
+    .number()
+    .min(10)
+    .max(3600)
+    .default(60)
+    .description('Scan interval (seconds) for the auto-advance scheduler; independent of request paths.'),
   superagentTimeoutMs: z
     .number()
     .default(5000)
@@ -393,6 +406,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   executorRepo: '',
   superagentEndpoint: 'http://127.0.0.1:3080',
   superagentEndpoints: [],
+  advanceScanSeconds: 60,
   superagentTimeoutMs: 5000,
   superagentPollSeconds: 5,
   lifecycleMainBranch: 'main',

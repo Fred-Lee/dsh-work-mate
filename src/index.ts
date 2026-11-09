@@ -15,6 +15,7 @@
  *     entries — every registration lazily injected, zero hard dependency
  */
 import { existsSync } from 'node:fs'
+import { runAdvanceScan, singleFlight } from './features/task/advance-scan.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool, type InferValue, type JsonValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -156,6 +157,51 @@ export function apply(ctx: Context, config: Config = {}): void {
     const result = await writeBackTargets({ proposals, registry }, observed)
     return { updated: result.updated, conflicts: result.conflicts }
   })
+  // 实现完成后的自动推进（change `auto-advance-implemented-to-merging`）。
+  //
+  // **绝不放在读路径**：上一次实现把这个逻辑塞进 board()，宿主主线程 100% 卡在
+  // v8 MicrotaskQueue、HTTP 完全无响应（2026-11-09 事故）。这里是独立低频调度器，
+  // 单飞 + 只读 cards()，且只在提案仍是 implementing 且无 autoAdvancedAt 时推进。
+  {
+    const scan = singleFlight(async () => {
+      const outcome = await runAdvanceScan({
+        cards: () => tasks.cards(),
+        proposals: async () =>
+          (await proposals.list()).map((proposal) => ({
+            id: proposal.id,
+            status: proposal.status,
+            ...(proposal.autoAdvancedAt !== undefined ? { autoAdvancedAt: proposal.autoAdvancedAt } : {}),
+          })),
+        advance: async (proposalId) => {
+          await archive.transition(proposalId, 'merging', { actor: 'system' })
+        },
+        markAdvanced: async (proposalId, at) => {
+          await proposals.patchFields(proposalId, { autoAdvancedAt: at })
+        },
+      })
+      if (outcome.advanced.length > 0 || outcome.blocked.length > 0) {
+        await events.append({
+          at: new Date().toISOString(),
+          proposalId: outcome.advanced[0] ?? outcome.blocked[0]?.id ?? '',
+          kind: 'advance-scan',
+          actor: 'system',
+          detail: JSON.stringify(outcome),
+        }).catch(() => undefined)
+        for (const blocked of outcome.blocked) {
+          console.error(`[workmate] 自动推进受阻 ${blocked.id}：${blocked.reason}`)
+        }
+      }
+      return outcome
+    })
+    const timer = setInterval(() => {
+      void scan().catch((error: unknown) => {
+        // 调度器永不抛到进程级：一次失败不能停掉后续扫描。
+        console.error('[workmate] advance-scan failed:', error instanceof Error ? error.message : String(error))
+      })
+    }, Math.max(10, resolved.advanceScanSeconds) * 1000)
+    ctx.effect(() => () => clearInterval(timer))
+  }
+
   // Every spawned `gitnexus` gets GITNEXUS_API_KEY mapped from the configured
   // variable (key lives in the Keychain / shell, never in a repo or plugin file).
   setGitnexusApiKeyEnv(resolved.gitnexusApiKeyFromEnv)

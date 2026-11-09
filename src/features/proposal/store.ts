@@ -149,6 +149,11 @@ export interface Proposal {
   // 历史记录里的该字段不清洗，读取端忽略。
   /** Judged change risk (change `add-decision-nodes`); high tightens the approval gate. */
   risk?: 'low' | 'medium' | 'high'
+  /**
+   * 系统已为该提案做过「实现完成后自动推进到 merging」的时间戳
+   * （change `auto-advance-implemented-to-merging`）。存在即不再自动推进。
+   */
+  autoAdvancedAt?: string
   createdAt: string
   updatedAt: string
 }
