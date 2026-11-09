@@ -370,8 +370,8 @@ describe('G2 交接：ensureImplementationTasks', () => {
       proposalId: 'add-thing',
       title: '异步化 Run',
       targets: [
-        { project: 'repo-a', baseBranch: 'main' },
-        { project: 'repo-b', baseBranch: 'test' },
+        { project: 'repo-a', repo: '/srv/repo-a', baseBranch: 'main' },
+        { project: 'repo-b', repo: '/srv/repo-b', baseBranch: 'test' },
       ],
     })
     expect(result.created).toHaveLength(2)
@@ -386,12 +386,12 @@ describe('G2 交接：ensureImplementationTasks', () => {
     const first = await svc.ensureImplementationTasks({
       proposalId: 'add-thing',
       title: 'T',
-      targets: [{ project: 'repo-a', baseBranch: 'main' }],
+      targets: [{ project: 'repo-a', repo: '/srv/repo-a', baseBranch: 'main' }],
     })
     const second = await svc.ensureImplementationTasks({
       proposalId: 'add-thing',
       title: 'T',
-      targets: [{ project: 'repo-a', baseBranch: 'main' }],
+      targets: [{ project: 'repo-a', repo: '/srv/repo-a', baseBranch: 'main' }],
     })
     expect(first.created).toHaveLength(1)
     expect(second.created).toHaveLength(0)
@@ -401,12 +401,12 @@ describe('G2 交接：ensureImplementationTasks', () => {
   it('放弃的旧待办不阻止新建', async () => {
     const { client } = fakeClient()
     const svc = service(client)
-    await svc.ensureImplementationTasks({ proposalId: 'p', title: 'T', targets: [{ project: 'r', baseBranch: 'main' }] })
+    await svc.ensureImplementationTasks({ proposalId: 'p', title: 'T', targets: [{ project: 'r', repo: '/srv/r', baseBranch: 'main' }] })
     const file = await store.load()
     const first = file.tasks[0] as (typeof file.tasks)[number]
     first.abandoned = true
     await store.save(file)
-    const again = await svc.ensureImplementationTasks({ proposalId: 'p', title: 'T', targets: [{ project: 'r', baseBranch: 'main' }] })
+    const again = await svc.ensureImplementationTasks({ proposalId: 'p', title: 'T', targets: [{ project: 'r', repo: '/srv/r', baseBranch: 'main' }] })
     expect(again.created).toHaveLength(1)
   })
 
@@ -418,7 +418,7 @@ describe('G2 交接：ensureImplementationTasks', () => {
     const result = await svc.ensureImplementationTasks({
       proposalId: 'p1',
       title: 'T',
-      targets: [{ project: 'repo', baseBranch: 'main' }],
+      targets: [{ project: 'repo', repo: '/srv/repo', baseBranch: 'main' }],
     })
     expect(result.created[0]?.ports).toHaveLength(5)
   })
@@ -466,4 +466,18 @@ describe('G2 交接：ensureImplementationTasks', () => {
     expect(card?.ticket?.id).toBe('ticket-abc')
     expect(card?.lane).toBe('working')
   })
+
+  it('实现待办的 repo 是绝对路径，而不是项目名（真机 2026-11-09）', async () => {
+    const { client } = fakeClient()
+    const svc = service(client)
+    const result = await svc.ensureImplementationTasks({
+      proposalId: 'add-path',
+      title: 'T',
+      targets: [{ project: 'dsh-Helmsman', repo: '/Users/fredlee/Documents/workspace/dsh-Helmsman', baseBranch: 'main' }],
+    })
+    // Source 与执行器按绝对路径比对；写项目名会让待办永远投不出去。
+    expect(result.created[0]?.repo).toBe('/Users/fredlee/Documents/workspace/dsh-Helmsman')
+    expect(result.created[0]?.repo).not.toBe('dsh-Helmsman')
+  })
+
 })

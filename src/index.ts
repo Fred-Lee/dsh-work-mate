@@ -202,10 +202,19 @@ export function apply(ctx: Context, config: Config = {}): void {
     approvalsRequired: resolved.approvalsRequired,
     allowAgentApproval: resolved.allowAgentApproval,
     onImplementing: async (proposal, targets) => {
+      // 待办的 `repo` 必须是**绝对路径**：Source 与执行器都按路径比对（`deployment.repository`
+      // 与 `task.repo`）。只写项目名（`target.project`）会让待办永远投不出去——
+      // 实测 2026-11-09：`repo: "dsh-Helmsman"` 与执行器 `/Users/.../dsh-Helmsman` 不匹配。
+      const roots = await resolveRoots(proposal)
+      const rootByProject = new Map(roots.map((entry) => [entry.project, entry.root]))
       const result = await tasks.ensureImplementationTasks({
         proposalId: proposal.id,
         title: proposal.title,
-        targets,
+        targets: targets.map((target) => ({
+          project: target.project,
+          repo: rootByProject.get(target.project) ?? target.project,
+          baseBranch: target.baseBranch,
+        })),
       })
       return result
     },

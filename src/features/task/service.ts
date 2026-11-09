@@ -219,7 +219,7 @@ export class TaskServiceImpl {
   async ensureImplementationTasks(input: {
     proposalId: string
     title: string
-    targets: ReadonlyArray<{ project: string; baseBranch: string }>
+    targets: ReadonlyArray<{ project: string; repo: string; baseBranch: string }>
     acceptance?: string
   }): Promise<{ created: TaskRecord[]; existing: TaskRecord[] }> {
     return this.serialize(() => this.ensureImplementationTasksLocked(input))
@@ -228,7 +228,7 @@ export class TaskServiceImpl {
   private async ensureImplementationTasksLocked(input: {
     proposalId: string
     title: string
-    targets: ReadonlyArray<{ project: string; baseBranch: string }>
+    targets: ReadonlyArray<{ project: string; repo: string; baseBranch: string }>
     acceptance?: string
   }): Promise<{ created: TaskRecord[]; existing: TaskRecord[] }> {
     const file = await this.deps.store.load()
@@ -236,7 +236,11 @@ export class TaskServiceImpl {
     const existing: TaskRecord[] = []
     for (const target of input.targets) {
       const found = file.tasks.find(
-        (task) => task.proposalId === input.proposalId && task.repo === target.project && !task.abandoned,
+        // 幂等键是 repo（绝对路径）：历史记录里可能是项目名，两种都认，避免回退再前进时重复建单。
+        (task) =>
+          task.proposalId === input.proposalId &&
+          (task.repo === target.repo || task.repo === target.project) &&
+          !task.abandoned,
       )
       if (found !== undefined) {
         existing.push(found)
@@ -248,7 +252,7 @@ export class TaskServiceImpl {
         id,
         title: `${input.title}（${target.project}）`.slice(0, 200),
         intent: `实现提案 ${input.title} 的 ${target.project} 部分（OpenSpec: ${input.proposalId}）`,
-        repo: target.project,
+        repo: target.repo,
         baseBranch: target.baseBranch,
         acceptance: input.acceptance ?? '',
         priority: 'P1',
