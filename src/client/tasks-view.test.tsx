@@ -193,3 +193,136 @@ describe('新建与回答', () => {
     })
   })
 })
+
+describe('多执行器健康摘要（change support-multi-repo-executors）', () => {
+  it('两个端点一个离线：顶部显示 2 个执行器，1 个离线，且不把整块任务视图判成离线', async () => {
+    route(
+      board([card({ lane: 'working', substate: 'working', task: task({ id: 't-on', title: '可达端点任务' }) })], {
+        // 兼容投影：单值 health 取首个端点（review 疑问项 1），这里恰好是离线的那个；
+        // 多端点时面板必须改以 endpoints 为准，否则会误判整块离线。
+        health: { online: false, endpoint: 'http://127.0.0.1:3082', reason: '连接被拒' },
+        endpoints: [
+          { endpoint: 'http://127.0.0.1:3082', online: false, reason: '连接被拒' },
+          { endpoint: 'http://127.0.0.1:3083', online: true },
+        ],
+        notes: ['执行器离线：http://127.0.0.1:3082 连接被拒'],
+      }),
+    )
+    render(<TasksView onError={() => undefined} />)
+    expect(await screen.findByText('2 个执行器，1 个离线')).toBeTruthy()
+    // 可达端点服务的待办仍正常投影。
+    expect(screen.getByText('可达端点任务')).toBeTruthy()
+    // 单个端点不可达 ≠ 整块离线：不应出现整块离线的红色横幅，离线细节以 note 展示。
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByText('执行器离线：http://127.0.0.1:3082 连接被拒')).toBeTruthy()
+  })
+
+  it('多端点全在线：仍显示执行器数量，离线数为 0', async () => {
+    route(
+      board([], {
+        endpoints: [
+          { endpoint: 'http://127.0.0.1:3082', online: true },
+          { endpoint: 'http://127.0.0.1:3083', online: true },
+        ],
+      }),
+    )
+    render(<TasksView onError={() => undefined} />)
+    expect(await screen.findByText('2 个执行器，0 个离线')).toBeTruthy()
+  })
+
+  it('所有端点都离线时才给出整块离线横幅', async () => {
+    route(
+      board([], {
+        health: { online: false, endpoint: 'http://127.0.0.1:3082', reason: '两个端点都不可达' },
+        endpoints: [
+          { endpoint: 'http://127.0.0.1:3082', online: false, reason: '连接被拒' },
+          { endpoint: 'http://127.0.0.1:3083', online: false, reason: '超时' },
+        ],
+      }),
+    )
+    render(<TasksView onError={() => undefined} />)
+    expect(await screen.findByText('2 个执行器，2 个离线')).toBeTruthy()
+    expect(await screen.findByText(/两个端点都不可达/)).toBeTruthy()
+  })
+})
+
+describe('未接入执行器的卡片', () => {
+  it('显示「未接入执行器（仓库 X）」且指派按钮保持禁用', async () => {
+    route(
+      board([
+        card({
+          lane: 'todo',
+          substate: 'unassigned',
+          connectable: false,
+          unservedRepo: '/Users/fred/workspace/repo-b',
+          task: task({ id: 't-unserved', title: '跨仓待办', repo: '/Users/fred/workspace/repo-b' }),
+        }),
+      ]),
+    )
+    render(<TasksView onError={() => undefined} />)
+    await screen.findByText('跨仓待办')
+    // 原因写在卡片正文里，而不是只放在 title / hover。
+    expect(screen.getByText('未接入执行器（仓库 /Users/fred/workspace/repo-b）')).toBeTruthy()
+    const assign = screen.getByRole('button', { name: '仓库未接入' }) as HTMLButtonElement
+    expect(assign.disabled).toBe(true)
+  })
+
+  it('服务端未提供 unservedRepo 时回退到 task.repo', async () => {
+    route(
+      board([
+        card({
+          lane: 'todo',
+          substate: 'unassigned',
+          connectable: false,
+          task: task({ id: 't-unserved-2', title: '回退仓库待办', repo: 'repo-b' }),
+        }),
+      ]),
+    )
+    render(<TasksView onError={() => undefined} />)
+    await screen.findByText('回退仓库待办')
+    expect(screen.getByText('未接入执行器（仓库 repo-b）')).toBeTruthy()
+  })
+
+  it('已接入的待办不显示未接入提示，指派按钮可用', async () => {
+    route(
+      board([
+        card({ lane: 'todo', substate: 'unassigned', connectable: true, task: task({ id: 't-served', title: '同仓待办', repo: 'dsh-Helmsman' }) }),
+      ]),
+    )
+    render(<TasksView onError={() => undefined} />)
+    await screen.findByText('同仓待办')
+    expect(screen.queryByText(/未接入执行器/)).toBeNull()
+    expect((screen.getByRole('button', { name: '指派' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+})
+
+describe('单端点旧文案不回归', () => {
+  it('未提供 endpoints 时保留「执行器在线 · endpoint」与状态点', async () => {
+    route(board([]))
+    const { container } = render(<TasksView onError={() => undefined} />)
+    expect(await screen.findByText('执行器在线 · http://127.0.0.1:3082')).toBeTruthy()
+    expect(container.querySelector('.wm-conn-dot')?.className).toContain('ok')
+  })
+
+  it('只给一个端点时仍按单值 health 显示旧文案，不出现多执行器摘要', async () => {
+    route(board([], { endpoints: [{ endpoint: 'http://127.0.0.1:3082', online: true }] }))
+    render(<TasksView onError={() => undefined} />)
+    expect(await screen.findByText('执行器在线 · http://127.0.0.1:3082')).toBeTruthy()
+    expect(screen.queryByText(/个执行器，/)).toBeNull()
+  })
+
+  it('单端点离线时红色横幅与 notes 抑制行为保持不变', async () => {
+    route(
+      board([], {
+        health: { online: false, endpoint: 'http://127.0.0.1:3082', reason: '连接被拒' },
+        endpoints: [{ endpoint: 'http://127.0.0.1:3082', online: false, reason: '连接被拒' }],
+        notes: ['执行器离线：连接被拒'],
+      }),
+    )
+    render(<TasksView onError={() => undefined} />)
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('执行器离线：连接被拒')
+    // 旧行为：整块离线时离线条目由红色横幅统一说明，note 不再重复展示。
+    expect(screen.queryByText('执行器离线：连接被拒')).toBeNull()
+  })
+})
