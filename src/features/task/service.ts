@@ -30,6 +30,11 @@ export interface TaskServiceDeps {
   ports?: PortAllocator
   /** 观察到 Ticket 时的回写钩子（target 分支与基线）；抛错只记在 notes，不阻断列表。 */
   onTicketObserved?: (observed: ReadonlyArray<TicketObservation>) => Promise<{ updated: string[]; conflicts: string[] }>
+  /**
+   * 某提案的全部待办都到达"实现完成"时请求推进（change `auto-advance-on-ticket-completion`）。
+   * 返回 `undefined` = 无需推进；返回字符串 = 推进受阻的原因（进 notes）。
+   */
+  onProposalImplemented?: (proposalId: string) => Promise<string | undefined>
   now?: () => Date
 }
 
@@ -334,6 +339,20 @@ export class TaskServiceImpl {
       }
     }
 
+    // 实现完成即请求推进（change `auto-advance-on-ticket-completion`）。
+    // 放在 board 里是因为它本来每 5 秒轮询、且已经在读 Ticket 与任务表；
+    // 失败只记 notes：面板可用性不受推进影响。
+    if (this.deps.onProposalImplemented !== undefined) {
+      for (const proposalId of completedProposals(cards)) {
+        try {
+          const blocked = await this.deps.onProposalImplemented(proposalId)
+          if (blocked !== undefined) notes.push(`提案 ${proposalId} 实现完成但未能自动推进：${blocked}`)
+        } catch (error) {
+          notes.push(`提案 ${proposalId} 自动推进失败：${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+    }
+
     const lanes: Record<PanelLane, TaskCard[]> = { todo: [], working: [], attention: [], done: [] }
     for (const card of cards) lanes[card.lane].push(card)
     return {
@@ -418,3 +437,37 @@ export class TaskServiceImpl {
 
 /** 默认的任务文件路径：`<rootDir>/tasks.json`（Config.taskFile 为空时）。 */
 export const defaultTaskFile = (rootDir: string): string => join(rootDir, 'tasks.json')
+
+/**
+ * 某提案的待办是否"实现完成"（change `auto-advance-on-ticket-completion`, design D2）。
+ *
+ * 判据只用任务投影，不看提案状态：
+ *   - 该提案至少要有一条待办（无待办不算完成，D2b）；
+ *   - 全部待办都必须在 done 列；
+ *   - 终态 `closed`（关闭未合并）与 `stopped` 不算完成。
+ * `dropped` 算完成：需求本身被判为无需实现，卡在 implementing 没有意义。
+ */
+export function implementationComplete(
+  cards: ReadonlyArray<{ task: TaskRecord; lane: PanelLane; ticket?: TicketView }>,
+  proposalId: string,
+): boolean {
+  const mine = cards.filter((card) => card.task.proposalId === proposalId)
+  if (mine.length === 0) return false
+  return mine.every((card) => {
+    if (card.lane !== 'done') return false
+    const outcome = card.ticket?.ended?.outcome
+    return outcome !== 'closed' && outcome !== 'stopped'
+  })
+}
+
+/** 提案 id → 该提案是否实现完成（供 board 一次性判定所有提案）。 */
+export function completedProposals(
+  cards: ReadonlyArray<{ task: TaskRecord; lane: PanelLane; ticket?: TicketView }>,
+): string[] {
+  const ids = new Set<string>()
+  for (const card of cards) {
+    const id = card.task.proposalId
+    if (id !== undefined && id !== '') ids.add(id)
+  }
+  return [...ids].filter((id) => implementationComplete(cards, id))
+}

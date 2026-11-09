@@ -134,6 +134,19 @@ export function apply(ctx: Context, config: Config = {}): void {
     operator: 'workmate:panel',
     ports: worktree.ports(),
     now: () => new Date(),
+    // 实现完成后自动推进 implementing → merging（change
+    // `auto-advance-on-ticket-completion`）。判据在 TaskService 侧（它才有 Ticket），
+    // 推进在提案侧；这里只做接线。返回受阻原因，交给面板 notes。
+    onProposalImplemented: async (proposalId) => {
+      const proposal = await proposals.get(proposalId)
+      if (proposal === undefined || proposal.status !== 'implementing') return undefined
+      try {
+        await archive.transition(proposalId, 'merging', { actor: 'system' })
+        return undefined
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error)
+      }
+    },
   })
   // target 分支回写：观察到的 Ticket 目录 → `workmate/<末段>` 写回对应 target，
   // 让归档前置与 G5 合并有分支事实可读（design D10c / task 20）。
