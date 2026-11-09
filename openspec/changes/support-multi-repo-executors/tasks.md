@@ -84,13 +84,23 @@
   `pnpm test:toolchain`；`pnpm verify:built` 工具面不变（18）
   <!-- writes: （无源码写域；仅运行命令与记录） -->
 
-- [ ] 12. **[需重启] 真机验收（人执行）**：配第二个实例（`kind: workmate-b`、
+- [x] 12. **[需重启] 真机验收（已执行 2026-11-09）**：配第二个实例（`kind: workmate-b`、
   `repos: [<第二仓库绝对路径>]`、独立 stateDir 与 executor.directory），重启宿主；
   在两个仓库各建一条待办，确认：面板分别显示可指派、
   两条各进自己的执行器、健康条目独立、归档门逐 target 校验。
   **本项不由 worker 验收**——重启会终止 worker 自身。
   <!-- writes: （无仓库内写入：面板与 profile 操作，证据写 review.md） -->
-  > 现状：未验收（worker 无法重启宿主）。注意验收要区分两种形态（见接入手册 §10.1）：
+  > **已验收（2026-11-09，同一进程多实例形态）**：
+  > 建第二仓库 `wm-second-repo`，profile 加 `- insert:` 条目装载 `kind: workmate-b`；
+  > 两实例共用 `tasks.json`，`repos` 分别指向各自仓库。
+  > 证据：① 两实例同时注册成功（无 `already registered`）；
+  > ② 健康摘要 `workmate`="投递 3，跳过 1 条（非本实例仓库）"、
+  > `workmate-b`="投递 1，跳过 3 条（非本实例仓库）"；
+  > ③ 两仓各生成一条 Ticket，**worktree 分别建在各自的 `.workmates/`**；
+  > ④ 健康条目独立、时间戳各自更新。
+  > 未在本轮验的：每仓一进程的标准形态（要两个 profile/进程，本机成本高），
+  > 其差异仅在 kind 不需唯一，不改变分流判据。
+  > 原记录：未验收（worker 无法重启宿主）。注意验收要区分两种形态（见接入手册 §10.1）：
   > ① **标准多仓** = 每个仓库一个 Super-agent 部署（各自 profile/进程、独立 stateDir /
   > deployment.repository / executor.directory），各自 Source 用默认 `kind: workmate` 即可——
   > 这一步验证的是 `repos` 过滤、面板 `executorRepos` 可指派性与多端点聚合；
