@@ -41,6 +41,11 @@ export interface TicketView {
   attention?: { question?: string }
   summary?: string
   sessionId?: string
+  /**
+   * 该 Ticket 来自哪个执行器端点（多端点聚合时由 `SuperagentPool` 打标，
+   * `action()` 按它路由）；单端点 `SuperagentClient` 不填。
+   */
+  endpoint?: string
 }
 
 export interface ProjectionInput {

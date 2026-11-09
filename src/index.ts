@@ -66,7 +66,7 @@ import { mountWorkmateApi, createProposal, type WebServerLike } from './api.ts'
 import { registerGuidance } from './features/guidance/index.ts'
 import { TaskFileStore } from './features/task/files.ts'
 import { TaskServiceImpl } from './features/task/service.ts'
-import { SuperagentClient } from './features/superagent/client.ts'
+import { SuperagentPool } from './features/superagent/client.ts'
 export const name = 'workmate'
 /**
  * Only services every profile provides. `webServer` belongs to the web-app
@@ -116,8 +116,11 @@ export function apply(ctx: Context, config: Config = {}): void {
   const events = new EventLog({ subdir: resolved.workmateHome })
   const proposals = new ProposalServiceImpl(store, undefined, events)
   const taskStore = new TaskFileStore({ rootDir: store.rootDir, file: resolved.taskFile })
-  const superagent = new SuperagentClient({
-    endpoint: resolved.superagentEndpoint,
+  // 端点归一：superagentEndpoints 非空优先，否则退回单值 superagentEndpoint（旧配置不改也能跑）。
+  // 用 Pool 统一装配：单端点时它的行为与旧的 SuperagentClient 等价，入口只有一条。
+  const superagent = new SuperagentPool({
+    endpoints:
+      resolved.superagentEndpoints.length > 0 ? resolved.superagentEndpoints : [resolved.superagentEndpoint],
     timeoutMs: resolved.superagentTimeoutMs,
   })
   const registry = new ProjectRegistry({ subdir: resolved.workmateHome })
@@ -126,10 +129,21 @@ export function apply(ctx: Context, config: Config = {}): void {
     basePort: resolved.basePort,
     portStep: resolved.portStep,
   })
+  // 集合判定：executorRepos 为主，executorRepo 是长度 1 的兼容特例；去重、去空串后交给服务
+  //（服务内部还会再合并一次，嵌入方直接注入 executorRepo 时同样生效）。
+  const executorRepos = [
+    ...new Set(
+      [...resolved.executorRepos, resolved.executorRepo]
+        .map((repo) => repo.trim())
+        .filter((repo) => repo !== ''),
+    ),
+  ]
   const tasks = new TaskServiceImpl({
     store: taskStore,
     superagent,
     events,
+    executorRepos,
+    executorRepo: resolved.executorRepo,
     operator: 'workmate:panel',
     ports: worktree.ports(),
     now: () => new Date(),
