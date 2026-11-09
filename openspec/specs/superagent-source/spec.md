@@ -6,31 +6,26 @@ TBD - created by archiving change adopt-superagent-openspec-source. Update Purpo
 ### Requirement: 作为独立 Source bundle 安装
 
 SourceKind SHALL 位于独立包 `workmate-superagent-source`，该包 SHALL 声明
-`dsh.bundle.patch` 并在自身的 `cordis.patch.yml` 中只声明一条 entry
-（`- id: workmate-superagent-source / name: workmate-superagent-source`）。
+`dsh.bundle.patch` 并在自身的 `cordis.patch.yml` 中只声明一条 entry。
 
-该包 SHALL NOT 依赖 `@deepseek-ai/dsh-superagent`（不 import、不写
-`dependencies`/`peerDependencies`）；与 Super-agent 之间 SHALL 只有运行期的
+该包 SHALL NOT 依赖 `@deepseek-ai/dsh-superagent`；与 Super-agent 之间 SHALL 只有运行期的
 `ctx.orchestrator` 服务契约。
 
-把它安装进 Super-agent 的 profile 后，宿主 SHALL 能通过标准插件管理流程启用它；
-SHALL NOT 需要手工编辑 `dsh.profile.bundles` 或 `cordis.patch.yml`。
+同一进程 SHALL 能注册多个本来源实例：实例 id 由配置的 `kind` 决定（默认 `workmate`，
+SHALL 匹配 `^[a-z][a-z0-9-]*$`）。宿主对重复 kind SHALL NOT 被触发——部署方为每个实例
+配置不同的 `kind`。所有按实例派生的标识（注册键、健康条目名、state 键前缀、
+Trigger `source`、Thread key 前缀）SHALL 全部来自该实例 id，SHALL NOT 共用常量，
+否则两个实例会互相去重、互相覆盖健康报告或共享游标。
 
-#### Scenario: 装包即启用
+#### Scenario: 两个实例共存
 
-- **WHEN** 在 Super-agent 的 profile 中安装 `workmate-superagent-source`
-- **THEN** 插件管理器把它列为一个新的 bundle 并启用，profile 中出现
-  `workmate-superagent-source` 条目，无需手工改 bundles
+- **WHEN** 同一 profile 配置 `kind: workmate` 与 `kind: workmate-b` 两个实例
+- **THEN** 两者都注册成功，各自报告独立健康条目，互不抛 `Source kind already registered`
 
-#### Scenario: 无源码依赖
+#### Scenario: 状态与幂等不串台
 
-- **WHEN** 检查该包的 `package.json`
-- **THEN** `dependencies`/`peerDependencies` 中不含任何 `dsh-superagent` 条目
-
-#### Scenario: 装错 profile 只等待
-
-- **WHEN** 该包被安装在没有 Super-agent 的 profile 里
-- **THEN** 模块级 `inject` 让插件保持等待，不注册工具、不抛错、不阻断宿主启动
+- **WHEN** 两个实例同时扫描同一个 `taskFile`
+- **THEN** 各自的游标与待办→Ticket 映射独立，同一待办不会被两个实例重复投递
 
 ### Requirement: 完整的 SourceKind 契约
 
@@ -126,32 +121,17 @@ SHALL 在扫描间隙把它压缩为最近 N 行（保留至少一条 `ack` 与�
 
 ### Requirement: 待办到一个 Thread 的映射与幂等 Trigger
 
-每条待办 SHALL 映射为一个 Thread：`{ source: 'workmate', id: <taskId> }`。
-Source SHALL 只在 `assigned=true` 且未产生过当前 `attempt` 的 Trigger 时产生 Trigger：
+每条可执行的待办 SHALL 映射为一个 Thread，Trigger SHALL 幂等。
 
-- `id`：`workmate:<taskId>:<attempt>`；同一 `attempt` 重复扫描 SHALL 返回 `duplicate`；
-- `actor`：`{ source: 'workmate', id: 'workmate:<createdBy>' }`（`ActorRef` 必须带 `source`，
-  门禁按 `policy.sources[actor.source].allowed` 查人）；`createdBy` 来自待办的创建者标识；
-- `human`：`true`；`addressed`：`'mention'`；
-- `text`：待办原文（`intent`），SHALL 原样投递，不改写、不追加实施建议；
-- `channel`：`{ source: 'workmate', thread: <taskId>, address: { taskId } }`；
-- `meta`：`taskId`、`repo`、`baseBranch`、`acceptance`、`priority`、`ports`、可选 `proposalId`；
-- `at`：待办 `updatedAt`。
+实例配置 `repos`（绝对路径数组）非空时，扫描 SHALL 只投递 `repo` 命中的待办，
+其余 SHALL 计入 `skippedByRepo` 并写进健康摘要；被跳过的待办 SHALL NOT 推进任何游标，
+以便另一个实例接管时能正常投递。`repos` 为空时 SHALL 不限制仓库。
 
-Source SHALL NOT 直接创建 Ticket 或 Decision，SHALL NOT 绕过 Eval。
-Source SHALL NOT 调用 `tickets.bindThread`、`tickets.threadClosed` 或 `notify`：这三个是
-`SourceContext` 暴露的写能力，其中 `threadClosed` 会结束 Ticket，`bindThread` 会改订阅；
-本来源只经 `receive` 投递，出站一律走 `channel.send`。
+#### Scenario: 只投自己负责的仓库
 
-#### Scenario: 重复扫描不重复开单
-
-- **WHEN** Source 每轮扫描同一条已产生 Trigger 的待办
-- **THEN** `receive` 返回 `duplicate`，不产生第二张 Ticket
-
-#### Scenario: 重试是新尝试
-
-- **WHEN** 待办的 `attempt` 递增
-- **THEN** 生成新的确定性 ID 并投递，旧 Ticket 的结束事实保留在 `tasks.jsonl`
+- **WHEN** 实例 `repos` 为 `[/srv/a]`，任务表里有一条 `repo=/srv/b` 的已指派待办
+- **THEN** 该待办不被投递，健康摘要的 `skippedByRepo` 为 1，另一个 `repos=[/srv/b]`
+  的实例能正常投递它
 
 ### Requirement: 单轮投递有上限且顺序确定
 
@@ -311,25 +291,13 @@ SHALL NOT 依赖读取任务文件的实时状态——`values` 只在投递时�
 
 ### Requirement: 健康、事实与查找
 
-该 kind SHALL 声明并只报告自有健康条目，至少报告：读取失败、配置问题、等待依赖条数、
-投放失败的待办数。健康条目 SHALL 只在连续多轮失败后才报 `error`，单次读取失败 SHALL
-只记录在该 Thread 上（沿用 Super-agent 对 Source 失败的既有纪律）。
+健康条目、facts 与 `find` 的结果 SHALL 按实例隔离：健康条目的名称 SHALL 由实例 id
+派生，`find` 返回的 Thread key SHALL 带该实例的前缀。
 
-该 kind SHALL 实现 `find(query)`：支持按任务标题与 `taskId` 找到对应 Thread。
+#### Scenario: 健康报告互不覆盖
 
-该 kind SHALL 实现 `facts(deployment)`（签名是 `facts(deployment: Deployment | undefined)`，
-没有 config 参数，见 `src/sources/kind.ts:91`）：返回任务文件路径、已挂起待办数与上次扫描
-时间等只读事实；这些值 SHALL 来自 Source 自己的 `state`（KV），SHALL NOT 在 `facts` 里读盘。
-
-#### Scenario: 单次失败不报警
-
-- **WHEN** 某一轮读取任务文件抛错，下一轮恢复
-- **THEN** 健康条目保持可用，错误记在该 Thread 上
-
-#### Scenario: 可搜索
-
-- **WHEN** 在面板搜索框输入某个任务标题
-- **THEN** `find` 返回该任务对应的 Thread key
+- **WHEN** 实例 A 报告 `error`、实例 B 报告 `ready`
+- **THEN** 两个状态分别可见，管理页 SHALL NOT 只显示其中一个
 
 ### Requirement: Thread 描述与回复关联
 

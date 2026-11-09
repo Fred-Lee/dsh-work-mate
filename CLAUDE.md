@@ -19,7 +19,7 @@
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **dsh-Helmsman** (5429 symbols, 11052 relationships, 311 execution flows). Use GitNexus graph tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **dsh-work-mate** (6576 symbols, 12943 relationships, 370 execution flows). Use GitNexus graph tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? Bootstrap with `npx`, `bunx`, or `pnpm dlx` — e.g. `bunx gitnexus@latest analyze` (npm 11 npx crash; #1939).
 
@@ -43,10 +43,10 @@ This project is indexed by GitNexus as **dsh-Helmsman** (5429 symbols, 11052 rel
 
 | Resource | Use for |
 | --- | --- |
-| `gitnexus://repo/dsh-Helmsman/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/dsh-Helmsman/clusters` | All functional areas |
-| `gitnexus://repo/dsh-Helmsman/processes` | All execution flows |
-| `gitnexus://repo/dsh-Helmsman/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/dsh-work-mate/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/dsh-work-mate/clusters` | All functional areas |
+| `gitnexus://repo/dsh-work-mate/processes` | All execution flows |
+| `gitnexus://repo/dsh-work-mate/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 
