@@ -1042,3 +1042,4 @@ DSH 宿主契约见 `docs/DSH-INTEGRATION-NOTES.md`。
 ## License
 
 MIT
+<!-- 多仓分流验证标记：task-mw90qswf-3 → repo=dsh-Helmsman，ticket=6d296d8d2b59（2026-11-09） -->
