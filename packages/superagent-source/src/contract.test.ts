@@ -100,3 +100,27 @@ describe('确定性 ID', () => {
     expect(channelRef('task-1').address['taskId']).toBe('task-1')
   })
 })
+
+describe('实例 id 前缀（多实例）', () => {
+  it('不传 source 时与旧语义逐字一致（默认实例）', () => {
+    expect(threadKey('task-1')).toBe('workmate:task-1')
+    expect(threadRef('task-1').source).toBe('workmate')
+    expect(triggerId('task-1', 1)).toBe('workmate:task-1:1')
+    expect(inputTriggerId('task-1', 1)).toBe('workmate:task-1:in:1')
+    expect(channelRef('task-1').source).toBe('workmate')
+  })
+
+  it('传了 source 时所有确定性标识都带该实例前缀，互不相撞', () => {
+    expect(threadKey('task-1', 'workmate-b')).toBe('workmate-b:task-1')
+    expect(threadRef('task-1', 'workmate-b')).toEqual({ source: 'workmate-b', id: 'task-1' })
+    expect(triggerId('task-1', 1, 'workmate-b')).toBe('workmate-b:task-1:1')
+    expect(inputTriggerId('task-1', 1, 'workmate-b')).toBe('workmate-b:task-1:in:1')
+    expect(channelRef('task-1', 'workmate-b').source).toBe('workmate-b')
+    // 两个实例对同一待办得到的 ID 必须不同，否则宿主的 receive 会把其中一个当成重复。
+    expect(triggerId('task-1', 1, 'workmate-b')).not.toBe(triggerId('task-1', 1))
+    expect(threadKey('task-1', 'workmate-b')).not.toBe(threadKey('task-1'))
+    // thread / address 的 taskId 不随实例走：Thread 的 id 是待办 id。
+    expect(channelRef('task-1', 'workmate-b').address).toEqual({ taskId: 'task-1' })
+    expect(channelRef('task-1', 'workmate-b').thread).toBe('task-1')
+  })
+})

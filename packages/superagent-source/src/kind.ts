@@ -11,12 +11,56 @@
 import { z } from 'zod'
 import type { FieldSpec, SourceKind } from './contract.ts'
 
-/** 实例配置。`taskFile` 无默认：必须由安装方填成与 WorkMate 一致的绝对路径。 */
+/**
+ * 默认实例 id（change `support-multi-repo-executors`）。
+ *
+ * 宿主的 kind 注册表以 `kind.kind` 为键，重复即抛 `Source kind already registered`。
+ * 所以"多实例"不是多包，而是同一个包注册多次、每次换一个 id：默认实例沿用 `workmate`，
+ * 其余实例由 `kind` 字段给 `workmate-<suffix>` 之类。所有派生键（健康条目名、state
+ * 前缀、Trigger `source`、Thread key 前缀）都必须从这个 id 来，否则两个实例会互相去重、
+ * 互相覆盖健康报告或共用一个游标（design D2）。
+ */
+export const DEFAULT_KIND = 'workmate'
+
+/** 实例 id 的合法形状：小写字母开头，只含小写字母/数字/连字符。 */
+export const KIND_PATTERN = /^[a-z][a-z0-9-]*$/
+
+/**
+ * 仓库列表的配置形状：**对外输出永远是绝对路径数组**，但接受面板文本框写进来的字符串。
+ *
+ * Super-agent 的 `FieldSpec` 没有"字符串数组"这种表单类型：`rows` 只编辑记录数组
+ * （`Record<string,string>[]`，且必须有 columns），直接声明成 rows 会在设置页渲染错误。
+ * 所以面板用 `text` 字段（逗号/换行分隔），schema 在保存时归一成数组；用 JSON/API 直接写
+ * `repos: ['/srv/a']` 同样有效。
+ */
+export const reposSchema = z.preprocess(
+  (value) => (typeof value === 'string' ? value.split(/[\n,]/).map((part) => part.trim()).filter((part) => part !== '') : value),
+  z.array(z.string().trim().min(1)).default([]),
+)
+
+/**
+ * 实例配置。`taskFile` 无默认：必须由安装方填成与 WorkMate 一致的绝对路径。
+ *
+ * `repos` 是 `support-multi-repo-executors` 新增的路由字段：本实例负责的仓库绝对路径；
+ * 空数组 = 不限制（旧部署行为不变）。设置页的文本框写的是逗号分隔字符串，schema 这里
+ * 统一归一成数组（见 `reposSchema`），所以 JSON 里写数组、面板里写逗号分隔都能用。
+ *
+ * `kind`（实例 id）**不在这里**：Super-agent 的设置按已注册的 kind 存
+ * （`settings.sources[kind.kind]`），第二个实例必须先注册出 `workmate-b` 才有地方填设置，
+ * 所以 id 只能由装载它的插件条目 `config.kind` 给（`index.ts` 的 `InstanceConfig`）。
+ * 这里仍接受可选的 `kind`，但只用于一致性校验：填了却与装载 id 不一致时健康报错，
+ * 避免部署方以为改设置里的值能换实例。
+ */
 export const workmateConfigSchema = z
   .object({
+    // kind 可选：它不是注册来源（注册 id 来自插件条目 `config.kind`），只做一致性校验。
+    kind: z.string().trim().regex(KIND_PATTERN).optional(),
     // 必须给默认值：Super-agent 的 resolve() 在 safeParse 失败时会回落调用 parse({})，
     // 那时如果这里抛错，设置页/来源页/intake 会整体坏掉。空串由 validateConfig 判为不可用。
     taskFile: z.string().default(''),
+    // 元素只要求非空：空数组语义是"不限制仓库"，单个空串没有意义，必须挡住。
+    // 面板的 text 字段写字符串（逗号/换行分隔），先归一成数组再校验元素。
+    repos: reposSchema,
     pollSeconds: z.number().int().min(1).max(3600).default(5),
     maxPerScan: z.number().int().min(0).max(200).default(5),
     maxRowsPerTask: z.number().int().min(2).max(100_000).default(200),
@@ -30,8 +74,16 @@ export const workmateConfigSchema = z
 
 export type WorkmateConfig = z.infer<typeof workmateConfigSchema>
 
-export const KIND = 'workmate'
-export const HEALTH_ENTRY = 'workmate'
+/**
+ * 实例 id 的**唯一派生点**（design D2）。
+ *
+ * 入参放宽成 `{ kind?: string }`：完整实例配置与插件层（bundle 条目）配置都能传进来。
+ * 正则校验留给 schema（`parse` 会拒绝非法 id）；这里只负责"没配就是默认实例"，
+ * 不抛错——apply 阶段抛错会让整个 profile 装载失败。
+ */
+export function kindIdOf(config: { kind?: string } | undefined): string {
+  return config?.kind?.trim() || DEFAULT_KIND
+}
 
 export const TITLE = { zh: 'WorkMate 待办', en: 'WorkMate tasks' } as const
 export const DESCRIPTION = {
@@ -39,13 +91,43 @@ export const DESCRIPTION = {
   en: 'Reads the WorkMate task file, turns todos into assessable requests, and writes results back to the same file.',
 } as const
 
+/**
+ * 实例标题：默认实例沿用原名，其余实例在标题后带实例 id。
+ * 来源页与设置页按 kind 列出实例，标题相同的话多个实例无法区分（健康条目名虽不同，
+ * 但那是技术标识，不该要求部署者拿它对照）。
+ */
+export function titleOf(instanceId: string): { zh: string; en: string } {
+  if (instanceId === DEFAULT_KIND) return { ...TITLE }
+  return { zh: `${TITLE.zh}（${instanceId}）`, en: `${TITLE.en} (${instanceId})` }
+}
+
 /** 设置表单字段；`rows`/`fact` 由 Super-agent 的通用渲染器处理。 */
 export const FIELDS: FieldSpec[] = [
+  {
+    // 只读事实：真实的注册 id 来自插件条目 `config.kind`，设置页不能改它。
+    // 用 fact 而不是 text，避免部署者以为在设置里改这个值能换实例。
+    key: 'instance',
+    type: 'fact',
+    label: { zh: '实例 ID', en: 'Instance id' },
+    hint: {
+      zh: '由装载本包的 profile 条目的 config.kind 决定（默认 workmate）；改 id 必须改条目并重启宿主。',
+      en: 'Set by the profile entry config.kind that loads this package (default workmate); changing it needs an entry edit and a host restart.',
+    },
+  },
   {
     key: 'taskFile',
     type: 'text',
     label: { zh: '任务文件', en: 'Task file' },
     hint: { zh: '必须是绝对路径，且与 WorkMate 配置指向同一个文件', en: 'Absolute path; must match the one WorkMate writes' },
+  },
+  {
+    key: 'repos',
+    type: 'text',
+    label: { zh: '负责的仓库', en: 'Repositories served' },
+    hint: {
+      zh: '仓库的绝对路径，逗号分隔；留空表示不限制（所有仓库都投）。',
+      en: 'Absolute repository paths, comma-separated; empty means every repository.',
+    },
   },
   {
     key: 'interactive',
@@ -147,6 +229,8 @@ export const HEALTH_STATES = ['starting', 'ready', 'paused', 'error'] as const
 
 /** 供 `facts()` 使用的只读事实：来自本 Source 的 state，不读盘。 */
 export interface KindFactsInput {
+  /** 本实例的注册 id（`kind` 由插件条目 config 决定，设置页只读展示它）。 */
+  instance: string
   taskFile: string
   pending: number
   waitingOnDependency: number
@@ -155,6 +239,7 @@ export interface KindFactsInput {
 
 export function factsOf(input: KindFactsInput): Record<string, { zh: string; en: string } | string> {
   return {
+    instance: input.instance,
     taskFile: input.taskFile,
     pending: { zh: `待投递 ${input.pending} 条`, en: `${input.pending} pending` },
     waiting: { zh: `等待依赖 ${input.waitingOnDependency} 条`, en: `${input.waitingOnDependency} waiting on dependencies` },
@@ -179,14 +264,25 @@ export function validateConfig(raw: unknown):
   if (!taskFile.startsWith('/')) {
     return { ok: false, reason: `taskFile 必须是绝对路径：${taskFile}` }
   }
+  // repos 是要和待办里的 repo 做字符串比较的（见 watch.ts 的 normalizeRepoPath）：
+  // 相对路径既不可能是待办的 repo，也无法靠 basename 猜——直接判不可用，免得静默一条都不投。
+  for (const repo of parsed.data.repos) {
+    if (!repo.startsWith('/')) {
+      return { ok: false, reason: `repos 必须是绝对路径：${repo}` }
+    }
+  }
   return { ok: true, config: parsed.data }
 }
 
-/** 只在测试与类型层使用：确认本文件导出的形状满足 SourceKind 的必填字段。 */
+/**
+ * 只在测试与类型层使用：确认本文件导出的形状满足 SourceKind 的必填字段。
+ * 这里用**默认实例**的 id 展示静态形状；运行期注册用的是 `kindIdOf(config)`，
+ * 绝不能再从模块常量取健康条目名（否则多实例会共用一个健康条目）。
+ */
 export const kindMetadataShape: Pick<SourceKind<WorkmateConfig>, 'kind' | 'title' | 'description' | 'fields' | 'health'> = {
-  kind: KIND,
+  kind: DEFAULT_KIND,
   title: TITLE,
   description: DESCRIPTION,
   fields: FIELDS,
-  health: [HEALTH_ENTRY],
+  health: [DEFAULT_KIND],
 }

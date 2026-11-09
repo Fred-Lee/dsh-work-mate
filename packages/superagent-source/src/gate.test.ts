@@ -6,6 +6,7 @@ const task = (id: string, overrides: Partial<GateTask> = {}): GateTask & { prior
   dependsOn: [],
   assigned: true,
   abandoned: false,
+  repo: '',
   ...overrides,
 })
 
@@ -65,6 +66,16 @@ describe('evaluateGate', () => {
       terminalOf: () => undefined,
     })
     expect(gate.waiting[0]?.missing).toEqual(['ghost'])
+  })
+
+  it('repo 随 ready 一起带出，但门控本身不按仓库过滤（design D3：过滤在 scanOnce）', () => {
+    const gate = evaluateGate({
+      tasks: [task('a', { repo: '/srv/a' }), task('b', { repo: '/srv/b' })],
+      terminalOf: () => undefined,
+    })
+    // 两条都放行——"这个仓库归不归我"不是依赖门控的问题。
+    expect(gate.ready.map((entry) => entry.id)).toEqual(['a', 'b'])
+    expect(gate.ready.map((entry) => entry.repo)).toEqual(['/srv/a', '/srv/b'])
   })
 
   it('链式依赖逐级放行', () => {

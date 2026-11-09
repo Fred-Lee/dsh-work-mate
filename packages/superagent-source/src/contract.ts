@@ -270,22 +270,36 @@ export class ContractError extends Error {
   }
 }
 
-/** 本来源在领域里的固定标识。 */
+/**
+ * 本来源在领域里的固定标识。
+ *
+ * 两件事同时挂在这个常量上，**不要合并**：
+ *   1. 默认实例的 id（未配置 `kind` 时的派生值，与 `kind.ts` 的 `DEFAULT_KIND` 同值）；
+ *   2. Trigger 的 actor 身份命名空间（`workmate:<createdBy>`）。actor.source 恒为
+ *      `workmate`、不随实例走：触发者身份是**人**，不是某个实例；否则部署方要在每个
+ *      实例的 `policy.allowed` 里各配一份相同名单，而旧部署的 `workmate` 身份会失效。
+ *      实例归属由 Trigger `source` / Thread key 前缀表达，与身份正交。
+ */
 export const SOURCE = 'workmate'
 
-/** Thread key 对所有来源统一是 `${source}:${id}`。 */
-export const threadKey = (taskId: string): string => `${SOURCE}:${taskId}`
+/**
+ * Thread key 对所有来源统一是 `${source}:${id}`。
+ * `source` 是**实例 id**（默认 'workmate'）；默认参数保证旧调用点语义不变。
+ */
+export const threadKey = (taskId: string, source: string = SOURCE): string => `${source}:${taskId}`
 
-export const threadRef = (taskId: string): ThreadRef => ({ source: SOURCE, id: taskId })
+export const threadRef = (taskId: string, source: string = SOURCE): ThreadRef => ({ source, id: taskId })
 
 /** 待办 → Trigger 的确定性 ID；同一 attempt 重复投递得到同一个 ID，由 `receive` 去重。 */
-export const triggerId = (taskId: string, attempt: number): string => `${SOURCE}:${taskId}:${attempt}`
+export const triggerId = (taskId: string, attempt: number, source: string = SOURCE): string =>
+  `${source}:${taskId}:${attempt}`
 
 /** 人的回答 → Trigger 的确定性 ID（按 `inputs.jsonl` 的 seq）。 */
-export const inputTriggerId = (taskId: string, seq: number): string => `${SOURCE}:${taskId}:in:${seq}`
+export const inputTriggerId = (taskId: string, seq: number, source: string = SOURCE): string =>
+  `${source}:${taskId}:in:${seq}`
 
-export const channelRef = (taskId: string): ChannelRef => ({
-  source: SOURCE,
+export const channelRef = (taskId: string, source: string = SOURCE): ChannelRef => ({
+  source,
   thread: taskId,
   address: { taskId },
 })
