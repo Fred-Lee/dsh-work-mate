@@ -84,6 +84,26 @@ const renderPanel = (): ReturnType<typeof render> => {
 }
 
 describe('ProposalPanel (kanban)', () => {
+
+  it('看板列归属：reviewing 在「待确认」、merging/archiving 在「待合并」(clarify-panel-gates)', async () => {
+    fetchMock.mockResolvedValue(
+      ok({
+        proposals: [
+          proposal({ id: 'p-review', title: '等确认的', status: 'reviewing' }),
+          proposal({ id: 'p-merge', title: '等合并的', status: 'merging' }),
+          proposal({ id: 'p-arch', title: '归档中的', status: 'archiving' }),
+          proposal({ id: 'p-prop', title: '写方案中', status: 'proposing' }),
+        ],
+      }),
+    )
+    renderPanel()
+    expect(await screen.findByText('等确认的')).toBeTruthy()
+    // 用与生产同一套映射的 columnFor：断言的是"卡片落在哪一列"，不是复制一份映射
+    expect(within(columnFor('reviewing')).getByText('等确认的')).toBeTruthy()
+    expect(within(columnFor('merging')).getByText('等合并的')).toBeTruthy()
+    expect(within(columnFor('archiving')).getByText('归档中的')).toBeTruthy()
+    expect(within(columnFor('proposing')).getByText('写方案中')).toBeTruthy()
+  })
   it('renders three lifecycle columns with counts and places cards accordingly', async () => {
     fetchMock.mockResolvedValue(
       ok({
@@ -267,10 +287,10 @@ describe('ProposalPanel (kanban)', () => {
     fireEvent.click(screen.getByText('加载详情'))
 
     await screen.findByText('推进到 待实现 ›')
-    expect(screen.getByText('‹ 回退到 提案分支')).toBeTruthy()
+    expect(screen.getByText('‹ 回退到 提案分支已建')).toBeTruthy()
     expect(screen.getByText('下一步：评审提案分支，完成后合并进 main')).toBeTruthy()
 
-    fireEvent.click(screen.getByText('‹ 回退到 提案分支'))
+    fireEvent.click(screen.getByText('‹ 回退到 提案分支已建'))
 
     await waitFor(() => {
       const call = postedCall('/workmate/api/proposals/batch-grading-v2/transition')

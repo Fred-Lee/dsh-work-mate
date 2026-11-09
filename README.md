@@ -553,6 +553,20 @@ pnpm dsh web                                            # 启动，默认 http:/
 
 ---
 
+> **看板五列与八态的对照**（看板不是通用 kanban，是把八态收敛到"人真正要动作的五件事"）：
+
+| 看板列 | 覆盖状态 | 需要人做什么 |
+| --- | --- | --- |
+| 方案 | `draft`（需求输入）、`proposing`（提案分支已建） | 不用动，方案还在写 |
+| 待确认 | `reviewing`（评审中） | **G2**：点「确认方案」（不需填理由） |
+| 执行中 | `ready`（待实现）、`implementing`（实现中） | 不用动，执行器在跑 |
+| 待合并 | `merging`（合并校验）、`archiving`（归档中） | **G5**：点门禁按钮并填批准理由 |
+| 已归档 | `archived`（已归档） | 不用动（默认折叠，点「显示」展开） |
+
+列头有 `title` 提示，鼠标悬停可见同样的说明。
+
+---
+
 ## 3. 配置
 
 写在 profile 装载配置里（`cordis.patch.yml` 的 `config:` 段或 profile 编辑器），
@@ -646,9 +660,13 @@ curl -X POST $API/proposals/batch-grading-v2/archive -H 'content-type: applicati
 Git 关联、worktree 信息、决策日志、卡点、审查报告与 Wiki 引用。
 
 > **人工批准门（默认开启）**：`merging` 与 `archiving` 只能由**人**进入——agent 调工具推进
-> 会被拒（`force` 也绕不过），面板会问一句批准理由并写入审批记录与事件流；
-> 卡片上会显示「⏳ 等待人工批准」。要恢复全自动，把 `approvalsRequired` 设为 `[]`
+> 会被拒（`force` 也绕不过）。这两道门（G5）在面板上**会问一句批准理由**并写入审批记录
+> 与事件流；卡片上会显示「⏳ 等待人工批准」。要恢复全自动，把 `approvalsRequired` 设为 `[]`
 > （或 `allowAgentApproval: true`，但那是明确放弃"写码者不得批准"这条分离）。
+>
+> **G2（方案确认）不收理由**，这是有意的：`reviewing → ready` 的「确认方案」按钮直接用
+> 当前 `planHash` 作为确认凭据——它本身就是方案工件的摘要，"我认可这一版"已由点按钮
+> 表达，再收一段自由文本没有增量信息。方案文件改动后 `planHash` 变化，确认自动失效。
 >
 > **强制归档同样是人的决定**：`force` 会跳过审查 / 任务 / 计划漂移三道门。agent 调
 > `workmate_proposal_archive(force=true)` 会被拒（除非 `allowAgentForceArchive: true`）；

@@ -66,7 +66,7 @@ function useEscape(onClose: () => void): void {
 
 const STATE_META: Record<Proposal['status'], { label: string; tone: string }> = {
   draft: { label: '需求输入', tone: '#9ca3af' },
-  proposing: { label: '提案分支', tone: '#a78bfa' },
+  proposing: { label: '提案分支已建', tone: '#a78bfa' },
   reviewing: { label: '评审中', tone: '#f59e0b' },
   ready: { label: '待实现', tone: '#38bdf8' },
   implementing: { label: '实现中', tone: '#3b82f6' },
@@ -79,12 +79,12 @@ const STATE_META: Record<Proposal['status'], { label: string; tone: string }> = 
  * the five things a human actually acts on (方案 → 待确认 → 执行中 → 待合并 →
  * 已归档). Human gates are G2 (`待确认`) and G5 (`待合并`).
  */
-const COLUMNS: Array<{ states: Proposal['status'][]; label: string; tone: string }> = [
-  { states: ['draft', 'proposing'], label: '方案', tone: '#a78bfa' },
-  { states: ['reviewing'], label: '待确认', tone: '#f59e0b' },
-  { states: ['ready', 'implementing'], label: '执行中', tone: '#3b82f6' },
-  { states: ['merging', 'archiving'], label: '待合并', tone: '#818cf8' },
-  { states: ['archived'], label: '已归档', tone: '#22c55e' },
+const COLUMNS: Array<{ states: Proposal['status'][]; label: string; tone: string; hint: string }> = [
+  { states: ['draft', 'proposing'], label: '方案', tone: '#a78bfa', hint: '需求输入、提案分支已建：方案还在写，人无需动作' },
+  { states: ['reviewing'], label: '待确认', tone: '#f59e0b', hint: '评审中：G2 等待人确认 planHash（不需填理由）' },
+  { states: ['ready', 'implementing'], label: '执行中', tone: '#3b82f6', hint: '待实现、实现中：执行器在跑' },
+  { states: ['merging', 'archiving'], label: '待合并', tone: '#818cf8', hint: '合并校验、归档中：G5 等待人放行（需填理由）' },
+  { states: ['archived'], label: '已归档', tone: '#22c55e', hint: '已归档：交付完成' },
 ]
 
 function relativeTime(iso: string): string {
@@ -502,7 +502,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           <div className="wm-board">
             {columns.map((column) => (
               <section className="wm-col" key={column.label}>
-                <header className="wm-col-head">
+                <header className="wm-col-head" title={column.hint}>
                   <i className="wm-dot" style={{ background: column.tone }} />
                   <span>{column.label}</span>
                   <span className="wm-col-count">{column.cards.length}</span>
