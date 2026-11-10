@@ -32,9 +32,15 @@ export interface BranchConflict {
   proposalIds: string[]
 }
 
-/** `archived` / abandoned proposals are history, not occupancy. */
+/**
+ * `archived` / abandoned proposals are history, not occupancy.
+ * 「已终止」只认 abandon 落盘形态（status=archived + abandonedAt）：
+ * 历史残留的 abandonedAt 不把已回到活跃状态的提案从占用里排除
+ * （与 metrics / api / 面板四处同判据，真机 2026-11-11）。
+ */
 export function isOccupying(proposal: Proposal): boolean {
-  return proposal.abandonedAt === undefined && OCCUPYING_STATES.has(proposal.status)
+  const terminated = proposal.abandonedAt !== undefined && proposal.status === 'archived'
+  return !terminated && OCCUPYING_STATES.has(proposal.status)
 }
 
 /**

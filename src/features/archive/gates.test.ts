@@ -76,7 +76,7 @@ describe('force is a human decision (harden-archive-gates)', () => {
     expect(outcome.proposal.status).toBe('archived')
     const forced = (outcome.proposal.approvals ?? []).find((record) => record.forcedGates !== undefined)
     // The drift gate is only listed when it is configured on (default: off).
-    expect(forced?.forcedGates).toEqual(['review-gate', 'tasks'])
+    expect(forced?.forcedGates).toEqual(['review-gate', 'tasks', 'team-evidence'])
     expect(forced?.rationale).toContain('紧急修复回落')
   })
 
@@ -88,7 +88,7 @@ describe('force is a human decision (harden-archive-gates)', () => {
     const forced = (outcome.proposal.approvals ?? []).find((record) => record.forcedGates !== undefined)
     expect(forced?.actor).toBe('human')
     // The drift gate is only listed when it is configured on (default: off).
-    expect(forced?.forcedGates).toEqual(['review-gate', 'tasks'])
+    expect(forced?.forcedGates).toEqual(['review-gate', 'tasks', 'team-evidence'])
   })
 
   it('does not record a forced approval when the run was not forced', async () => {

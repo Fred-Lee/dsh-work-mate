@@ -569,7 +569,7 @@ export class LifecycleServiceImpl {
    * The archive endpoint: only a proposal already in `archiving` (all
    * preconditions passed, wiki.md/commits.md written) may run the
    * orchestration. Success stamps `archived` and reclaims the worktree.
-   * `force` skips the review gate only — never the CLI steps.
+   * `force` skips all four gates (review / tasks / plan-drift / team-evidence) — never the CLI steps.
    */
   /** Compute the plan fingerprint for a proposal (G2 approval covers this hash). */
   async planFingerprint(id: string): Promise<PlanFingerprint> {
@@ -809,8 +809,8 @@ export class LifecycleServiceImpl {
     if (options.actor !== 'agent') return
     if (this.deps.allowAgentForceArchive === true) return
     const error = new InvalidTransitionError(
-      'agent 不得用 force 跳过归档门禁（审查门 / 任务门 / 计划漂移门）——' +
-        `请在 WorkMate 面板对提案 ${proposal.id} 点「归档（跳过审查门）」并由人确认，` +
+      'agent 不得用 force 跳过归档门禁（审查门 / 任务门 / 计划漂移门 / 团队证据门）——' +
+        `请在 WorkMate 面板对提案 ${proposal.id} 点「强制归档（跳过四道门）」并由人确认，` +
         '或把 Config.allowAgentForceArchive 设为 true（那会放弃这条分离）',
     )
     await this.recordGateFailure(proposal, 'archived', error, options.actor, 'force-archive')
@@ -831,6 +831,7 @@ export class LifecycleServiceImpl {
     const forcedGates = [
       'review-gate',
       'tasks',
+      'team-evidence',
       ...(this.deps.planDriftGate === true ? ['plan-drift'] : []),
     ]
     const rationale =
@@ -960,7 +961,10 @@ export class LifecycleServiceImpl {
       // proposing/reviewing/ready are planning states, and merging/archiving are
       // past the write phase. Treating them as occupying made historical proposals
       // block every new implementation forever.
-      if (other.id === proposal.id || other.abandonedAt !== undefined || other.status !== 'implementing') continue
+      // 「已终止」只认 abandon 落盘形态（status=archived + abandonedAt）：
+      // 残留 abandonedAt 不把活跃提案从写域冲突检查里跳过（与全库统一判据一致）。
+      const otherTerminated = other.abandonedAt !== undefined && other.status === 'archived'
+      if (other.id === proposal.id || otherTerminated || other.status !== 'implementing') continue
       const otherTargets = effectiveTargets(other, this.mainBranch).filter((target) => projects.has(target.project))
       if (otherTargets.length === 0) continue
       const otherRoots = (await this.deps.resolveProjectRoots?.(other)) ?? []

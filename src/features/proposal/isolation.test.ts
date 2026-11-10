@@ -37,18 +37,28 @@ describe('isolation occupancy', () => {
     ])
   })
 
-  it('includes legacy scalar branches and excludes archived/abandoned proposals', () => {
+  it('excludes only the abandon persisted form (archived + abandonedAt); residual abandonedAt still occupies', () => {
     const occupancy = deriveBranchOccupancy(
       [
         proposal({ id: 'legacy', proposalBranch: 'proposal/legacy', featureBranch: 'feature/legacy' }),
         proposal({ id: 'done', status: 'archived', featureBranch: 'feature/done' }),
-        proposal({ id: 'gone', status: 'implementing', abandonedAt: '2026-10-19T00:00:00.000Z', featureBranch: 'feature/gone' }),
+        // abandon 落盘形态：status=archived + abandonedAt 才算「已终止」。
+        proposal({ id: 'gone', status: 'archived', abandonedAt: '2026-10-19T00:00:00.000Z', featureBranch: 'feature/gone' }),
+        // 残留 abandonedAt 但状态已回到活跃（真机 team-e2e-final 的 merging）：照常占用。
+        proposal({
+          id: 'residue',
+          status: 'merging',
+          abandonedAt: '2026-11-09T00:00:00.000Z',
+          proposalBranch: 'proposal/residue',
+          featureBranch: 'feature/residue',
+        }),
         proposal({ id: 'draft', status: 'draft', featureBranch: 'feature/draft' }),
       ],
       'main',
     )
 
-    expect(occupancy.map((entry) => entry.proposalId)).toEqual(['legacy', 'legacy'])
+    // 每条提案先 feature 后 proposal，按输入顺序展开。
+    expect(occupancy.map((entry) => entry.proposalId)).toEqual(['legacy', 'residue', 'legacy', 'residue'])
   })
 
   it('reports a conflict only when two active proposals share project + branch', () => {
