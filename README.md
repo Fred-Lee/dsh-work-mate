@@ -195,7 +195,7 @@ node $DSH --profile web --dump-config | sed -n '/id: workmate/,/^- id:/p'
 | 1 | 注册项目（一次） | `POST $API/projects` | 新提案弹窗里勾选已注册项目 |
 | 2 | 建提案（带来源） | `POST $API/proposals`；工具 `workmate_proposal_create`（可带 `source`/`sourceRef`/`relatesTo`/`notes`） | ＋ 新提案 |
 | 3 | 写 `design.md` / `tasks.md`（tasks 里可标 `<!-- writes: src/a/** -->`） | 编辑文件 | — |
-| 4 | 审查：产出 `review.md`（带严重度标签或交给判断层归级） | 技能 `workmate-proposal-audit` | 详情区「🔍 审查报告」+ 重新审查 |
+| 4 | 审查：产出 `review.md`（带严重度标签或交给判断层归级） | 技能 `workmate-proposal-audit` | 详情区「🔍 审查报告」（「刷新审查结果」只重读文件，不放跑审查） |
 | 5 | 逐态推进到 `ready` | `POST $API/proposals/<id>/advance`；工具 `workmate_proposal_archive(mode=advance)` | 「推进到 X ›」/「‹ 回退到 Y」 |
 | 6 | `implementing`：校验每个 target 的基线分支并写实现待办（目录由 Super-agent 的 `prepare` 创建） | 同上 | 同上 |
 | 7 | `merging` / `archiving`：**需要人工批准** | **面板点按钮**（会问批准理由） | 「推进到 merging ›」→ 再「完成归档」 |
@@ -935,7 +935,12 @@ rules/agent/hook 形式分发到目标项目，供在同一个仓库里跑 Claud
 | `GET /proposals/:id?projectRoot=` | 详情（多项目 Git/OpenSpec/审查报告聚合） |
 | `POST /proposals/:id/advance` | 推进到下一状态 |
 | `POST /proposals/:id/transition` | 显式相邻转换 `{to}` |
-| `POST /proposals/:id/archive` | 运行归档编排（仅 archiving 状态；`{force:true}` 只跳过审查门） |
+| `POST /proposals/:id/plan-approve` | **G2 方案确认**（记录 planHash）；agent 调用会被拒，需人在面板点 |
+| `POST /proposals/:id/reject-merge` | G5 退回 `{category, rationale}`（必填理由） |
+| `POST /proposals/:id/reconcile` | 按证据自动推进（幂等；跨不过人工门） |
+| `POST /proposals/:id/abandon` | 终止 `{reason}`（必填；不跑归档编排，从视图隐藏） |
+| `POST /proposals/:id/unabandon` | **撤销终止**（恢复到终止前的状态） |
+| `POST /proposals/:id/archive` | 运行归档编排（仅 archiving 状态；`{force:true, rationale}` 跳过**审查/任务/计划漂移三道门**，理由写入审批记录） |
 | `POST /proposals/:id/decisions` | 追加决策（supersedes 校验） |
 | `POST /proposals/:id/block` / `/:id/unblock` | 卡点上报 / 答复解除 |
 | `POST /proposals/:id/wiki-links` | 登记 WeKnora 页面引用 |
@@ -943,6 +948,10 @@ rules/agent/hook 形式分发到目标项目，供在同一个仓库里跑 Claud
 | `GET /graph?projectRoot=` | 知识图谱数据（提案↔项目↔提交） |
 | `GET /metrics?id=` | 过程度量（带 `id` 出单提案，缺省出全局聚合） |
 | `GET /bands?windowDays=` | 控制带评测结果（只读） |
+| `GET /config` | 面板配置（`taskExecutor` 常量 + `pollMs` 轮询间隔） |
+| `GET /tasks` · `POST /tasks` | 待办看板 / 新建待办（含 `mode`：superagent / proposal / record） |
+| `POST /tasks/:id/assign` · `retry` · `reply` · `stop` · `reopen` | 待办的五个写侧动作 |
+| `GET /worktrees/leftover` · `POST /worktrees/reclaim` | 遗留目录清单 / 按任务回收 |
 
 ---
 

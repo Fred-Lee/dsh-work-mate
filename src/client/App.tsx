@@ -750,9 +750,10 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                         className="wm-btn mini"
                                         type="button"
                                         style={{ marginLeft: 6 }}
+                                        title="重新读取 review.md 的当前内容（审查由 agent 跑 workmate-proposal-audit 技能完成，面板只负责展示）"
                                         onClick={() => void loadDetail(proposal.id)}
                                       >
-                                        重新审查
+                                        刷新审查结果
                                       </button>
                                     </b>
                                     {(detail.projects ?? []).map((project) =>
