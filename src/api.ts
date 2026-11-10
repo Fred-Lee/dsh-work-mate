@@ -94,6 +94,8 @@ export interface ApiDeps {
   reviewBlockingSeverities?: string[]
   /** 任务簿与 Super-agent 投影（change `adopt-superagent-openspec-source`）。 */
   tasks?: TaskServiceImpl
+  /** 面板轮询间隔（秒）；空 = 5。由 `Config.superagentPollSeconds` 透传。 */
+  superagentPollSeconds?: number
   /** worktree 回收与遗留清单（change `adopt-superagent-openspec-source`）。 */
   worktreeReclaim?: {
     leftover(): Promise<{ entries: Array<{ taskId: string; repo: string; directory: string; ticketId?: string }> }>
@@ -181,7 +183,12 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
   })
 
   // 执行器只有一个（Super-agent）；保留该端点供旧客户端读取。
-  router.get('/api/config', async () => ({ taskExecutor: 'superagent' as const }))
+  router.get('/api/config', async () => ({
+    taskExecutor: 'superagent' as const,
+    // 面板轮询间隔此前写死 5s，Config.superagentPollSeconds 无人消费（死配置）。
+    // 现在由这里下发，客户端用它设 setInterval。
+    pollMs: Math.max(1, deps.superagentPollSeconds ?? 5) * 1000,
+  }))
 
   router.get('/api/tasks', async () => {
     if (deps.tasks === undefined) throw new Error('任务服务未装配：本 profile 缺少 taskFile 配置')

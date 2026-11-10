@@ -216,6 +216,9 @@ export function apply(ctx: Context, config: Config = {}): void {
   const decision = new DecisionService({
     cacheFile: join(proposals.rootDir(), 'decision-cache.json'),
     config: {
+      // 缓存开关与上限此前只定义在 Config 里、从未传进来（死配置，实测 2026-11-10）。
+      cacheEnabled: resolved.decisionCacheEnabled,
+      cacheMax: resolved.decisionCacheMax,
       enabled: resolved.decisionEnabled,
       provider: (resolved.decisionProvider === 'rules' || resolved.decisionProvider === 'jev' ? resolved.decisionProvider : 'agent'),
       ...(resolved.decisionLlmProvider !== '' ? { llmProvider: resolved.decisionLlmProvider } : {}),
@@ -638,6 +641,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       allowAgentApproval: resolved.allowAgentApproval,
       reviewBlockingSeverities: resolved.reviewBlockingSeverities,
       tasks,
+      superagentPollSeconds: resolved.superagentPollSeconds,
       worktreeReclaim: {
         leftover: async () => {
           const boarded = await tasks.board()

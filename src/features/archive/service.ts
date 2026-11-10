@@ -118,6 +118,10 @@ export interface LifecycleDeps {
   reviewEvidenceGate?: 'off' | 'warn' | 'block'
   /** `TEST.md` / `TEAM-REVIEW.md` required for changes with `TASKS.json` (`Config.teamEvidenceGate`). */
   teamEvidenceGate?: 'off' | 'warn' | 'block'
+  /** `Config.weknoraEnabled`：false 时整条 wiki 关联校验关闭。 */
+  weknoraEnabled?: boolean
+  /** `Config.weknoraWikiRequired`：true 时缺 wiki 页面阻断 merging；默认只记录。 */
+  weknoraWikiRequired?: boolean
   /** block | warn | off for cross-proposal write-scope conflicts. @default 'block' */
   writeConflictGate?: 'block' | 'warn' | 'off'
   /** Extra states a HIGH-risk proposal needs a human approval for (`Config.highRiskExtraGates`). */
@@ -422,6 +426,10 @@ export class LifecycleServiceImpl {
         return // worktree is created as the side effect; failures surface there
       case 'merging': {
         if (root === undefined) return
+        // `weknoraEnabled=false` 时整条 wiki 关联流程关闭：不再校验覆盖。
+        // `weknoraWikiRequired` 控制「缺页面是否阻断」——此前两者都是死配置，
+        // 校验无条件执行，于是 README 承诺的「false 时自动降级」并不存在（实测 2026-11-10）。
+        if (this.deps.weknoraEnabled === false) return
         const tasks = await readWikiTasks(root, this.openspecRoot, proposal.openspecChangeId)
         if (tasks.length === 0) return
         const coverage = checkCoverage(tasks, proposal.wikiLinks ?? [])
@@ -429,9 +437,21 @@ export class LifecycleServiceImpl {
           const detail = coverage.missing
             .map((m) => `${m.task.slice(0, 40)}（缺 ${m.missingTypes.join('/')}）`)
             .join('；')
-          throw new InvalidTransitionError(
-            `Wiki 关联未完成 — 以下任务缺少对应 WeKnora 页面类型：${detail}。先经 WeKnora 工具更新页面，再用 workmate_wiki_link 登记。`,
-          )
+          const message =
+            `Wiki 关联未完成 — 以下任务缺少对应 WeKnora 页面类型：${detail}。` +
+            `先经 WeKnora 工具更新页面，再用 workmate_wiki_link 登记。`
+          // 默认 false：只提示不阻断（与 Config 描述一致）。设 true 才拦归档。
+          if (this.deps.weknoraWikiRequired === true) throw new InvalidTransitionError(message)
+          await this.deps.proposals.recordEvent({
+            at: this.deps.now?.().toISOString() ?? new Date().toISOString(),
+            proposalId: proposal.id,
+            kind: 'gate-failed',
+            to: 'merging',
+            actor: 'system',
+            gate: 'wiki-coverage',
+            reason: message,
+            detail: 'weknoraWikiRequired=false：只记录，不阻断',
+          })
         }
         return
       }

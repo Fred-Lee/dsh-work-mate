@@ -257,7 +257,7 @@ export interface TaskBoardView {
   notes: string[]
 }
 
-export function getPanelConfig(): Promise<{ taskExecutor: 'superagent' }> {
+export function getPanelConfig(): Promise<{ taskExecutor: 'superagent'; pollMs: number }> {
   return request('/workmate/api/config')
 }
 

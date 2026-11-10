@@ -11,7 +11,7 @@ import { getBands, getMetrics } from './api'
 import type { AggregateMetrics, BandEvaluation, BandsPayload } from './types'
 import {
   advanceProposal,
-  abandonProposal, approvePlan, archiveProposal, unabandonProposal,
+  abandonProposal, approvePlan, archiveProposal, getPanelConfig, unabandonProposal,
   createProposal,
   getIsolation,
   getProposal,
@@ -159,7 +159,17 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   useEffect(() => {
     void refresh()
     void refreshProjects()
-    const timer = window.setInterval(() => void refresh(), POLL_MS)
+    // 轮询间隔由 /api/config 下发（Config.superagentPollSeconds），不再写死 5s。
+    // 服务端读不到就退回 POLL_MS，面板不能在没配置时停止刷新。
+    let timer = window.setInterval(() => void refresh(), POLL_MS)
+    void getPanelConfig()
+      .then((config) => {
+        if (config.pollMs > 0 && config.pollMs !== POLL_MS) {
+          window.clearInterval(timer)
+          timer = window.setInterval(() => void refresh(), config.pollMs)
+        }
+      })
+      .catch(() => undefined)
     return () => window.clearInterval(timer)
   }, [refresh, refreshProjects])
 
