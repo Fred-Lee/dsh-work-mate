@@ -298,3 +298,36 @@ describe('并发聚合写不丢失（harden-write-races）', () => {
     }
   })
 })
+
+describe('撤销终止（整体体检 #4）', () => {
+  it('恢复到终止前的状态，并清掉废弃字段', async () => {
+    const d = await mkdtemp(join(tmpdir(), 'wm-unabandon-'))
+    try {
+      const events = new EventLog({ homeRoot: d, subdir: 'workmate' })
+      const svc = new ProposalServiceImpl(new ProposalStore({ homeRoot: d, subdir: 'workmate' }), undefined, events)
+      await svc.upsert({ id: 'u1', title: '要终止的' })
+      // 走到 reviewing 再终止：恢复应回到 reviewing 而不是 draft
+      await svc.recordEvent({ at: new Date().toISOString(), proposalId: 'u1', kind: 'transition', from: 'proposing', to: 'reviewing', actor: 'human' })
+      await svc.setStatus('u1', 'reviewing')
+      await svc.abandon('u1', '点错了')
+
+      const restored = await svc.unabandon('u1')
+      expect(restored.status).toBe('reviewing')
+      expect(restored.abandonedAt).toBeUndefined()
+      expect(restored.abandonedReason).toBeUndefined()
+    } finally {
+      await rm(d, { recursive: true, force: true })
+    }
+  })
+
+  it('没被终止的提案拒绝恢复', async () => {
+    const d = await mkdtemp(join(tmpdir(), 'wm-unabandon2-'))
+    try {
+      const svc = new ProposalServiceImpl(new ProposalStore({ homeRoot: d, subdir: 'workmate' }))
+      await svc.upsert({ id: 'u2', title: '正常的' })
+      await expect(svc.unabandon('u2')).rejects.toThrow(/未被终止/)
+    } finally {
+      await rm(d, { recursive: true, force: true })
+    }
+  })
+})

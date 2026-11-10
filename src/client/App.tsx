@@ -11,7 +11,7 @@ import { getBands, getMetrics } from './api'
 import type { AggregateMetrics, BandEvaluation, BandsPayload } from './types'
 import {
   advanceProposal,
-  abandonProposal, approvePlan, archiveProposal,
+  abandonProposal, approvePlan, archiveProposal, unabandonProposal,
   createProposal,
   getIsolation,
   getProposal,
@@ -131,7 +131,9 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const refresh = useCallback(async () => {
     try {
       const { proposals: list } = await listProposals()
-      setProposals(list.filter((proposal) => proposal.abandonedAt === undefined))
+      // 已终止的提案**保留在内存里**：图标上「已终止」筛选时能看到并撤销终止。
+      // 旧实现直接过滤掉，点错「终止」就再也找不回来（真机 2026-11-10）。
+      setProposals(list)
       setError('')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -212,7 +214,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   )
 
   const act = useCallback(
-    async (id: string, action: 'advance' | 'back' | 'archive' | 'abandon' | 'plan' | 'reject', to?: ProposalState, force = false) => {
+    async (id: string, action: 'advance' | 'back' | 'archive' | 'abandon' | 'unabandon' | 'plan' | 'reject', to?: ProposalState, force = false) => {
       setBusy(true)
       setPending(`${id}:${action}`)
       try {
@@ -250,7 +252,11 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
         else if (action === 'abandon') {
           const reason = window.prompt('终止原因（必填，写入事件流便于审计）')
           if (reason === null) throw new Error('已取消终止')
+          if (reason.trim() === '') throw new Error('终止必须填写原因')
           result = await abandonProposal(id, reason)
+        }
+        else if (action === 'unabandon') {
+          result = await unabandonProposal(id)
         }
         else if (action === 'advance') {
           // Gated states are the HUMAN's call: ask for the rationale here, so a
@@ -270,7 +276,9 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
             action === 'archive'
               ? `✅ 归档完成${forced ? '（force：已跳过审查 / 任务 / 计划漂移三道门）' : ''}`
               : action === 'abandon'
-                ? '🛑 已终止（记录原因，未跑归档编排）'
+                ? `🛑 已终止（记录原因，未跑归档编排；勾「显示已归档」可撤销）`
+                : action === 'unabandon'
+                  ? '♻️ 已撤销终止'
                 : action === 'plan'
                   ? '✅ 方案已确认（planHash 已记录，方案再改会失效）'
                   : action === 'reject'
@@ -307,7 +315,23 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const visibleProposals = useMemo(() => {
     const query = search.trim().toLowerCase()
     return proposals.filter((proposal) => {
+      // 已终止默认不显示（与已归档一致），勾「显示已终止」时才出现以便撤销。
+      if (proposal.abandonedAt !== undefined && !showArchived) return false
       if (selectedProject !== '' && !proposal.projects.includes(selectedProject)) return false
+      // 分支下拉曾经只改自己的 value、没有任何过滤逻辑读它（真机 2026-11-10）。
+      // 现在真正过滤：按 target 的基线/实现分支匹配。
+      if (selectedBranch !== '') {
+        const branches = [
+          ...(proposal.targets ?? []).flatMap((target) => [
+            target.baseBranch,
+            target.featureBranch ?? '',
+            target.proposalBranch ?? '',
+          ]),
+          proposal.featureBranch ?? '',
+          proposal.proposalBranch ?? '',
+        ].filter((branch) => branch !== '')
+        if (!branches.includes(selectedBranch)) return false
+      }
       if (query === '') return true
       return (
         proposal.title.toLowerCase().includes(query) ||
@@ -315,7 +339,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
         proposal.projects.some((project) => project.toLowerCase().includes(query))
       )
     })
-  }, [proposals, selectedProject, search])
+  }, [proposals, selectedProject, selectedBranch, search, showArchived])
 
   const columns = useMemo(
     () =>
@@ -773,10 +797,25 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                       className="wm-btn mini"
                                       type="button"
                                       disabled={busy}
-                                      title="终止：不跑归档编排（不经审查门），记录原因后置为终态——用于孤儿提案/放弃的变更"
-                                      onClick={() => void act(proposal.id, 'abandon')}
+                                      title="终止：不跑归档编排、不经审查门，记录原因后隐藏——用于孤儿提案/放弃的变更。勾「显示已归档」后可撤销"
+                                      onClick={() => {
+                                        // 终止是可逆的但会从视图里消失，先确认一次（真机 2026-11-10：点错找不到）。
+                                        if (!window.confirm('确定终止这个提案？\n\n它会从看板与列表中隐藏（勾「显示已归档」可找回并撤销终止）。')) return
+                                        void act(proposal.id, 'abandon')
+                                      }}
                                     >
                                       {pending === `${proposal.id}:abandon` ? '终止中…' : '终止'}
+                                    </button>
+                                  )}
+                                  {proposal.abandonedAt !== undefined && (
+                                    <button
+                                      className="wm-btn mini"
+                                      type="button"
+                                      disabled={busy}
+                                      title="撤销终止：恢复到终止前的状态（依据事件流里最后一条非归档迁移）"
+                                      onClick={() => void act(proposal.id, 'unabandon')}
+                                    >
+                                      {pending === `${proposal.id}:unabandon` ? '恢复中…' : '撤销终止'}
                                     </button>
                                   )}
                                   {proposal.status === 'merging' && (

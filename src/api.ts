@@ -204,18 +204,30 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
     if (intent === '') throw new Error('目标不能为空')
     const priority = body.priority === 'P0' || body.priority === 'P1' ? body.priority : 'P2'
     const mode = body.mode === 'superagent' || body.mode === 'proposal' ? body.mode : 'record'
-    return {
-      task: await deps.tasks.create({
-        intent,
-        repo: (body.repo ?? deps.projectRoot ?? '').trim(),
-        ...(body.baseBranch !== undefined ? { baseBranch: body.baseBranch } : {}),
-        ...(body.acceptance !== undefined ? { acceptance: body.acceptance } : {}),
-        priority,
-        mode,
-        ...(body.proposalId !== undefined ? { proposalId: body.proposalId } : {}),
-        ...(body.dependsOn !== undefined ? { dependsOn: body.dependsOn } : {}),
-      }),
+    const repo = (body.repo ?? deps.projectRoot ?? '').trim()
+    const task = await deps.tasks.create({
+      intent,
+      repo,
+      ...(body.baseBranch !== undefined ? { baseBranch: body.baseBranch } : {}),
+      ...(body.acceptance !== undefined ? { acceptance: body.acceptance } : {}),
+      priority,
+      mode,
+      ...(body.proposalId !== undefined ? { proposalId: body.proposalId } : {}),
+      ...(body.dependsOn !== undefined ? { dependsOn: body.dependsOn } : {}),
+    })
+    // `mode: 'proposal'` 必须真的建一条提案草稿，否则单选里的
+    // 「先走方案评审与 planHash」是空承诺（真机 2026-11-10：选中它创建的仍是普通待办）。
+    // 提案不置 assigned：指派与否由人在提案视图里决定。
+    if (mode === 'proposal' && body.proposalId === undefined) {
+      const created = await createProposal(deps, {
+        id: task.id,
+        title: intent.split('\n')[0]?.slice(0, 120) ?? intent.slice(0, 120),
+        projects: repo === '' ? [] : [repo],
+        source: 'spec',
+      })
+      return { task, proposal: created.proposal }
     }
+    return { task }
   })
 
   router.post('/api/tasks/:id/assign', async (r) => {
@@ -598,6 +610,10 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
       ...(body.supersedes !== undefined ? { supersedes: body.supersedes } : {}),
     })
     return { decision: entry }
+  })
+
+  router.post('/api/proposals/:id/unabandon', async (r) => {
+    return { proposal: await deps.proposals.unabandon(r.params['id'] ?? '', 'human') }
   })
 
   router.post('/api/proposals/:id/abandon', async (r) => {

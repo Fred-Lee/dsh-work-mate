@@ -90,6 +90,8 @@ export interface BlockInput {
 export interface ProposalService {
   /** Deliberate exit without the archive orchestration; `actor` keeps the audit honest. */
   abandon(id: string, reason: string, actor?: EventActor): Promise<Proposal>
+  /** Undo a deliberate abandonment, restoring the state the event log says it left. */
+  unabandon(id: string, actor?: EventActor): Promise<Proposal>
   rootDir(): string
   list(): Promise<Proposal[]>
   get(id: string): Promise<Proposal | undefined>
@@ -363,6 +365,46 @@ export class ProposalServiceImpl implements ProposalService {
       })
     }
     return existing
+  }
+
+  /**
+   * 撤销「终止」（change: 整体体检 #4）。
+   *
+   * 终止会把 status 置 archived 并打 abandonedAt，随后面板把整条记录过滤掉——
+   * 一旦点错就再也找不回来（真机 2026-11-10 实测）。这里恢复成终止前的状态，
+   * 并清掉两个废弃字段；事件流留一条 transition 便于审计。
+   */
+  async unabandon(id: string, actor: EventActor = 'human'): Promise<Proposal> {
+    return this.serialize(async () => {
+      const proposals = await this.store.load()
+      const existing = proposals.find((proposal) => proposal.id === id)
+      if (!existing) throw new Error(`proposal not found: ${id}`)
+      if (existing.abandonedAt === undefined) throw new Error(`proposal ${id} 未被终止，无需恢复`)
+      const at = this.now().toISOString()
+      // 终止时状态被写成 archived；真实状态只能从事件流里最后一条非 abandon 迁移取。
+      const read = this.events === undefined ? { events: [] } : await this.events.read()
+      const last = [...read.events]
+        .filter((event) => event.proposalId === id && event.kind === 'transition' && event.to !== 'archived')
+        .at(-1)
+      const restored = (last?.to as Proposal['status'] | undefined) ?? 'draft'
+      existing.status = restored
+      existing.abandonedAt = undefined
+      existing.abandonedReason = undefined
+      existing.updatedAt = at
+      await this.store.save(proposals)
+      if (this.events !== undefined) {
+        await this.events.append({
+          at,
+          proposalId: id,
+          kind: 'transition',
+          from: 'archived',
+          to: restored,
+          actor,
+          reason: 'unabandoned: 撤销终止',
+        })
+      }
+      return existing
+    })
   }
 
   async setStatus(id: string, status: Proposal['status'], meta: StatusMeta = {}): Promise<Proposal> {

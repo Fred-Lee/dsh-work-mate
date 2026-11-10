@@ -81,6 +81,11 @@ export function archiveProposal(
   })
 }
 
+/** 撤销「终止」：把提案恢复到终止前的状态（change: 整体体检 #4）。 */
+export function unabandonProposal(id: string): Promise<{ proposal: Proposal }> {
+  return request(`/workmate/api/proposals/${encodeURIComponent(id)}/unabandon`, { method: 'POST', body: '{}' })
+}
+
 export function abandonProposal(id: string, reason: string): Promise<{ proposal: Proposal }> {
   return request(`/workmate/api/proposals/${encodeURIComponent(id)}/abandon`, {
     method: 'POST',
