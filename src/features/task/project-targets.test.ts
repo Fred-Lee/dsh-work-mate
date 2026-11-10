@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ProposalServiceImpl } from '../proposal/service.ts'
 import { ProposalStore } from '../proposal/store.ts'
 import { ProjectRegistry } from '../project/registry.ts'
+import { projectOfRepo } from './project-targets.ts'
 import type { TaskRecord } from './files.ts'
 import { branchOf, expectedWorktreePath, isWorkmateBranch, writeBackTarget, writeBackTargets } from './project-targets.ts'
 import type { TicketView } from '../superagent/project.ts'
@@ -109,6 +110,29 @@ describe('writeBackTarget', () => {
     expect(await writeBackTarget({ proposals, registry }, task(), ticket({ directory: undefined }))).toBe('skipped')
     expect(await writeBackTarget({ proposals, registry }, task({ proposalId: undefined }), ticket())).toBe('skipped')
     expect(await writeBackTarget({ proposals, registry }, task({ proposalId: 'missing' }), ticket())).toBe('missing')
+  })
+
+  it('待办 repo 是绝对路径时仍能写回（真机 2026-11-10 回归）', async () => {
+    // task.repo 自 5f03447 起存绝对路径，而 target.project 是项目名。
+    // 旧实现用 === 直接比，永远不相等 → featureBranch 永不写入 → 归档前置必报缺分支。
+    const root = join(dir, 'repo-a')
+    await registry.upsert('repo-a', root, { defaultBranch: 'main' })
+    await proposals.upsert({ id: 'p1', title: 'P', targets: [{ project: 'repo-a', baseBranch: 'main' }] })
+
+    const outcome = await writeBackTarget({ proposals, registry }, task({ repo: root }), ticket())
+
+    expect(outcome).toBe('updated')
+    const stored = await proposals.get('p1')
+    expect(stored?.targets?.[0]?.featureBranch).toBe('workmate/workmate-abcdef123456')
+  })
+
+  it('projectOfRepo 把路径归一为项目名，项目名原样返回', async () => {
+    const root = join(dir, 'repo-a')
+    await registry.upsert('repo-a', root, { defaultBranch: 'main' })
+    expect(await projectOfRepo(registry, root)).toBe('repo-a')
+    expect(await projectOfRepo(registry, 'repo-a')).toBe('repo-a')
+    // 未注册的路径退回末段，至少不会把两条记录错配到一起
+    expect(await projectOfRepo(registry, '/elsewhere/unknown-repo')).toBe('unknown-repo')
   })
 
   it('target 不存在时 missing', async () => {

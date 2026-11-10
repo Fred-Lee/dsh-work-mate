@@ -230,6 +230,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       // the chain degrades to `agent` → `rules` without a failed request.
       new SystemOneProvider({
         baseUrl: resolved.decisionSystemoneUrl,
+        protocol: resolved.decisionSystemoneProtocol,
         model: resolved.decisionSystemoneModel,
         keepAlive: resolved.decisionSystemoneKeepAlive,
         timeoutMs: resolved.decisionSystemoneTimeoutMs,
@@ -669,7 +670,14 @@ export function apply(ctx: Context, config: Config = {}): void {
           if (directory === undefined) throw new Error(`任务 ${taskId} 没有已观察到的 Ticket 目录 — 先等待执行器创建 worktree`)
           return await reclaimOne(
             {
-              worktreeRoots: async (repo) => (await registry.get(repo))?.root,
+              // repo 可能是绝对路径（新写入方）或项目名（历史记录）：按名查不到就按 root 反查。
+              // 旧实现只按名查，于是"回收"对路径形态的待办永远报「未注册」（实测 2026-11-10）。
+              worktreeRoots: async (repo) => {
+                const byName = await registry.get(repo)
+                if (byName !== undefined) return byName.root
+                const all = await registry.list().catch(() => [])
+                return all.find((entry) => entry.root === repo.trim())?.root
+              },
               ports: worktree.ports(),
               ticketAlive: async (id) => {
                 const found = (await superagent.tickets()).tickets.find((ticket) => ticket.id === id)

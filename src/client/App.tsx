@@ -225,7 +225,15 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
             if (entered.trim() === '') throw new Error('强制归档必须写理由')
             rationale = entered.trim()
           }
-          result = await archiveProposal(id, force, rationale)
+          const outcome = await archiveProposal(id, force, rationale)
+          // 归档接口即使编排失败也回 HTTP 200，提案仍停在 archiving。不在这里判一次，
+          // 卡片就会把「缺 review.md / 有未勾任务 / openspec 没真的搬目录」写成
+          // 「✅ 归档完成」并清掉错误条——这类失败最容易被误当成成功。
+          if (outcome.orchestration?.ok === false) {
+            const failed = outcome.orchestration.steps.find((step) => step.status === 'failed')
+            throw new Error(failed?.summary ?? '归档编排失败，提案仍在 archiving')
+          }
+          result = outcome
         }
         else if (action === 'plan') {
           await approvePlan(id)
@@ -260,7 +268,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           ...prev,
           [id]:
             action === 'archive'
-              ? `✅ 归档完成${forced ? '（force：已跳过审查门）' : ''}`
+              ? `✅ 归档完成${forced ? '（force：已跳过审查 / 任务 / 计划漂移三道门）' : ''}`
               : action === 'abandon'
                 ? '🛑 已终止（记录原因，未跑归档编排）'
                 : action === 'plan'
@@ -834,10 +842,10 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                       className="wm-btn mini"
                                       type="button"
                                       disabled={busy}
-                                      title="只跳过审查门（缺 review.md 或有未解决 CRITICAL）；openspec archive 与 gitnexus 照常执行"
+                                      title="跳过三道门：审查门（缺 review.md / 有未解决 CRITICAL）、任务门（tasks.md 有未勾选项）、计划漂移门；openspec archive 与 gitnexus 照常执行。会记录理由与跳过的门"
                                       onClick={() => void act(proposal.id, 'archive', undefined, true)}
                                     >
-                                      {pending === `${proposal.id}:archive` ? '归档中…' : '强制归档（跳过审查门）'}
+                                      {pending === `${proposal.id}:archive` ? '归档中…' : '强制归档（跳过三道门）'}
                                     </button>
                                   </div>
                                 )}

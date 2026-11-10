@@ -75,6 +75,12 @@ export interface ApprovalRecord {
    * Absent for an ordinary state approval; the optional field needs no migration.
    */
   forcedGates?: string[]
+  /**
+   * True when the plugin's own orchestration (actor `system`) crossed this gate
+   * rather than a person. The panel labels such records 「机器推进」so a machine
+   * approval is never mistaken for a human one (真机 2026-11-10).
+   */
+  machineAdvanced?: boolean
 }
 
 import type { ArchiveManifest } from '../archive/manifest.ts'

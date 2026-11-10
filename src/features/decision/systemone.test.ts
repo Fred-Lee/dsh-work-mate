@@ -339,3 +339,49 @@ describe('systemone provider — keep_alive is sent (D8)', () => {
     expect(calls[0]?.body['keep_alive']).toBe('30s')
   })
 })
+
+describe('decide 协议（自建 Jev 网关，真机 2026-11-10）', () => {
+  const decide = (body: string) => {
+    const calls: Array<{ url: string; body: Record<string, unknown> }> = []
+    const impl = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), body: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown> })
+      return { ok: true, status: 200, json: async () => JSON.parse(body) as unknown, text: async () => body }
+    }) as unknown as typeof fetch
+    return { calls, impl }
+  }
+
+  it('打 /v1/decide，body 是平铺的 state/question/kind，choice 带 options', async () => {
+    const { calls, impl } = decide(JSON.stringify({ answer: { type: 'choice', choice: 'high', probabilities: { low: 0.001, medium: 0.01, high: 0.989 } } }))
+    const instance = new SystemOneProvider({ protocol: 'decide', baseUrl: 'http://jev.lan:11434', fetchImpl: impl })
+
+    const answer = await instance.ask(choiceQuestion)
+
+    expect(calls[0]?.url).toBe('http://jev.lan:11434/v1/decide')
+    expect(calls[0]?.body).toMatchObject({ kind: 'choice', options: ['low', 'medium', 'high'] })
+    expect(calls[0]?.body['state']).toBe(choiceQuestion.state)
+    expect(calls[0]?.body['questions']).toBeUndefined()
+    expect(answer).toMatchObject({ choice: 'high', provider: 'jev' })
+  })
+
+  it('noul 题型不带 options，certainty 取胜出侧概率', async () => {
+    const { calls, impl } = decide(JSON.stringify({ answer: { type: 'noul', noul: 0.86 } }))
+    const instance = new SystemOneProvider({ protocol: 'decide', fetchImpl: impl })
+
+    const answer = await instance.ask(noulQuestion)
+
+    expect(calls[0]?.body).toMatchObject({ kind: 'noul' })
+    expect(calls[0]?.body['options']).toBeUndefined()
+    expect(answer?.certainty).toBeCloseTo(0.86, 5)
+  })
+
+  it('decide 协议不需要 model 就能用（网关自己选模型）', () => {
+    expect(new SystemOneProvider({ protocol: 'decide' }).available()).toBe(true)
+    expect(new SystemOneProvider({ protocol: 'systemone' }).available()).toBe(false)
+  })
+
+  it('枚举外答案仍是「无结论」', async () => {
+    const { impl } = decide(JSON.stringify({ answer: { type: 'choice', choice: 'not-an-option', probabilities: {} } }))
+    const instance = new SystemOneProvider({ protocol: 'decide', fetchImpl: impl })
+    expect(await instance.ask(choiceQuestion)).toBeUndefined()
+  })
+})

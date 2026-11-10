@@ -13,8 +13,10 @@
  *   ③ 扫描 —— `<repo>/.workmates/` 下名字包含任务 ID 或 Ticket 前缀的目录。
  *
  * 端口按 `ports.json` 的键释放：新键 `${proposalId}--${project}--${taskId}`、
- * 无提案时 `${repo}--${taskId}`、旧键 `${proposalId}--${project}`。一个都没命中时
- * **不静默通过**，而是进"可能泄漏"清单——端口数量有限，泄漏会慢慢毒化后续分配。
+ * 无提案时 `${repo}--${taskId}`、旧键 `${proposalId}--${project}`。`project` 是注册表
+ * 里的项目名；实现待办自 `5f03447` 起 `repo` 存绝对路径，所以先归一再拼键（见
+ * `resolveProject`），路径键只作附加候选兼容误写的表。一个都没命中时**不静默通过**，
+ * 而是进"可能泄漏"清单——端口数量有限，泄漏会慢慢毒化后续分配。
  *
  * 用法：
  *   node scripts/rollback-superagent.mjs --dry-run          # 只看会做什么
@@ -22,12 +24,13 @@
  *   node scripts/rollback-superagent.mjs --task task-abc-1  # 只处理一条
  *   node scripts/rollback-superagent.mjs --force            # 未合并也删（人已确认）
  *
- * 退出码：0 全部按预期；1 有失败项；2 输入文件损坏（fail-closed，什么都不动）。
+ * 退出码：0 全部按预期；1 有需要人工跟进的项（移除/删除被拒或失败、仓库定位不到、
+ * 端口可能泄漏）；2 输入文件损坏（fail-closed，什么都不动）。
  */
 import { execFile } from 'node:child_process'
 import { readFile, readdir, realpath, rename, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
 const run = promisify(execFile)
@@ -35,15 +38,31 @@ const run = promisify(execFile)
 const BRANCH_PREFIX = 'workmate/'
 const WORKTREE_SUBDIR = '.workmates'
 
-/** 一个任务的端口键，按新 → 旧排列（释放时逐个尝试）。 */
-export function portKeysFor(task) {
+/**
+ * 一个任务的端口键，按新 → 旧排列（释放时逐个尝试）。
+ *
+ * `repoName` 是 `resolveProject` 归一出的项目名（`ports.json` 的键一直按它写）；
+ * 省略时退回 `task.repo` 原值。两者不同（实现待办的 `repo` 是绝对路径）时，
+ * 再把路径原值作为**附加候选**——历史上可能已经按路径误写过一条键，
+ * 不多试一次就会永远释放不掉。
+ */
+export function portKeysFor(task, repoName) {
   const repo = String(task.repo ?? '').trim()
+  const project = String(repoName ?? task.repo ?? '').trim()
   const taskId = String(task.id ?? '').trim()
   const proposalId = String(task.proposalId ?? '').trim()
   const keys = []
-  if (proposalId !== '') keys.push(`${proposalId}--${repo}--${taskId}`)
-  keys.push(`${repo}--${taskId}`)
-  if (proposalId !== '') keys.push(`${proposalId}--${repo}`)
+  const push = (key) => {
+    if (!keys.includes(key)) keys.push(key)
+  }
+  if (proposalId !== '') push(`${proposalId}--${project}--${taskId}`)
+  push(`${project}--${taskId}`)
+  if (proposalId !== '') push(`${proposalId}--${project}`)
+  if (repo !== '' && repo !== project) {
+    if (proposalId !== '') push(`${proposalId}--${repo}--${taskId}`)
+    push(`${repo}--${taskId}`)
+    if (proposalId !== '') push(`${proposalId}--${repo}`)
+  }
   return keys
 }
 
@@ -90,6 +109,46 @@ export function isRollbackCandidate(task) {
     String(task.directory ?? '') !== '' ||
     (task.mode === 'superagent' && typeof task.attempt === 'number' && task.attempt > 0)
   )
+}
+
+/**
+ * 把 `task.repo` 归一成注册表里的项目条目与项目名。
+ *
+ * 为什么需要归一：实现待办自 `5f03447` 起 `repo` 存**绝对路径**（Super-agent 按路径
+ * 比对 deployment.repository），而 `projects.json` 与 `ports.json` 的键仍按项目名，
+ * 逐字比较 `entry.name === task.repo` 必然失配——目录定位不到、端口键拼不出、
+ * 分支也回写不了。匹配顺序：
+ *   ① `repo` 是绝对路径 → 按真实路径比 `entry.root`（符号链接下 `/tmp` 与 `/private/tmp`
+ *      是同一个仓库，逐字比较会漏）；
+ *   ② 否则按项目名逐字比较（历史记录里存的就是项目名）；
+ *   ③ 兜底按 `basename(repo)` 比名字——项目通常以目录名注册（多仓同名时可能误配，
+ *      但只在 ①② 都没命中时生效，且结果要过后续的目录校验）。
+ *
+ * 都命中不到时 `project` 为 `undefined`，`repoName` 退回可读的名字（绝对路径取末段），
+ * 供报告与端口候选键使用；**是否可回滚由调用方按 `project` 判定**。
+ */
+export async function resolveProject(context, task) {
+  const repo = String(task.repo ?? '').trim()
+  const projects = Array.isArray(context?.projects) ? context.projects : []
+  if (repo === '') return { project: undefined, repoName: '' }
+
+  if (isAbsolute(repo)) {
+    const wanted = await resolveReal(repo)
+    for (const entry of projects) {
+      if (entry.root === '') continue
+      if (await resolveReal(entry.root) === wanted) return { project: entry, repoName: entry.name }
+    }
+  }
+  for (const entry of projects) {
+    if (entry.name === repo) return { project: entry, repoName: entry.name }
+  }
+  const tail = basename(repo)
+  if (tail !== '' && tail !== repo) {
+    for (const entry of projects) {
+      if (entry.name === tail) return { project: entry, repoName: entry.name }
+    }
+  }
+  return { project: undefined, repoName: isAbsolute(repo) ? tail : repo }
 }
 
 /** 解析命令行（导出以便测试；未知参数直接报错，避免"看起来跑了"）。 */
@@ -213,12 +272,16 @@ async function firstExistingBranch(repoRoot, candidates) {
  *   ② `workmate/<目录末段>`（prepare 模板的默认）；
  *   ③ 去掉目录末段的 `workmate-` 前缀再拼（部署方自定命名时常见）。
  * 只认第一个真实存在的，不猜。
+ *
+ * `repoName` 是 `resolveProject` 归一出的项目名：提案 target 的 `project` 存的是项目名，
+ * 而实现待办的 `repo` 是绝对路径，拿路径去比永远命中不到（`featureBranch` 就白回写了）。
  */
-export function branchCandidates(task, directoryName, proposals) {
+export function branchCandidates(task, directoryName, proposals, repoName) {
   const candidates = []
+  const project = String(repoName ?? task.repo ?? '').trim()
   const proposal = proposals.find((entry) => entry !== null && typeof entry === 'object' && entry.id === task.proposalId)
   const target = Array.isArray(proposal?.targets)
-    ? proposal.targets.find((entry) => entry !== null && typeof entry === 'object' && entry.project === task.repo)
+    ? proposal.targets.find((entry) => entry !== null && typeof entry === 'object' && entry.project === project)
     : undefined
   if (typeof target?.featureBranch === 'string' && target.featureBranch !== '') candidates.push(target.featureBranch)
   if (directoryName !== '') {
@@ -234,10 +297,11 @@ export function branchCandidates(task, directoryName, proposals) {
  * 每一步独立记录，失败不清空已完成的事实（与归档纪律一致）。
  */
 async function rollbackTask(task, context) {
-  const repo = context.projects.find((entry) => entry.name === task.repo)
+  const { project: repo, repoName } = await resolveProject(context, task)
   const record = {
     taskId: String(task.id ?? ''),
     repo: String(task.repo ?? ''),
+    repoName,
     proposalId: String(task.proposalId ?? ''),
     directory: '',
     source: '',
@@ -250,10 +314,13 @@ async function rollbackTask(task, context) {
   }
 
   if (repo === undefined || repo.root === '') {
+    // 定位不到仓库根 = 目录、分支、端口三件事都无从确认。这不是"跳过"，
+    // 必须让结论变红、退出码非 0，否则假成功会被当成回滚完了。
+    record.worktree = 'unresolved'
+    record.branchResult = 'unresolved'
     record.notes.push(`仓库 ${task.repo} 未在 projects.json 注册 — 无法定位目录`)
-    record.portLeak = true
-    record.notes.push('端口可能泄漏：没有仓库根，无法确认 worktree 是否真的没了')
-    return withPorts(record, task, context)
+    record.notes.push('没有仓库根，无法确认 worktree 是否真的没了')
+    return withPorts(record, task, context, repoName)
   }
 
   const entries = await worktreeEntries(repo.root)
@@ -265,7 +332,7 @@ async function rollbackTask(task, context) {
   } else {
     record.source = located.source
     record.directory = located.directory !== '' ? located.directory : join(repo.root, WORKTREE_SUBDIR, located.name)
-    record.branch = await firstExistingBranch(repo.root, branchCandidates(task, basename(record.directory), context.proposals)) ?? ''
+    record.branch = await firstExistingBranch(repo.root, branchCandidates(task, basename(record.directory), context.proposals, repoName)) ?? ''
 
     const registered = await registeredWorktrees(repo.root).catch(() => [])
     const present = await pathExists(record.directory)
@@ -314,24 +381,25 @@ async function rollbackTask(task, context) {
       }
     } else {
       record.branchResult = 'absent'
-      const candidates = branchCandidates(task, basename(record.directory), context.proposals)
+      const candidates = branchCandidates(task, basename(record.directory), context.proposals, repoName)
       if (candidates.length > 0) record.notes.push(`候选分支都不存在：${candidates.join(' / ')}`)
     }
   }
 
-  return withPorts(record, task, context)
+  return withPorts(record, task, context, repoName)
 }
 
-/** 端口释放：三个键都试；一个都没命中就明确告警（不静默通过）。 */
-function withPorts(record, task, context) {
-  for (const key of portKeysFor(task)) {
+/** 端口释放：新键 / 仓库键 / 旧提案键（外加路径原值候选）都试；一个都没命中就明确告警（不静默通过）。 */
+function withPorts(record, task, context, repoName) {
+  const keys = portKeysFor(task, repoName)
+  for (const key of keys) {
     if (context.ports[key] === undefined) continue
     record.portsReleased.push(key)
     if (!context.dryRun) delete context.ports[key]
   }
   if (record.portsReleased.length === 0) {
     record.portLeak = true
-    record.notes.push(`端口可能泄漏：ports.json 中没有 ${portKeysFor(task).join(' / ')}`)
+    record.notes.push(`端口可能泄漏：ports.json 中没有 ${keys.join(' / ')}`)
   }
   return record
 }
@@ -342,6 +410,7 @@ const WORKTREE_TEXT = {
   absent: '目录已不存在',
   refused: '拒绝（不是已注册 worktree）',
   failed: '移除失败',
+  unresolved: '无法定位（仓库未注册）',
   skipped: '未处理',
 }
 
@@ -351,7 +420,25 @@ const BRANCH_TEXT = {
   refused: '拒绝（未合并，需 --force）',
   failed: '删除失败',
   absent: '分支不存在',
+  unresolved: '无法定位（仓库未注册）',
   skipped: '未处理',
+}
+
+/**
+ * 一条记录是否"需要人工跟进"：移除/删除被拒或失败、仓库定位不到、端口可能泄漏。
+ * 端口泄漏必须在内——一个端口键都没命中时端口段可能还占着，慢慢毒化后续分配；
+ * 只在备注里写一句而结论打绿，等于把未完成的回滚宣告成功。
+ */
+export function needsFollowUp(record) {
+  return (
+    record.worktree === 'failed' ||
+    record.worktree === 'refused' ||
+    record.worktree === 'unresolved' ||
+    record.branchResult === 'failed' ||
+    record.branchResult === 'refused' ||
+    record.branchResult === 'unresolved' ||
+    record.portLeak === true
+  )
 }
 
 /** 人类可读清单：每个任务一段结论 + 逐条备注。回滚不许只打印"完成"。 */
@@ -382,9 +469,7 @@ export function formatReport(report) {
   }
   const leaks = report.tasks.filter((record) => record.portLeak)
   if (leaks.length > 0) lines.push('', `端口可能泄漏：${leaks.map((record) => record.taskId).join('、')}`)
-  const failures = report.tasks.filter(
-    (record) => record.worktree === 'failed' || record.worktree === 'refused' || record.branchResult === 'failed' || record.branchResult === 'refused',
-  )
+  const failures = report.tasks.filter(needsFollowUp)
   lines.push('', failures.length === 0 ? '结论：目录与分支已按预期处理。' : `结论：${failures.length} 条需要人工跟进（见备注）。`)
   return lines.join('\n')
 }
@@ -408,9 +493,15 @@ export async function rollback(options) {
   const skipped = selected.filter((task) => !isRollbackCandidate(task)).map((task) => String(task.id ?? ''))
 
   const records = []
-  for (const task of candidates) records.push(await rollbackTask(task, context))
+  // 端口键的归属按**归一后的项目名**算（路径原值只是附加候选）；用原始 task.repo 会把
+  // 真正释放掉的键算成"未归属"，在报告里误导人。
+  const usedKeys = new Set()
+  for (const task of candidates) {
+    const record = await rollbackTask(task, context)
+    records.push(record)
+    for (const key of portKeysFor(task, record.repoName)) usedKeys.add(key)
+  }
 
-  const usedKeys = new Set(candidates.flatMap((task) => portKeysFor(task)))
   const report = {
     dryRun: options.dryRun === true,
     taskFile: inputs.taskFile,
@@ -453,10 +544,8 @@ if (isMain) {
     }
     const report = await rollback(options)
     process.stdout.write(options.json === true ? JSON.stringify(report, null, 2) + '\n' : formatReport(report) + '\n')
-    const failed = report.tasks.some(
-      (record) => record.worktree === 'failed' || record.worktree === 'refused' || record.branchResult === 'failed' || record.branchResult === 'refused',
-    )
-    process.exit(failed ? 1 : 0)
+    // 与 formatReport 的结论同源：有未解析仓库 / 端口泄漏 / 拒删 / 失败就不是 0。
+    process.exit(report.tasks.some(needsFollowUp) ? 1 : 0)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     process.stderr.write(`${message}\n`)

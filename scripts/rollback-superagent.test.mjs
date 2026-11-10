@@ -19,8 +19,10 @@ import {
   locateDirectory,
   matchByNaming,
   matchByScan,
+  needsFollowUp,
   parseArgs,
   portKeysFor,
+  resolveProject,
   rollback,
 } from './rollback-superagent.mjs'
 
@@ -81,6 +83,47 @@ test('portKeysFor tries the task key, the repo key, then the legacy proposal key
   assert.deepEqual(portKeysFor({ id: 't1', repo: 'demo' }), ['demo--t1'])
 })
 
+test('portKeysFor keys on the resolved project name and keeps absolute-path keys as extras', () => {
+  // 实现待办的 repo 是绝对路径（5f03447），而 ports.json 的键按项目名写。
+  assert.deepEqual(portKeysFor({ id: 't1', repo: '/work/demo', proposalId: 'p1' }, 'demo'), [
+    'p1--demo--t1',
+    'demo--t1',
+    'p1--demo',
+    'p1--/work/demo--t1',
+    '/work/demo--t1',
+    'p1--/work/demo',
+  ])
+  // 项目名与 repo 相同（历史记录）时不重复。
+  assert.deepEqual(portKeysFor({ id: 't1', repo: 'demo' }, 'demo'), ['demo--t1'])
+})
+
+test('resolveProject matches an absolute repo by real root, then name, then basename', async () => {
+  const projects = [
+    { name: 'demo', root: '/work/demo' },
+    { name: 'other', root: '/work/other' },
+  ]
+  const byRoot = await resolveProject({ projects }, { repo: '/work/demo' })
+  assert.equal(byRoot.project?.name, 'demo')
+  assert.equal(byRoot.repoName, 'demo')
+
+  const byName = await resolveProject({ projects }, { repo: 'other' })
+  assert.equal(byName.project?.name, 'other')
+  assert.equal(byName.repoName, 'other')
+
+  // 绝对路径没按 root 命中（注册表里换了根）→ 兜底取末段比名字。
+  const byBasename = await resolveProject({ projects }, { repo: '/moved/demo' })
+  assert.equal(byBasename.project?.name, 'demo')
+  assert.equal(byBasename.repoName, 'demo')
+
+  const missing = await resolveProject({ projects }, { repo: '/nowhere/ghost' })
+  assert.equal(missing.project, undefined)
+  assert.equal(missing.repoName, 'ghost')
+
+  const empty = await resolveProject({ projects }, { repo: '' })
+  assert.equal(empty.project, undefined)
+  assert.equal(empty.repoName, '')
+})
+
 test('matchByNaming keys on the 12-character ticket prefix', () => {
   const entries = ['workmate-fix-color-abcdef123456', 'workmate-other-999999999999']
   assert.deepEqual(matchByNaming(entries, 'abcdef1234567890'), ['workmate-fix-color-abcdef123456'])
@@ -136,6 +179,28 @@ test('branchCandidates prefers the writeback target branch over naming', () => {
     'workmate/fix-color-abcdef123456',
   ])
   assert.deepEqual(branchCandidates({ repo: 'demo' }, '', proposals), [])
+})
+
+test('branchCandidates matches the proposal target by resolved project name, not the absolute repo', () => {
+  const proposals = [
+    { id: 'p1', targets: [{ project: 'demo', baseBranch: 'main', featureBranch: 'workmate/drill-aaaaaaaaaaaa' }] },
+  ]
+  // repo 是绝对路径：拿它去比 target.project 永远命中不到，featureBranch 就白回写了。
+  // 命中后命名候选仍排在后面（原设计：只认第一个真实存在的）。
+  assert.deepEqual(
+    branchCandidates({ proposalId: 'p1', repo: '/work/demo' }, 'workmate-drill-aaaaaaaaaaaa', proposals, 'demo'),
+    ['workmate/drill-aaaaaaaaaaaa', 'workmate/workmate-drill-aaaaaaaaaaaa'],
+  )
+})
+
+test('needsFollowUp covers unresolved repos and port leaks, not just refused/failed', () => {
+  const clean = { worktree: 'removed', branchResult: 'deleted', portLeak: false }
+  assert.equal(needsFollowUp(clean), false)
+  assert.equal(needsFollowUp({ ...clean, worktree: 'unresolved' }), true)
+  assert.equal(needsFollowUp({ ...clean, branchResult: 'unresolved' }), true)
+  assert.equal(needsFollowUp({ ...clean, portLeak: true }), true)
+  assert.equal(needsFollowUp({ ...clean, worktree: 'refused' }), true)
+  assert.equal(needsFollowUp({ ...clean, branchResult: 'failed' }), true)
 })
 
 test('isRollbackCandidate skips tasks that never reached the executor', () => {
@@ -307,12 +372,61 @@ test('an unregistered repo is reported instead of silently skipped', async () =>
   try {
     const report = await rollback({ home, workmateHome: 'workmate' })
     const record = report.tasks[0]
-    assert.equal(record.worktree, 'skipped')
+    // 定位不到仓库 = 目录/分支/端口都无从确认：必须是 unresolved，不能算"跳过"。
+    assert.equal(record.worktree, 'unresolved')
+    assert.equal(record.branchResult, 'unresolved')
     assert.match(record.notes.join('\n'), /未在 projects\.json 注册/)
     assert.equal(record.portLeak, true)
-    assert.match(formatReport(report), /端口可能泄漏/)
+    const text = formatReport(report)
+    assert.match(text, /端口可能泄漏/)
+    // 假成功是这条缺陷最坏的部分：结论不得为绿。
+    assert.match(text, /需要人工跟进/)
+    assert.doesNotMatch(text, /结论：目录与分支已按预期处理/)
+    assert.equal(report.tasks.some(needsFollowUp), true)
   } finally {
     await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('an absolute task.repo resolves through the project root and still rolls everything back', async () => {
+  const repo = await makeRepo()
+  try {
+    await mkdir(join(repo, '.workmates'), { recursive: true })
+    const dir = join(repo, '.workmates', 'workmate-abs-555555555555')
+    const branch = 'workmate/workmate-abs-555555555555'
+    await git(repo, ['worktree', 'add', '-q', '-b', branch, dir])
+    await git(repo, ['merge', '-q', '--ff-only', branch])
+
+    // 5f03447 之后的形状：repo 是绝对路径，projects.json 仍是 name + root。
+    const home = await makeHome(
+      [task({ id: 'task-6', ticketId: '555555555555', directory: '', repo, proposalId: 'p1' })],
+      {
+        'p1--demo--task-6': { base: 4400, ports: [4400, 4401] },
+        'demo--task-6': { base: 4500, ports: [4500] },
+      },
+      [{ name: 'demo', root: repo }],
+    )
+    try {
+      const report = await rollback({ home, workmateHome: 'workmate' })
+      const record = report.tasks[0]
+      assert.equal(record.repoName, 'demo')
+      assert.equal(record.worktree, 'removed')
+      assert.equal(record.branchResult, 'deleted')
+      assert.deepEqual(record.portsReleased, ['p1--demo--task-6', 'demo--task-6'])
+      assert.equal(record.portLeak, false)
+      assert.equal(existsSync(dir), false)
+      assert.equal((await git(repo, ['branch', '--list', branch])).trim(), '')
+
+      const ports = JSON.parse(await readFile(join(home, 'workmate', 'ports.json'), 'utf8'))
+      assert.deepEqual(ports, {})
+      // 已释放的键不得再被算成"未归属"，否则报告会自相矛盾。
+      assert.deepEqual(report.unmatchedPortKeys, [])
+      assert.match(formatReport(report), /结论：目录与分支已按预期处理/)
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  } finally {
+    await rm(repo, { recursive: true, force: true })
   }
 })
 

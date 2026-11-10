@@ -297,6 +297,10 @@ export class LifecycleServiceImpl {
 
     const reason = this.gateReason(to, proposal)
     if (reason === undefined || this.deps.allowAgentApproval === true) return
+    // 写码者（agent）不得批准，但**插件自己的编排**（system，如自动推进调度器）可以——
+    // 那是有意设计：机器推进要能跑通，同时必须在事件流与面板上看得见。
+    // 透明度由 recordApproval 保证（actor=system + machineAdvanced 标记），
+    // 面板在审批记录里显式标「机器推进」，不伪装成人批的。
     if (actor !== 'agent') return
     const error = new InvalidTransitionError(
       reason === 'high-risk'
@@ -323,6 +327,8 @@ export class LifecycleServiceImpl {
       gate: to,
       actor,
       decision: 'approve',
+      // system 身份过门必须留痕可辨：面板据此标「机器推进」而不是人批。
+      ...(actor === 'system' ? { machineAdvanced: true } : {}),
       ...(options.rationale !== undefined ? { rationale: options.rationale } : {}),
       ...(commit !== undefined ? { commit } : {}),
       ...(options.forcedGates !== undefined && options.forcedGates.length > 0

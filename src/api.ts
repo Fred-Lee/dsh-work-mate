@@ -317,11 +317,17 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
   })
 
   router.post('/api/proposals/:id/archive', async (r) => {
-    // `force` skips the review gate only (missing review.md / unresolved
-    // CRITICAL); the openspec + gitnexus steps and the archiving precondition
-    // still apply. An empty body keeps the gate on.
-    const body = await readJsonBody<{ force?: boolean }>(r.req).catch(() => ({ force: false }))
-    const result = await deps.archive.runArchive(r.params['id'] ?? '', { force: body.force === true, actor: 'human' })
+    // `force` **跳过三道门**（审查门 / 任务门 / 计划漂移门），不只是审查门——
+    // 旧注释与面板文案都写「只跳过审查门」，与实际行为不符（实测 2026-11-10）。
+    // openspec + gitnexus 步骤与 archiving 前置仍然生效。
+    // `rationale` 必须解析并落库：面板强制填写的理由曾被这里丢弃。
+    const body = await readJsonBody<{ force?: boolean; rationale?: string }>(r.req).catch(() => ({ force: false, rationale: '' }))
+    const rationale = typeof body.rationale === 'string' ? body.rationale.trim() : ''
+    const result = await deps.archive.runArchive(r.params['id'] ?? '', {
+      force: body.force === true,
+      actor: 'human',
+      ...(rationale !== '' ? { rationale } : {}),
+    })
     return { proposal: result.proposal, ...(result.orchestration !== undefined ? { orchestration: result.orchestration } : {}) }
   })
 

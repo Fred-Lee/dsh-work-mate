@@ -322,17 +322,103 @@ describe('ProposalPanel (kanban)', () => {
     fireEvent.click(screen.getByText('加载详情'))
 
     await screen.findByText('完成归档')
-    expect(screen.getByText('强制归档（跳过审查门）')).toBeTruthy()
+    expect(screen.getByText('强制归档（跳过三道门）')).toBeTruthy()
     expect(screen.queryByText(/^推进到/)).toBeNull()
 
     const prompt = vi.spyOn(window, 'prompt').mockReturnValue('验收后强制归档')
-    fireEvent.click(screen.getByText('强制归档（跳过审查门）'))
+    fireEvent.click(screen.getByText('强制归档（跳过三道门）'))
 
     await waitFor(() => {
       const call = postedCall('/workmate/api/proposals/batch-grading-v2/archive')
       expect(JSON.parse(String(call[1].body))).toEqual({ force: true, rationale: '验收后强制归档' })
     })
+
+    // orchestration.ok=false 也是 HTTP 200，但提案仍在 archiving：卡片必须报 ❌，
+    // 不得写「归档完成」（否则失败的门禁会被一句成功文案盖掉）。
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('归档编排失败，提案仍在 archiving')
+    await waitFor(() => expect(screen.getByText(/❌ 归档编排失败，提案仍在 archiving/)).toBeTruthy())
+    expect(screen.queryByText(/归档完成/)).toBeNull()
     prompt.mockRestore()
+  })
+
+  it('shows the failed orchestration step when the archive run aborts', async () => {
+    routeMock((url, method) => {
+      if (url === '/workmate/api/proposals' && method === 'GET') return { proposals: [proposal({ status: 'archiving' })] }
+      if (url === '/workmate/api/projects') return { projects: [] }
+      if (url === '/workmate/api/isolation') return { occupancy: [], conflicts: [] }
+      if (url.endsWith('/batch-grading-v2') && method === 'GET') {
+        return {
+          proposal: proposal({ status: 'archiving' }),
+          projects: [],
+          lifecycle: { status: 'archiving', hint: '推进后运行归档编排', prev: 'merging', next: 'archived' },
+        }
+      }
+      if (url.endsWith('/archive') && method === 'POST') {
+        return {
+          proposal: proposal({ status: 'archiving' }),
+          orchestration: {
+            ok: false,
+            steps: [{ step: 'review-gate', status: 'failed', summary: '审查报告缺失 — 运行 proposal-auditor 生成 review.md（或 force 跳过）' }],
+          },
+        }
+      }
+      return {}
+    })
+
+    renderPanel()
+    await screen.findByText('批量批改 v2.1')
+    fireEvent.click(screen.getByText('批量批改 v2.1'))
+    fireEvent.click(screen.getByText('加载详情'))
+
+    await screen.findByText('完成归档')
+    fireEvent.click(screen.getByText('完成归档'))
+
+    // 失败步骤的 summary 原样透出：人要知道该补哪一件，而不是只看到「失败」。
+    await waitFor(() =>
+      expect(screen.getByText(/❌ 审查报告缺失 — 运行 proposal-auditor 生成 review.md/)).toBeTruthy(),
+    )
+    expect(screen.queryByText(/归档完成/)).toBeNull()
+    // 提案没有被改动：卡片仍在「待合并」列。
+    expect(within(columnFor('archiving')).getByText('批量批改 v2.1')).toBeTruthy()
+  })
+
+  it('reports archive success only when the orchestration succeeded', async () => {
+    routeMock((url, method) => {
+      // 列表故意停留在 archiving（聚合可能慢一拍）：卡片留在看板上，断言才看得到 note。
+      // 判定只看 orchestration.ok，不看卡片后来落到哪一列。
+      if (url === '/workmate/api/proposals' && method === 'GET') {
+        return { proposals: [proposal({ status: 'archiving' })] }
+      }
+      if (url === '/workmate/api/projects') return { projects: [] }
+      if (url === '/workmate/api/isolation') return { occupancy: [], conflicts: [] }
+      if (url.endsWith('/batch-grading-v2') && method === 'GET') {
+        return {
+          proposal: proposal({ status: 'archiving' }),
+          projects: [],
+          lifecycle: { status: 'archiving', hint: '推进后运行归档编排', prev: 'merging', next: 'archived' },
+        }
+      }
+      if (url.endsWith('/archive') && method === 'POST') {
+        return {
+          proposal: proposal({ status: 'archived' }),
+          orchestration: { ok: true, steps: [{ step: 'openspec-archive', status: 'ok', summary: 'moved' }] },
+        }
+      }
+      return {}
+    })
+
+    renderPanel()
+    await screen.findByText('批量批改 v2.1')
+    fireEvent.click(screen.getByText('批量批改 v2.1'))
+    fireEvent.click(screen.getByText('加载详情'))
+
+    await screen.findByText('完成归档')
+    fireEvent.click(screen.getByText('完成归档'))
+
+    // 反过来也要守住：ok=true 时不能因为新加的判定把成功误报成失败。
+    await waitFor(() => expect(screen.getByText('✅ 归档完成')).toBeTruthy())
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('surfaces REST errors inline', async () => {

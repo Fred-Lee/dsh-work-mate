@@ -180,9 +180,14 @@ Super-agent 时，必须同时做两件事，缺一件就会留下"目录还在�
 - 定位分三级——① 任务记录缓存的 `directory`（面板观察到 Ticket 时回写）；
   ② `<repo>/.workmates/` 里以 Ticket 前 12 位结尾的名字；③ 目录名里带任务 ID 的目录；
 - 分支名优先取提案 target 已回写的 `featureBranch`，其次才按目录末段推导；
-- 端口按 `ports.json` 的新键、仓库键、旧提案键依次释放；
+- 端口按 `ports.json` 的新键、仓库键、旧提案键依次释放（键里的项目名先按
+  `projects.json` 归一：实现待办的 `repo` 是绝对路径，按真实路径匹配 `root` 后再取项目名）；
 - 一个端口键都没命中时输出"**端口可能泄漏**"，不静默通过；
 - 每个任务输出目录、分支、端口与处理结果——不打印一句"完成"了事。
+
+结论只在**没有**未解析仓库 / 端口泄漏 / 拒删 / 删除失败时才是"已按预期处理"；
+有任何一项时打印"N 条需要人工跟进"并以退出码 1 结束——端口可能泄漏也算在内，
+没人会去复查一串被绿色结论掩盖的备注。
 
 未合并的分支默认**拒绝删除**（`git worktree remove --force` 只删目录，分支保留）；
 确认丢得起时加 `--force`。
@@ -239,7 +244,7 @@ node --experimental-transform-types scripts/verify-superagent-offline.mjs \
 | 投递了但一直"待接受" | 准入没打开（不是 explicit） | 把 `workmate:<createdBy>` 加入来源 `workmate` 的 `allowed` |
 | worker 的目录是空的 | WorkMate 抢先建过目录，prepare 被跳过 | 删掉该目录后让 Ticket 重试；后续不要预建 |
 | `git worktree remove` 失败 | 目录不是本仓的 worktree（prepare 半成品） | 脚本会标"拒绝"并给出路径，人工确认后处理 |
-| 回滚报告"端口可能泄漏" | `ports.json` 里没有对应键（旧提案级分配） | 人工核对 `ports.json`；脚本会列出未归属的键 |
+| 回滚报告"端口可能泄漏" | `ports.json` 里没有对应键（旧提案级分配，或 `repo` 与注册表项目名对不上） | 人工核对 `ports.json`；脚本会列出未归属的键。项目名对不上时先确认 `projects.json` 里有该仓库（脚本按 `root` 真实路径、项目名、目录名末段三级匹配） |
 | 分支未合并被拒删 | 正常保护 | 合并后重跑，或确认后 `--force` |
 | 装完 Source 没生效 | bundle patch 不热加载 | 重启 Super-agent，再跑 §8 自检 |
 | `--dump-config` 没有 `workmate` 条目 | bundle 未进 `dsh.profile.bundles` | 重装子包，或手工把包名加进 `bundles` 后 `pnpm install` |

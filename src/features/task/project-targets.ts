@@ -40,6 +40,24 @@ export function branchOf(directory: string, prefix = 'workmate/'): string {
 }
 
 /**
+ * 把待办的 `repo` 归一成提案 target 用的**项目名**。
+ *
+ * `task.repo` 存绝对路径（`5f03447` 起，Source 与执行器按路径比对），而
+ * `ProposalTarget.project` 存注册表里的项目名。直接 `===` 比较永远不相等，
+ * `featureBranch` 就永远不会回写，归档前置必然报「缺少实现分支」（实测 2026-11-10）。
+ *
+ * 归一顺序：注册表按 root 反查 → 路径末段 → 原样返回（已经是项目名时）。
+ */
+export async function projectOfRepo(registry: ProjectRegistry, repo: string): Promise<string> {
+  const trimmed = repo.trim()
+  if (trimmed === '') return trimmed
+  // 不含路径分隔符 = 已经是项目名，省一次注册表查询。
+  if (!trimmed.includes('/') && !trimmed.includes('\\')) return trimmed
+  const registered = await registry.list().catch(() => [] as Awaited<ReturnType<ProjectRegistry['list']>>)
+  return registered.find((entry) => entry.root === trimmed)?.name ?? basename(trimmed)
+}
+
+/**
  * 把一条观察到的 Ticket 回写到它对应的提案 target。
  * 只写 `featureBranch` / `baseCommit`，其余字段保持原样。
  */
@@ -52,7 +70,9 @@ export async function writeBackTarget(
   const proposal = await deps.proposals.get(task.proposalId)
   if (proposal === undefined) return 'missing'
   const targets = proposal.targets ?? []
-  const index = targets.findIndex((target) => target.project === task.repo)
+  // repo 可能是绝对路径（新的写入方）或项目名（历史记录）：两者都归一后再比。
+  const project = await projectOfRepo(deps.registry, task.repo)
+  const index = targets.findIndex((target) => target.project === project || target.project === task.repo)
   if (index === -1) return 'missing'
   const target = targets[index]
   if (target === undefined) return 'missing'

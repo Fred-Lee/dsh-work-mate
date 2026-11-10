@@ -187,6 +187,13 @@ export interface Config {
    * `/v1/systemone`, or a cloud Jev deployment). @default 'http://127.0.0.1:11434'
    */
   decisionSystemoneUrl?: string
+
+  /**
+   * Jev/System One 线协议：`systemone`（TypeSafe/Ollama 嵌套形状）或
+   * `decide`（自建网关的平铺单题形状，`POST /v1/decide`）。
+   * @default 'systemone'
+   */
+  decisionSystemoneProtocol?: 'systemone' | 'decide'
   /** System One model for the `jev` provider; empty = provider unavailable. @default '' */
   decisionSystemoneModel?: string
   /**
@@ -268,7 +275,7 @@ export const Config: z<Config> = z.object({
   weknoraWikiRequired: z.boolean().default(false).description('Fail implementing→merging when declared wiki pages are missing.'),
   approvalsRequired: z
     .array(z.string())
-    .default(['merging'])
+    .default(['merging', 'archiving'])
     .description('States that require a human approval to enter; empty disables the gate.'),
   allowAgentApproval: z
     .boolean()
@@ -353,6 +360,10 @@ export const Config: z<Config> = z.object({
   taskJudgementGate: z.boolean().default(false).description('Block archiving on a judged-unsatisfied task.'),
   reviewGradeMax: z.number().default(5).description('How many untagged review findings one archive run may grade.'),
   decisionSystemoneUrl: z.string().default('http://127.0.0.1:11434').description('System One base URL for the jev provider.'),
+  decisionSystemoneProtocol: z
+    .union([z.const('systemone'), z.const('decide')])
+    .default('systemone')
+    .description('Jev wire protocol: systemone (TypeSafe/Ollama nested) or decide (flat POST /v1/decide).'),
   decisionSystemoneModel: z.string().default('').description('System One model for the jev provider; empty = unavailable.'),
   decisionSystemoneKeepAlive: z.string().default('60s').description('Ollama keep_alive for the jev provider.'),
   decisionSystemoneTimeoutMs: z.number().default(60000).description('Per-request timeout for the jev provider. Covers the COLD model load: measured TTFB on this machine is 18.6-23.5s while a 9GB model is read from disk, so 20s makes the first judgement fail intermittently.'),
@@ -393,7 +404,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   weknoraEnabled: true,
   weknoraKbId: '',
   weknoraWikiRequired: false,
-  approvalsRequired: ['merging'],
+  approvalsRequired: ['merging', 'archiving'],
   allowAgentApproval: false,
   reviewBlockingSeverities: ['CRIT'],
   planDriftGate: false,
@@ -423,6 +434,7 @@ export const CONFIG_DEFAULTS: ResolvedConfig = {
   taskJudgementGate: false,
   reviewGradeMax: 5,
   decisionSystemoneUrl: 'http://127.0.0.1:11434',
+  decisionSystemoneProtocol: 'systemone',
   decisionSystemoneModel: '',
   decisionSystemoneKeepAlive: '60s',
   decisionSystemoneTimeoutMs: 60000,

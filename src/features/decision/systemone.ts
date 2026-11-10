@@ -46,6 +46,13 @@ export interface SystemOneProviderOptions {
   timeoutMs?: number
   /** Request cap; the server rejects bodies over 64 KiB without images. */
   maxStateBytes?: number
+  /**
+   * Wire protocol. `systemone` = TypeSafe Jev / Ollama nested shape
+   * (`/v1/systemone`, `{questions:{answer:{type,…}}}`); `decide` = the flat
+   * single-question shape (`/v1/decide`, `{state,question,kind,options}`) that
+   * self-hosted Jev gateways expose. Default `systemone`.
+   */
+  protocol?: 'systemone' | 'decide'
   /** Injected for tests; defaults to the global `fetch`. */
   fetchImpl?: typeof fetch
 }
@@ -99,15 +106,20 @@ export class SystemOneProvider implements DecisionProvider {
     return this.options.model?.trim() ?? ''
   }
 
+  private get protocol(): 'systemone' | 'decide' {
+    return this.options.protocol ?? 'systemone'
+  }
+
   available(): boolean {
     // Config-only on purpose (D6): probing here would cache a verdict that a
     // later `ollama serve` invalidates, and the chain already handles failures.
-    return this.model !== ''
+    // `decide` gateways pick the model themselves, so only the URL matters there.
+    return this.protocol === 'decide' || this.model !== ''
   }
 
   async ask(question: DecisionQuestion, signal?: AbortSignal): Promise<DecisionAnswer | undefined> {
     const model = this.model
-    if (model === '') return undefined
+    if (model === '' && this.protocol !== 'decide') return undefined
     if (question.options.length < 2) {
       // A one-option question is not a question; System One also requires 2+ criteria.
       await recordDiagnostic({
@@ -130,7 +142,8 @@ export class SystemOneProvider implements DecisionProvider {
     const started = Date.now()
     let response: Response
     try {
-      response = await (this.options.fetchImpl ?? fetch)(`${this.baseUrl}/v1/systemone`, {
+      const path = this.protocol === 'decide' ? '/v1/decide' : '/v1/systemone'
+      response = await (this.options.fetchImpl ?? fetch)(`${this.baseUrl}${path}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
@@ -213,6 +226,14 @@ export class SystemOneProvider implements DecisionProvider {
           criteria: Object.fromEntries(question.options.map((option) => [option, describeOption(option)])),
         }
 
+    if (this.protocol === 'decide') {
+      // 平铺单题形状（自建 Jev 网关）：kind 直接取 noul/choice，
+      // choice 用 options 数组而不是 criteria 对象。model 由网关自己选。
+      return NOUL_NODES.has(question.node)
+        ? { state: question.state, question: instructions, kind: 'noul' }
+        : { state: question.state, question: instructions, kind: 'choice', options: [...question.options] }
+    }
+
     return {
       model,
       state: question.state,
@@ -227,10 +248,17 @@ export class SystemOneProvider implements DecisionProvider {
       await recordDiagnostic({ node: question.node, provider: this.name, model, failure: 'response is not an object' })
       return undefined
     }
-    const answers = payload['answers']
-    const entry = isRecord(answers) ? answers['answer'] : undefined
+    // 两种协议的响应形状：systemone = {answers:{answer:{…}}}，decide = {answer:{…}}。
+    const entry = this.protocol === 'decide'
+      ? payload['answer']
+      : (isRecord(payload['answers']) ? (payload['answers'] as Record<string, unknown>)['answer'] : undefined)
     if (!isRecord(entry)) {
-      await recordDiagnostic({ node: question.node, provider: this.name, model, failure: 'answers.answer missing' })
+      await recordDiagnostic({
+        node: question.node,
+        provider: this.name,
+        model,
+        failure: this.protocol === 'decide' ? 'answer missing' : 'answers.answer missing',
+      })
       return undefined
     }
 

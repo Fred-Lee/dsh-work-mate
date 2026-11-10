@@ -194,7 +194,7 @@ node $DSH --profile web --dump-config | sed -n '/id: workmate/,/^- id:/p'
 | 5 | 逐态推进到 `ready` | `POST $API/proposals/<id>/advance`；工具 `workmate_proposal_archive(mode=advance)` | 「推进到 X ›」/「‹ 回退到 Y」 |
 | 6 | `implementing`：校验每个 target 的基线分支并写实现待办（目录由 Super-agent 的 `prepare` 创建） | 同上 | 同上 |
 | 7 | `merging` / `archiving`：**需要人工批准** | **面板点按钮**（会问批准理由） | 「推进到 merging ›」→ 再「完成归档」 |
-| 8 | 归档编排：验收谓词 → 审查门 → `openspec archive` → `gitnexus analyze` → worktree 回收 → 写交付物摘要 | `POST $API/proposals/<id>/archive`；工具 `workmate_proposal_archive(mode=archive)` | 「完成归档」（审查门没过时用「强制归档（跳过审查门）」） |
+| 8 | 归档编排：验收谓词 → 审查门 → `openspec archive` → `gitnexus analyze` → worktree 回收 → 写交付物摘要 | `POST $API/proposals/<id>/archive`；工具 `workmate_proposal_archive(mode=archive)` | 「完成归档」（门禁没过时用「强制归档（跳过三道门）」） |
 
 第 7 步是最容易被忽略的一步：**agent 推不动 `merging`/`archiving`**（写码者不得批准），
 它会报错让你去面板点。这是设计如此，不是 bug。
@@ -649,14 +649,14 @@ curl -X POST $API/proposals/batch-grading-v2/wiki-links -H 'content-type: applic
 # ⑥ archiving → 运行归档编排（审查门 → openspec archive → gitnexus → 清理）
 curl -X POST $API/proposals/batch-grading-v2/advance -H 'content-type: application/json' -d '{}'
 curl -X POST $API/proposals/batch-grading-v2/archive -H 'content-type: application/json' -d '{}'
-#   审查门未过（缺 review.md 或有未解决 CRITICAL）时，可只跳过审查门重跑：
+#   门禁未过时，可跳过审查 / 任务 / 计划漂移三道门重跑（理由会写入审批记录）：
 curl -X POST $API/proposals/batch-grading-v2/archive -H 'content-type: application/json' -d '{"force":true}'
 #   归档后：changes/archive/<日期>-<id>/ 内含 wiki.md + commits.md；worktree 已回收
 ```
 
 面板操作与以上等价：卡片展开后「推进到 X ›」「‹ 回退到 Y」逐步流转（回退离开
 `archived` 时会把各项目 `changes/archive/*-<id>/` 搬回 `changes/<id>/`），
-「完成归档」与「强制归档（跳过审查门）」在 archiving 状态出现；卡片展开还可看
+「完成归档」与「强制归档（跳过三道门）」在 archiving 状态出现；卡片展开还可看
 Git 关联、worktree 信息、决策日志、卡点、审查报告与 Wiki 引用。
 
 > **人工批准门（默认开启）**：`merging` 与 `archiving` 只能由**人**进入——agent 调工具推进
