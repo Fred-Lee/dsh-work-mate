@@ -199,7 +199,7 @@ node $DSH --profile web --dump-config | sed -n '/id: workmate/,/^- id:/p'
 | 5 | 逐态推进到 `ready` | `POST $API/proposals/<id>/advance`；工具 `workmate_proposal_archive(mode=advance)` | 「推进到 X ›」/「‹ 回退到 Y」 |
 | 6 | `implementing`：校验每个 target 的基线分支并写实现待办（目录由 Super-agent 的 `prepare` 创建） | 同上 | 同上 |
 | 7 | `merging` / `archiving`：**需要人工批准** | **面板点按钮**（会问批准理由） | 「推进到 merging ›」→ 再「完成归档」 |
-| 8 | 归档编排：验收谓词 → 审查门 → `openspec archive` → `gitnexus analyze` → worktree 回收 → 写交付物摘要 | `POST $API/proposals/<id>/archive`；工具 `workmate_proposal_archive(mode=archive)` | 「完成归档」（门禁没过时用「强制归档（跳过三道门）」） |
+| 8 | 归档编排：验收谓词 → 审查门 → `openspec archive` → `gitnexus analyze` → worktree 回收 → 写交付物摘要 | `POST $API/proposals/<id>/archive`；工具 `workmate_proposal_archive(mode=archive)` | 「完成归档」（门禁没过时用「强制归档（跳过四道门）」） |
 
 第 7 步是最容易被忽略的一步：**agent 推不动 `merging`/`archiving`**（写码者不得批准），
 它会报错让你去面板点。这是设计如此，不是 bug。
@@ -597,6 +597,7 @@ pnpm dsh web                                            # 启动，默认 http:/
 | `allowAgentForceArchive` | `false` | `true` 时允许 **agent** 用 `force` 跳过归档门禁；默认只允许人（见 4.x 的强制归档） |
 | `reviewerIndependence` | `'warn'` | 审查者独立性：`off`/`warn`/`block`。`block` 下 review.md 的 reviewer 缺失或与 `[proposal:<id>]` 提交的 author 同一身份即拦归档；取不到 git 事实只 warn |
 | `reviewEvidenceGate` | `'warn'` | review.md 反引号引用机检：`off`/`warn`/`block`。`block` 下引用文件不存在即拦归档，行号越界只 warn |
+| `teamEvidenceGate` | `'block'` | 团队证据门：`off`/`warn`/`block`。变更目录里有 `TASKS.json` 的提案，归档前必须有任务证据工件（`TEST.md` / `TEAM-REVIEW.md`，判据见 §8.2）；`block` 下缺件即拦推进与归档 |
 | `decisionEnabled` | `false` | 判断层总开关（门禁里发起模型调用必须显式开启） |
 | `decisionProvider` | `'agent'` | 判断 provider：`agent`（宿主 LLM）/ `rules`（确定性兜底）/ `jev`（TypeSafe System One 客户端，baseUrl 可配：云 Jev 或本机 Ollama） |
 | `decisionLlmProvider` / `decisionModel` | `''` | `agent` 用的路由与模型；留空取第一个已注册路由的默认模型 |
@@ -655,14 +656,14 @@ curl -X POST $API/proposals/batch-grading-v2/wiki-links -H 'content-type: applic
 # ⑥ archiving → 运行归档编排（审查门 → openspec archive → gitnexus → 清理）
 curl -X POST $API/proposals/batch-grading-v2/advance -H 'content-type: application/json' -d '{}'
 curl -X POST $API/proposals/batch-grading-v2/archive -H 'content-type: application/json' -d '{}'
-#   门禁未过时，可跳过审查 / 任务 / 计划漂移三道门重跑（理由会写入审批记录）：
+#   门禁未过时，可跳过审查 / 任务 / 计划漂移 / 团队证据四道门重跑（理由会写入审批记录；进 archiving 的前置检查不受影响）：
 curl -X POST $API/proposals/batch-grading-v2/archive -H 'content-type: application/json' -d '{"force":true}'
 #   归档后：changes/archive/<日期>-<id>/ 内含 wiki.md + commits.md；worktree 已回收
 ```
 
 面板操作与以上等价：卡片展开后「推进到 X ›」「‹ 回退到 Y」逐步流转（回退离开
 `archived` 时会把各项目 `changes/archive/*-<id>/` 搬回 `changes/<id>/`），
-「完成归档」与「强制归档（跳过三道门）」在 archiving 状态出现；卡片展开还可看
+「完成归档」与「强制归档（跳过四道门）」在 archiving 状态出现；卡片展开还可看
 Git 关联、worktree 信息、决策日志、卡点、审查报告与 Wiki 引用。
 
 > **人工批准门（默认开启）**：`merging` 与 `archiving` 只能由**人**进入——agent 调工具推进
@@ -674,9 +675,10 @@ Git 关联、worktree 信息、决策日志、卡点、审查报告与 Wiki 引�
 > 当前 `planHash` 作为确认凭据——它本身就是方案工件的摘要，"我认可这一版"已由点按钮
 > 表达，再收一段自由文本没有增量信息。方案文件改动后 `planHash` 变化，确认自动失效。
 >
-> **强制归档同样是人的决定**：`force` 会跳过审查 / 任务 / 计划漂移三道门。agent 调
+> **强制归档同样是人的决定**：`force` 会跳过审查 / 任务 / 计划漂移 / 团队证据四道门
+> （进入 `archiving` 时的团队证据前置检查不受影响——推进没有 `force` 参数）。agent 调
 > `workmate_proposal_archive(force=true)` 会被拒（除非 `allowAgentForceArchive: true`）；
-> 人在面板点「强制归档（跳过审查门）」可以，且那次归档会留下一条 approval，
+> 人在面板点「强制归档（跳过四道门）」可以，且那次归档会留下一条 approval，
 > 用 `forcedGates` 记下跳过了哪些门——`workmate_proposal_status` 的 `forcedArchive`
 > 会把它显示出来。
 > 上面的 `curl` 示例走的是 REST（actor=human），因此不受影响；`advance` / `transition`
@@ -692,7 +694,7 @@ Git 关联、worktree 信息、决策日志、卡点、审查报告与 Wiki 引�
 | `proposing` | 提案文件存在 | 创建 `proposal/<id>` 分支并提交提案 | ✅ |
 | `reviewing` | 提案分支存在 | 评审（可跑 proposal-auditor）；完成后合并进 main | ✅ |
 | `ready` | 提案分支已合并 main | 确认实现计划 | ✅ |
-| `implementing` | （自动）worktree 已创建 | Agent 在 worktree 执行 tasks；更新 Wiki；落决策日志 | ✅ |
+| `implementing` | 每个 target 的基线分支存在（目录由 Super-agent 的 `prepare` 创建，不预建） | Agent 经 Super-agent 在 prepare 创建的目录执行 tasks；更新 Wiki；落决策日志 | ✅ |
 | `merging` | wiki 类型覆盖通过 | 实现分支合并进 main | ✅ |
 | `archiving` | 实现分支已合并 main | 生成 wiki.md/commits.md，运行归档编排 | ✅ |
 | `archived` | 编排全部通过 | 终态（可回退 archiving 重开，目录一并搬回） | ✅ |
@@ -893,7 +895,7 @@ Agent 会话中可直接调用（DSH 工具面注册，名字以 `workmate_` 前
 |---|---|
 | `workmate_proposal_create` | 创建提案，联动 OpenSpec 目录与规范资产同步；可带 `source`（spec/incident/review-finding/metric-regression/maintenance）、`sourceRef`、`relatesTo`、`notes`，并把「来源 / Provenance」段写进 `proposal.md` |
 | `workmate_proposal_status` | 详情聚合：Git 关联 / OpenSpec 进度 / 审查报告（按项目）+ 生命周期位置（prev/next） |
-| `workmate_proposal_archive` | 生命周期驱动：`mode=advance`（默认）/ `archive`（`force` 只跳过审查门）/ 任意状态名；`exec.signal` 中断会终止正在跑的 git / openspec / gitnexus 子进程 |
+| `workmate_proposal_archive` | 生命周期驱动：`mode=advance`（默认）/ `archive`（`force` 跳过审查/任务/计划漂移/团队证据四道门）/ 任意状态名；`exec.signal` 中断会终止正在跑的 git / openspec / gitnexus 子进程 |
 | `workmate_proposal_decide` | 落决策日志（推翻必须 `supersedes`，禁止静默改口） |
 | `workmate_proposal_block` | 卡点上报（卡两轮必须上报，附已尝试内容） |
 | `workmate_proposal_unblock` | 答复并解除卡点 |
@@ -903,6 +905,11 @@ Agent 会话中可直接调用（DSH 工具面注册，名字以 `workmate_` 前
 | `workmate_wiki_generate` | 为已索引项目生成 GitNexus wiki（`<项目>/.gitnexus/wiki/`）；`analyze` 先重建索引、`lang` 选语言、`stale` 如实报告索引新旧 |
 | `workmate_metrics` | 过程度量（由提案事件流现算）：各状态停留、周期时间、返工次数、门禁失败排行、吞吐、agent/人 归因；带 `id` 出单提案，缺省出全局 |
 | `workmate_bands` | 控制带评测：每提案一个样本 + rolling 基线（均值/σ）+ 1σ log / 2σ diagnose / 3σ propose；样本不足报 `insufficient-data` 不误报。默认只读，`apply:true` 时 3σ 会开一个 `metric-regression` 草稿提案 |
+| `workmate_proposal_abandon` | 有意废弃提案：直接进终态、不跑归档编排（无审查门 / openspec archive）；用于项目根已失联的孤儿提案或无人续做的变更；`reason` 必填并随 `actor=agent` 记入事件流 |
+| `workmate_plan_drift` | 计划漂移对比：声明（`tasks.md` 的 `<!-- writes: -->` / `design.md` 的 `<!-- files: -->`）vs `[proposal:<id>]` 提交实际触及的文件，出 `undeclared` / `missing`（声明未改）/ `excluded` 与 `driftRatio`；仅 `undeclared` 会在 `planDriftGate` 下拦归档，声明未改只出 warn 步骤；归档前跑还来得及补救 |
+| `workmate_assess_risk` | 风险分级（low/medium/high）：由声明范围 + `[proposal:<id>]` 提交触及文件 + spec 工件经判断层判定并写回 `Proposal.risk`；`risk: high` 时进 `highRiskExtraGates` 也必须人工批准（叠加不替换）；判断层关闭时不动 |
+| `workmate_wiki_export` | 把项目 wiki 导出成 Obsidian/Tolaria vault 笔记（`index.md` MOC / 每模块 / 每提案带 `depends_on`/`supersedes` front-matter / 追加式 `changelog.md`）；`projectRoot` 可省略（会话 cwd / 唯一已注册项目）；git 提交可选（`Config.wikiVaultGitCommit`）且失败不影响导出 |
+| `workmate_wiki_search` | 检索导出的 vault（Obsidian/Tolaria），返回带**文件:行号**的排序命中、可直接引用；默认词法（grep 式，可解释、与文件同步），`semantic:true` 走本地嵌入模型（`Config.wikiVaultEmbeddingModel`），`project` 限定单项目目录 |
 
 **会话纪律**改为经 DSH 原生面分发（不再依赖 Claude Code 的 rules/hook）：
 
@@ -940,7 +947,7 @@ rules/agent/hook 形式分发到目标项目，供在同一个仓库里跑 Claud
 | `POST /proposals/:id/reconcile` | 按证据自动推进（幂等；跨不过人工门） |
 | `POST /proposals/:id/abandon` | 终止 `{reason}`（必填；不跑归档编排，从视图隐藏） |
 | `POST /proposals/:id/unabandon` | **撤销终止**（恢复到终止前的状态） |
-| `POST /proposals/:id/archive` | 运行归档编排（仅 archiving 状态；`{force:true, rationale}` 跳过**审查/任务/计划漂移三道门**，理由写入审批记录） |
+| `POST /proposals/:id/archive` | 运行归档编排（仅 archiving 状态；`{force:true, rationale}` 跳过**审查/任务/计划漂移/团队证据四道门**，理由写入审批记录；进 archiving 的前置检查不受影响） |
 | `POST /proposals/:id/decisions` | 追加决策（supersedes 校验） |
 | `POST /proposals/:id/block` / `/:id/unblock` | 卡点上报 / 答复解除 |
 | `POST /proposals/:id/wiki-links` | 登记 WeKnora 页面引用 |
@@ -976,18 +983,35 @@ rules/agent/hook 形式分发到目标项目，供在同一个仓库里跑 Claud
 
 ### 8.2 归档门禁
 
-- **验收谓词**：归档编排第一步检查**所有**关联项目的 `tasks.md` 是否全部勾选；
+`archiving → archived` 的一次归档要过**四道门**：任务门（验收谓词）、审查门、
+计划漂移门、团队证据门。面板「强制归档」的 `force` 会同时跳过这四道
+（理由与被跳过的门写入审批记录；agent 调用默认被拒，见 `allowAgentForceArchive`），
+`openspec archive` 与 `gitnexus analyze` 两步照常执行。注意：**进入 `archiving`
+时的前置校验不受 `force` 影响**——团队证据门与「实现分支已合并」在推进那一步就查
+（推进没有 `force` 参数），`force` 只作用于归档执行本身。
+
+- **任务门（验收谓词）**：归档编排第一步检查**所有**关联项目的 `tasks.md` 是否全部勾选；
   任一项目有未完成项即失败并列出逐项目 `done/total`（`force` 可显式跳过）。
 - **交付物摘要**：归档成功后提案记录写入 `archiveManifest`（逐项目：标记提交、
   `git diff --stat`、spec 是否更新、GitNexus 是否重建），面板「已归档」卡片详情区
   渲染「📦 交付物」小节。
 - **审查门**：归档编排第二步检查每个关联项目的
   `openspec/changes/<id>/review.md`——缺失或存在未勾选的 CRITICAL 条目即失败
-  （step 列出原因，`force` 可只跳过这一道门）；报告由 skill `workmate-proposal-audit`
+  （step 列出原因，`force` 同样跳过它）；报告由 skill `workmate-proposal-audit`
   描述的规程生成
+- **计划漂移门**：`planDriftGate: true` 时，实际改了但没在 `tasks.md` / `design.md`
+  声明的文件拦归档（`force` 同样跳过）；默认只产出 warn 步骤不阻断（见 §5.8）
+- **团队证据门**（`teamEvidenceGate`，默认 `'block'`）：变更目录里有 `TASKS.json` 的
+  提案，归档前必须有任务证据工件——`TASKS.json` 承诺过 `integration-tester`/`tester`
+  角色（或没有角色字段）时要 `TEST.md`（段头：`## 场景` / `## 执行命令` /
+  `## 结果与证据` / `## 覆盖缺口`）；承诺过 `reviewer` 角色（或没有角色字段）时要
+  `TEAM-REVIEW.md`（段头：`## 确认项` / `## 疑问项` / `## 建议补充项` /
+  `## CRITICAL 问题`）。两份都不能还是 `<!-- 待填写 -->` 模板，TEAM-REVIEW.md
+  还要带 `<!-- reviewer: <id> -->` 标记；标记与 `[proposal:<id>]` 提交 author 同人时
+  按 `reviewerIndependence` 处理。`off`/`warn`/`block` 三档；进 `archiving` 与归档
+  执行入口各查一次，`force` 跳过的是归档执行入口那次（见上）。
 - **决策日志**：`supersedes` 链显式化推翻；审查时比对链一致性与 GitNexus 事实
 - **卡点上报**：open 卡点面板红色置顶，答复后归档留痕
-- **验收谓词**：归档编排校验 tasks.md 全部勾选（`force` 不跳过这一步）
 
 资产分发在创建提案时进行，已存在的文件**永不覆盖**，分两组：
 
@@ -1026,6 +1050,7 @@ rules/agent/hook 形式分发到目标项目，供在同一个仓库里跑 Claud
 | 提案卡在 ready 无法推进 | 提案未关联项目根 —— 用 `workmate_proposal_create` 以同一 id 带 `targets` 重跑补关联，或新建提案时勾项目 |
 | merging 报「Wiki 关联未完成」 | 按 step 列出的缺失类型登记 `workmate_wiki_link`，或确认任务不需要 wiki 后去掉声明 |
 | 归档报「审查报告缺失」 | 会话中运行 proposal-auditor 生成 review.md；勾掉全部 CRITICAL |
+| 推进/归档报「任务证据不完整」（缺 TEST.md / TEAM-REVIEW.md） | 变更目录里有 `TASKS.json` 就要补齐证据工件：段头齐全、非 `<!-- 待填写 -->` 模板，TEAM-REVIEW.md 带 `<!-- reviewer: ... -->` 标记且不与标记提交 author 同人（判据见 §8.2 团队证据门）；确认不要这道门时把 `teamEvidenceGate` 设为 `off`/`warn` |
 | 归档报「already archived in a previous run」 | 上次部分成功的幂等跳过，不是错误 |
 | worktree remove 被拒 | feature 分支未合并进 main；先合并或显式 force |
 | 面板按钮不可点 / 控制台报 slot 错误 | 检查 profile 内社区插件版本是否匹配宿主（过时插件会炸 client 初始化链） |

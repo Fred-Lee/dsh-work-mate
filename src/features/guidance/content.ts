@@ -93,7 +93,8 @@ export const PROPOSAL_FLOW_SKILL: RuntimeSkill = {
 \`openspec archive --yes\` → \`gitnexus analyze --force\` → worktree 回收。
 用 \`workmate_proposal_archive\`（mode=archive）触发；返回的 \`orchestration.steps\` 是事实，
 出现 failed 就按摘要修复后重试（幂等：已归档的项目记 skipped），**不要绕过编排手跑
-openspec archive**。\`force\` 只跳过审查门，其余步骤照跑——默认先补 review.md。
+openspec archive**。\`force\` 跳过审查 / 任务 / 计划漂移 / 团队证据四道门，CLI 步骤照跑——
+默认先补齐证据工件（review.md / 勾任务 / TEST.md、TEAM-REVIEW.md）再走正门。
 
 归档后发现问题：回退到 archiving（目录搬回）修正后再归档。
 
@@ -195,9 +196,10 @@ export const ARCHIVE_CHECKLIST_SKILL: RuntimeSkill = {
 
 ## force 是人的决定，不是 agent 的参数
 
-\`workmate_proposal_archive(force=true)\` 会跳过审查门 / 任务门 / 计划漂移门。
+\`workmate_proposal_archive(force=true)\` 会跳过审查门 / 任务门 / 计划漂移门 / 团队证据门
+（进 \`archiving\` 时的团队证据检查不受它影响——推进没有 force 参数）。
 **agent 调用会被拒**（错误信息给面板路径与 \`Config.allowAgentForceArchive\` 开关）。
-人不跳过时应在面板点「归档（跳过审查门）」；那次归档会留下一条 approval，
+人不跳过时应在面板点「强制归档（跳过四道门）」；那次归档会留下一条 approval，
 \`forcedGates\` 记下被跳过的门，\`workmate_proposal_status\` 返回 \`forcedArchive\`。
 被拒时不要改配置绕开——先问用户。
 
@@ -280,7 +282,7 @@ export const FLOW_SECTION_TEXT = [
   '每一步的硬前置按返回提示补齐；方向性选择必须 workmate_proposal_decide（推翻要带 supersedes），',
   '同一方向卡两轮必须 workmate_proposal_block；代码事实先经 workmate_knowledge_query 核实，不要凭记忆断言。',
   'merging / archiving 需要人工批准：被拒时请用户在面板点推进，不要尝试绕过。',
-  '归档时 force（跳过审查 / 任务 / 计划漂移门）是人工决策：agent 调用会被拒，',
+  '归档时 force（跳过审查 / 任务 / 计划漂移 / 团队证据四道门）是人工决策：agent 调用会被拒，',
   '被拒就请用户到面板归档，不要改配置绕过；人执行时会留下 approval（forcedGates）。',
   '完整规程见技能 workmate-proposal-flow，审查规程见 workmate-proposal-audit。',
   '项目 wiki 的生成 / 更新一律走 workmate_wiki_generate（或 POST /api/wiki），不要直接调 gitnexus wiki：',

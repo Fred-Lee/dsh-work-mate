@@ -279,6 +279,10 @@ Capabilities / Impact）、`design.md`、`tasks.md`，实现中在 `tasks.md` �
 完成后 `openspec archive`。**先提交 `docs(openspec): ...` 规划提交，再提交
 `feat(...)` 实现提交**。
 
+**文档与实现同步**：新增 / 删除注册工具时同步更新 README §6「Agent 工具参考」表
+（以 `src/index.ts` 里 `ctx.tools.register` 的 `name` / `description` 为准，
+`verify:built` 按同一工具面断言个数）；改动 REST 路由时同理同步 §7 表。
+
 提交信息用 conventional commits + 中文描述，**不要添加 AI 署名**：
 
 ```
