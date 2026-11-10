@@ -64,3 +64,6 @@ if (missing.length > 0) {
   process.exit(1)
 }
 console.log(`[built-tools] ok — name=${mod.name}, tools=${registered.length}, no team/swarm tools`)
+// apply() 的急切初始化会留下事件循环句柄（PipeWrap/Timeout，2026-11-11 实测 HEAD 与
+// 修复后的产物都如此）：门禁是一次性断言，必须显式退出，不能依赖循环排空。
+process.exit(0)
