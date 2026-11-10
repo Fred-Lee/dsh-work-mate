@@ -248,8 +248,11 @@ export function aggregateMetrics(
     ...(median(cycleTimes) !== undefined ? { cycleTimeMedianMs: median(cycleTimes) } : {}),
     archived7d,
     archived30d,
-    reworkRate: proposals.length === 0 ? 0 : reworked / proposals.length,
-    firstPassRate: proposals.length === 0 ? 0 : firstPassed / proposals.length,
+    // KPI 分母与分子同口径（activeProposals）：只算未终止的提案。
+    // 旧实现分母用全量 proposals——真终止的历史提案把返工率/首次通过率稀释
+    // 到与同屏「提案总数」对不上（真机 2026-11-11：2/19 vs 2/11）。
+    reworkRate: activeProposals.length === 0 ? 0 : reworked / activeProposals.length,
+    firstPassRate: activeProposals.length === 0 ? 0 : firstPassed / activeProposals.length,
     gateFailureRanking: [...gateCounts.entries()]
       .map(([gate, count]) => ({ gate, count }))
       .sort((a, b) => b.count - a.count || a.gate.localeCompare(b.gate)),

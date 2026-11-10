@@ -251,4 +251,28 @@ describe('aggregateMetrics', () => {
     expect(metrics.perProposal.map((row) => row.id)).toEqual(['live'])
     expect(metrics.perProposal.map((row) => row.abandoned)).toEqual([false])
   })
+
+  it('divides rework/first-pass KPI by active proposals only (#13)', () => {
+    // 分子只算活跃提案，分母曾用全量——真终止的历史提案把比率稀释到
+    // 与同屏「提案总数」对不上（真机 2026-11-11：2/19 vs 2/11）。
+    // 返工判据是回退迁移（to 的状态序 < from）；firstPass 是到 merging 且无回退。
+    const metrics = aggregateMetrics(
+      [
+        proposal({ id: 'rework', status: 'implementing', createdAt: '2026-10-03T00:00:00.000Z' }),
+        proposal({ id: 'clean', status: 'merging', createdAt: '2026-10-03T00:00:00.000Z' }),
+        proposal({ id: 'dead-1', status: 'archived', abandonedAt: '2026-10-04T00:00:00.000Z', createdAt: '2026-10-03T00:00:00.000Z' }),
+        proposal({ id: 'dead-2', status: 'archived', abandonedAt: '2026-10-04T00:00:00.000Z', createdAt: '2026-10-03T00:00:00.000Z' }),
+      ],
+      [
+        { proposalId: 'rework', kind: 'transition', from: 'merging', to: 'implementing', actor: 'human', at: '2026-10-03T06:00:00.000Z' },
+        { proposalId: 'clean', kind: 'transition', from: 'implementing', to: 'merging', actor: 'human', at: '2026-10-03T06:00:00.000Z' },
+      ],
+      { now },
+    )
+
+    expect(metrics.proposals).toBe(2)
+    // 分母是 2（活跃），不是 4（全量）。
+    expect(metrics.reworkRate).toBeCloseTo(1 / 2)
+    expect(metrics.firstPassRate).toBeCloseTo(1 / 2)
+  })
 })
