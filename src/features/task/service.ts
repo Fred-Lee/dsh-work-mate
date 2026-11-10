@@ -191,7 +191,16 @@ export class TaskServiceImpl {
     // D2：互斥只包文件标记段；执行器代理（网络）留在锁外，避免慢网拖住后续写入。
     const marked = await this.serialize(() => this.stopMarkLocked(taskId))
     const tickets = await this.deps.superagent.tickets()
-    const ticket = tickets.tickets.find((entry) => entry.title === marked.task.title && entry.ended === undefined)
+    // 按送达记录里的 taskId→ticketId 绑定找，标题只作兜底：执行器派生的 Ticket
+    // 标题与任务标题可能截断不一致，只按标题匹配会「停止失败但看不出来」（真机 2026-11-10）。
+    const boundIds = await ticketIdsFromResults(this.deps.store.paths.results).catch(
+      () => ({}) as Record<string, string>,
+    )
+    const boundId = boundIds[marked.task.id]
+    const byId = boundId === undefined ? undefined : tickets.tickets.find((entry) => entry.id === boundId)
+    const ticket = byId !== undefined && byId.ended === undefined
+      ? byId
+      : tickets.tickets.find((entry) => entry.title === marked.task.title && entry.ended === undefined)
     if (ticket === undefined) return { task: marked.task }
     // 多端点时按 Ticket 来源端点路由（单端点客户端忽略第三个参数）。
     const result = await this.deps.superagent.action(ticket.id, 'stop', ticket.endpoint)

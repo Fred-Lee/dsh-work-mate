@@ -93,7 +93,7 @@ describe('lifecycle transitions (headless)', () => {
       expect(result.proposal.status).toBe(expected)
     }
     // worktree creation requires a project root — the transition must block
-    await expect(lifecycle.advance('p1')).rejects.toThrow('无法创建 worktree')
+    await expect(lifecycle.advance('p1')).rejects.toThrow('没有关联任何项目根')
     expect((await proposals.get('p1'))?.status).toBe('ready')
   })
 

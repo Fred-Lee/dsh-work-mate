@@ -125,7 +125,7 @@ describe('approval gate (separation of duties)', () => {
     // Not high risk yet: the configured list is empty, so the agent may advance.
     await proposals.setStatus('p1', 'ready', { actor: 'agent' })
     await expect(lifecycle.transition('p1', 'implementing', { actor: 'agent' })).rejects.toThrow(
-      /无关联项目根|no resolvable project|project root/i,
+      /没有关联任何项目根|无关联项目根|no resolvable project|project root/i,
     )
 
     const stored = await store.load()
@@ -224,7 +224,7 @@ describe('unassessed risk must not bypass the risk gate (risk-gate-bypass)', () 
     // No risk concept without the judgement layer: the configured gate list is empty,
     // so the only possible failure is the unrelated project-root check.
     await expect(lifecycle.transition('p1', 'implementing', { actor: 'agent' })).rejects.toThrow(
-      /无关联项目根|no resolvable project|project root/i,
+      /没有关联任何项目根|无关联项目根|no resolvable project|project root/i,
     )
   })
 })

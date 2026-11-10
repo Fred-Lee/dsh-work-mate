@@ -207,7 +207,7 @@ describe('proposal REST API', () => {
     expect((detail.body as { proposal: { status: string } }).proposal.status).toBe('ready')
     const blocked = await call('POST', '/api/proposals/p2/advance', {})
     expect(blocked.status).toBe(400)
-    expect((blocked.body as { error: string }).error).toContain('无法创建 worktree')
+    expect((blocked.body as { error: string }).error).toContain('没有关联任何项目根')
   })
 })
 

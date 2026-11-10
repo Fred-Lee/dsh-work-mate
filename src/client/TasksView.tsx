@@ -505,7 +505,23 @@ function Drawer(props: {
                   <Btn size="sm" type="button" disabled={busy} onClick={() => void props.onRun(() => retryTask(card.task.id))}>
                     重试
                   </Btn>
-                  <Btn size="sm" type="button" disabled={busy} onClick={() => void props.onRun(() => stopTask(card.task.id))}>
+                  <Btn
+                    size="sm"
+                    type="button"
+                    disabled={busy}
+                    title="本地标记放弃（Source 不再投递）；若执行器里有对应 Ticket 会一并请求停止"
+                    onClick={() =>
+                      void props.onRun(async () => {
+                        const result = await stopTask(card.task.id)
+                        // 本地已标记，但执行器那边可能没停成功（Ticket 找不到或 stop 被拒）。
+                        // 不说清就会让人以为 worker 已经停了（真机 2026-11-10）。
+                        if (result.stopped === undefined) {
+                          throw new Error('本地已标记为放弃，但执行器里没有找到可停止的 Ticket（worker 可能仍在运行）；请到 Super-agent 面板确认')
+                        }
+                        return result
+                      })
+                    }
+                  >
                     停止
                   </Btn>
                 </div>

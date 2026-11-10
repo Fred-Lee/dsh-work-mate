@@ -11,8 +11,9 @@ draft → proposing → reviewing → ready → implementing → merging → arc
 
 - **状态机不跳步**：每一步前进都有硬前置（提案文件、分支合并、Wiki 覆盖），
   相邻回退全程可逆
-- **环境自动隔离**：ready→implementing 自动创建 worktree——串行锁保护、端口段
-  自动分配注入 `.env`、配置文件复制、依赖安装；归档后自动回收
+- **环境隔离**：ready→implementing 只校验每个 target 的基线分支并分配端口段，
+  目录交给 Super-agent 的 `executor.prepare` 在 `<repo>/.workmates/` 下创建
+  （端口注入 / 配置复制 / 依赖安装都在 prepare 里）；归档后由 WorkMate 回收
 - **质量门**：归档前强制交叉审查报告（proposal-auditor），未解决 CRITICAL 阻断
 - **知识沉淀**：WeKnora Wiki 引用随提案登记并归档留痕；GitNexus 提供事实锚
 - **寄生而非替代**：UI 优先走 DSH 原生工作台槽位——`main` 中央面板（key `workmate`）
@@ -116,7 +117,7 @@ dsh --profile web --dump-config | grep -c workmate                              
 ### 0.1 先确认三件事（30 秒）
 
 ```bash
-DSH=/Users/fredlee/Documents/workspace/deepseek-harness/apps/cli/lib/bin.js
+# 用全局安装的 dsh（`dsh --version` 应 >= 0.2.2-rc.1）
 
 # ① 插件在 profile 里（应看到 `# == workmate4dsh` 与 `id: workmate`）
 node $DSH --profile web --dump-config | grep -A 2 workmate
@@ -140,14 +141,18 @@ node $DSH --profile web --dump-config | sed -n '/id: workmate/,/^- id:/p'
 | **独立页** | `http://127.0.0.1:3080/workmate/`，可加 `?view=console` / `?view=graph` | 调试、深链、截图 |
 | **斜杠命令** | 对话输入框输入 `/workmate …`（见下） | **确定性**：直接执行，不经过模型选工具 |
 
-进入后顶部有三个视图切换：**看板 / 控制台 / 知识图谱**，右侧是「＋ 新提案」。
+进入后顶部有五个视图切换：**任务 / 看板 / 列表 / 控制台 / 知识图谱**，默认落在「任务」，
+右侧是「＋ 新提案」。
 
 ### 0.3 第 2 步：看板视图 —— 提案都在哪
 
 ![WorkMate 看板视图](docs/images/workmate-standalone-board.png)
 
-- 三列按阶段聚合：**提案阶段**（draft / proposing / reviewing）、**实现与合并**（ready /
-  implementing / merging / archiving）、**已归档**（archived）；每列标题带数量。
+- 五列按「人真正要动作的五件事」聚合（不是通用 kanban）：
+  **方案**（draft / proposing）→ **待确认**（reviewing，G2 等你确认 planHash）→
+  **执行中**（ready / implementing）→ **待合并**（merging / archiving，G5 等你放行）→
+  **已归档**（archived，默认折叠）。每列标题带数量，悬停有说明。
+  对照表见 §3 之后的「看板五列与八态的对照」。
 - 每张卡片显示：标题、id、OpenSpec tasks 进度条、状态、最近更新；有未决人工批准时会出现
   「⏳ 等待人工批准」徽标。
 - **点卡片**展开详情区（下面 0.6 会细说）：Git 关联 / worktree / 审查报告 / 决策日志 /
@@ -273,11 +278,11 @@ for line in sys.stdin:
 产物（实测）：47 页 + index.html
 耗时：1.2s｜索引重建：否
 阅读器：…/.gitnexus/wiki/index.html
-命令结束（无实时进度；需要边跑边看输出请在终端用 wkwiki）
+命令结束（无实时进度；要看过程请跟踪宿主日志）
 ```
 即：**"已是最新"是成功而不是失败**；`staleArtifacts: true` 才表示本次没产出、
 磁盘上是上一次的产物。斜杠命令是"跑完一次性给结果"，**没有实时进度**——
-要看逐模块生成过程，用终端的 `wkwiki <路径>`。
+要看逐模块生成过程，跟踪宿主日志里的 gitnexus 输出。
 
 > 工具 `workmate_wiki_generate` 的 `projectRoot` 同样**可以省略**：会用会话工作目录，
 > 若会话没有工作目录则回退到"唯一已注册项目"。
@@ -286,7 +291,7 @@ for line in sys.stdin:
 > 为什么需要它：在对话里说"整理一下 X 的 wiki"时，**选哪个工具由模型决定**，它可能绕开
 > WorkMate 的工具直接跑 `gitnexus wiki`（那样代理没起、key 没注入）。`/workmate` 走宿主
 > 的命令面（`@deepseek-ai/dsh-commands`），**不经过模型**，所以是确定性的。
-> 该命令需要重启 harness 后生效；CLI/REST 路径（`wkwiki`、`POST /api/wiki`）不受影响。
+> 该命令需要重启 harness 后生效；`POST /api/wiki` 路径不受影响。
 
 #### 什么时候用哪个（graph 查询 vs vault 检索）
 
@@ -425,7 +430,7 @@ Ticket**，由 Super-agent 按 `maxWorkers` 并发执行：
 ```bash
 # 1) 在 tasks.md 里把能并行的部分拆成独立条目，各自声明写域
 #    - [ ] 2. 拆分计费模块 <!-- writes: src/billing/**, docs/billing.md -->
-# 2) 在面板（或 workmate_task_create）为每个可并行条目建一条待办，指向同一提案与仓库
+# 2) 在面板点「＋ 新建待办」（或 POST /api/tasks）为每个可并行条目建一条待办，指向同一提案与仓库
 # 3) Super-agent 扫描成 Trigger → Ticket → worker；并发度由 Super-agent 的 maxWorkers 决定
 # 4) 每条 Ticket 在自己的 worktree（.workmates/workmate-<ticket>）与分支上工作并提交
 ```
@@ -459,7 +464,7 @@ Ticket**，由 Super-agent 按 `maxWorkers` 并发执行：
 
 | 组件 | 版本 | 必需 | 说明 |
 |---|---|---|---|
-| DSH 宿主 | `0.1.7-rc.2`（已验证线） | ✅ | 其它版本未验证，升级需重跑冒烟 |
+| DSH 宿主 | `0.2.2-rc.1`（已验证线） | ✅ | 其它版本未验证，升级需重跑冒烟 |
 | Node.js | `>= 22.19` 或 `>= 24` | ✅ | 宿主与构建同要求 |
 | pnpm | `>= 10` | ✅ | 仓库与 worktree 安装均使用 |
 | git | 任意近期版本 | ✅ | worktree / 分支合并检查 |
@@ -636,9 +641,10 @@ curl -X POST $API/proposals -H 'content-type: application/json' \
 # ③ 推进状态（每步校验前置条件；任何一步失败都会给出可读原因）
 curl -X POST $API/proposals/batch-grading-v2/advance -H 'content-type: application/json' -d '{}'
 #   draft → proposing：要求 openspec/changes/<id>/proposal.md 已生成
-#   proposing → reviewing：要求 proposal/<id> 分支存在
-#   reviewing → ready：要求该分支已合并进 main
-#   ready → implementing：自动创建 worktree（端口注入 / 配置复制 / 依赖安装）
+#   proposing → reviewing：要求方案工件齐备（proposal/design/tasks/specs）且 openspec validate 通过
+#   reviewing → ready：**需要人在面板确认 planHash**（G2；方案改动会使其失效）
+#   ready → implementing：校验每个 target 的基线分支存在，写实现待办并分配端口段
+#                          （目录由 Super-agent 的 prepare 创建，插件不预建）
 
 # ④ Agent 在 worktree 内执行 tasks.md（实现 + Wiki 更新）
 
@@ -1008,7 +1014,7 @@ rules/agent/hook 形式分发到目标项目，供在同一个仓库里跑 Claud
 | 现象 | 处置 |
 |---|---|
 | 启动日志无 `[workmate]` | 检查 profile bundles 是否含 `workmate4dsh`、`pnpm install` 是否跑过 |
-| 提案卡在 ready 无法推进 | 未关联项目（implementing 需要 worktree）——面板关联项目 |
+| 提案卡在 ready 无法推进 | 提案未关联项目根 —— 用 `workmate_proposal_create` 以同一 id 带 `targets` 重跑补关联，或新建提案时勾项目 |
 | merging 报「Wiki 关联未完成」 | 按 step 列出的缺失类型登记 `workmate_wiki_link`，或确认任务不需要 wiki 后去掉声明 |
 | 归档报「审查报告缺失」 | 会话中运行 proposal-auditor 生成 review.md；勾掉全部 CRITICAL |
 | 归档报「already archived in a previous run」 | 上次部分成功的幂等跳过，不是错误 |

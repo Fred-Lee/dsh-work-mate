@@ -495,7 +495,14 @@ export class LifecycleServiceImpl {
         targets = roots.map((entry) => ({ project: entry.project, baseBranch: this.mainBranch }))
       }
       if (targets.length === 0) {
-        throw new InvalidTransitionError('无关联项目根 — 无法创建 worktree；先在面板关联项目')
+        // 面板没有「给已有提案补关联项目」的入口（只有创建弹窗能勾），
+        // 所以别让文案把人指向一个不存在的按钮（真机 2026-11-10）。
+        // 可行路径是用 workmate_proposal_create 带 targets 重跑一次（按 id upsert）。
+        throw new InvalidTransitionError(
+          '提案没有关联任何项目根 — 无法校验基线分支。' +
+            '补关联请用 workmate_proposal_create 以同一个 id 带 targets（project + baseBranch）重跑，' +
+            '或在面板新建提案时勾选项目',
+        )
       }
       const rootByProject = new Map(roots.map((entry) => [entry.project, entry.root]))
       const missing = targets.filter((target) => !rootByProject.has(target.project)).map((target) => target.project)
@@ -548,7 +555,12 @@ export class LifecycleServiceImpl {
   async planFingerprint(id: string): Promise<PlanFingerprint> {
     const proposal = await this.mustGet(id)
     const root = await this.primaryRoot(proposal)
-    if (root === undefined) throw new InvalidTransitionError('无关联项目根 — 无法计算 planHash')
+    if (root === undefined) {
+      throw new InvalidTransitionError(
+        '提案没有关联任何项目根 — 无法计算 planHash。' +
+          '请用 workmate_proposal_create 以同一个 id 带 targets 重跑以补关联',
+      )
+    }
     return computePlanFingerprint(root, this.openspecRoot, proposal.openspecChangeId, proposal.targets)
   }
 
