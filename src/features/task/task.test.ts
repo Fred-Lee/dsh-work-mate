@@ -194,14 +194,15 @@ describe('TaskServiceImpl.assign / stop / reopen', () => {
     expect(called).toEqual([{ ticketId: 'tkt-1', action: 'stop' }])
   })
 
-  it('reopen 清放弃但不递增 attempt', async () => {
+  it('reopen 清放弃并递增 attempt（重投拿到全新 Trigger id，不再被判重）', async () => {
     const { client } = fakeClient()
     const svc = service(client)
     const created = await svc.create({ intent: '做', repo: 'r', mode: 'superagent' })
     await svc.stop(created.id)
     const reopened = await svc.reopen(created.id)
     expect(reopened.abandoned).toBe(false)
-    expect(reopened.attempt).toBe(created.attempt)
+    expect(reopened.assigned).toBe(true)
+    expect(reopened.attempt).toBe(created.attempt + 1)
   })
 
   it('不存在的任务报可读错误', async () => {

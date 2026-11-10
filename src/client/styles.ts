@@ -553,5 +553,6 @@ export const PANEL_STYLE = `
 .wm-tasks-leftover { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 0.5px solid var(--wm-border-soft); border-radius: 10px; background: var(--wm-surface); }
 .wm-tasks-leftover-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 11px; }
 .wm-tasks-leftover-row code { font-size: 10px; }
+.wm-tasks-leftover-reason { color: var(--dsw-alias-state-error-primary, #ef4444); flex-basis: 100%; }
 .wm-section-title { font-size: 12px; font-weight: 600; margin-bottom: 6px; }
 `

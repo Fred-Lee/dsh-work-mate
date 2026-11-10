@@ -40,6 +40,7 @@ import { generateChangeDir, readChangeState, validateProjectRoot } from './featu
 import { readProposalFile } from './features/archive/service.ts'
 import { listProposalCommits } from './features/proposal/git.ts'
 import type { TaskServiceImpl } from './features/task/service.ts'
+import { projectOfRepo } from './features/task/project-targets.ts'
 
 /** Explicit per-call root wins, then the config default, else disabled. */
 function resolveRoot(deps: ApiDeps, explicit?: string): string {
@@ -229,10 +230,12 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
       const created = await createProposal(deps, {
         id: task.id,
         title: intent.split('\n')[0]?.slice(0, 120) ?? intent.slice(0, 120),
-        projects: repo === '' ? [] : [repo],
+        // `repo` 是绝对路径而提案的 `projects` 存注册项目名；直接写路径会让
+        // ready→implementing 报「项目根未注册」（真机 2026-11-10）。归一后再写。
+        projects: repo === '' ? [] : [await projectOfRepo(deps.registry, repo)],
         source: 'spec',
       })
-      return { task, proposal: created.proposal }
+      return { task, proposal: created.proposal, ...(created.note !== undefined ? { note: created.note } : {}) }
     }
     return { task }
   })
@@ -336,7 +339,7 @@ export function registerApiRoutes(router: Router, deps: ApiDeps): void {
   })
 
   router.post('/api/proposals/:id/archive', async (r) => {
-    // `force` **跳过三道门**（审查门 / 任务门 / 计划漂移门），不只是审查门——
+    // `force` **跳过四道门**（审查门 / 任务门 / 计划漂移门 / 团队证据门），不只是审查门——
     // 旧注释与面板文案都写「只跳过审查门」，与实际行为不符（实测 2026-11-10）。
     // openspec + gitnexus 步骤与 archiving 前置仍然生效。
     // `rationale` 必须解析并落库：面板强制填写的理由曾被这里丢弃。
@@ -803,9 +806,12 @@ export async function buildGraphData(
   projectRoot: string | undefined,
   options: { includeArchived?: boolean } = {},
 ): Promise<GraphPayload> {
+  // 只把 abandon 的落盘形态（status=archived + abandonedAt）当「已终止」过滤掉；
+  // abandonedAt 残留但已回到活跃状态的提案照常进图谱（真机 2026-11-11）。
   const proposals = (await deps.proposals.list()).filter(
     (proposal) =>
-      proposal.abandonedAt === undefined && (options.includeArchived === true || proposal.status !== 'archived'),
+      (proposal.abandonedAt === undefined || proposal.status !== 'archived') &&
+      (options.includeArchived === true || proposal.status !== 'archived'),
   )
   const nodes: GraphPayload['nodes'] = []
   const edges: GraphPayload['edges'] = []

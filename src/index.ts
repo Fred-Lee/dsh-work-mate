@@ -68,6 +68,7 @@ import { mountWorkmateApi, createProposal, type WebServerLike } from './api.ts'
 import { registerGuidance } from './features/guidance/index.ts'
 import { TaskFileStore } from './features/task/files.ts'
 import { TaskServiceImpl } from './features/task/service.ts'
+import { projectOfRepo } from './features/task/project-targets.ts'
 import { SuperagentPool } from './features/superagent/client.ts'
 export const name = 'workmate'
 /**
@@ -252,7 +253,14 @@ export function apply(ctx: Context, config: Config = {}): void {
   const resolveRoots = async (proposal: Proposal): Promise<OrchestrationTarget[]> => {
     const targets: OrchestrationTarget[] = []
     for (const name of proposal.projects) {
-      const registered = await registry.get(name)
+      let registered = await registry.get(name)
+      // 历史提案可能把 repo 绝对路径当项目名写进 `projects`（真机 2026-11-10）。
+      // 按 name miss 且名字含路径分隔符时，借 projectOfRepo 归一（注册表按 root
+      // 反查 → 末段）再查一次；命中仍以原名入表，让调用方能按 projects 原样匹配。
+      if (registered === undefined && (name.includes('/') || name.includes('\\'))) {
+        const normalized = await projectOfRepo(registry, name)
+        if (normalized !== name) registered = await registry.get(normalized)
+      }
       if (registered !== undefined) targets.push({ project: name, root: registered.root })
     }
     return targets

@@ -306,7 +306,17 @@ export function listLeftoverWorktrees(): Promise<{ entries: Array<{ taskId: stri
   return request('/workmate/api/worktrees/leftover')
 }
 
-export function reclaimWorktree(taskId: string, options: { force?: boolean } = {}): Promise<unknown> {
+/** 回收结果（服务端 `ReclaimOutcome` 的投影）：拒绝时 `removed: false` 且带 `reason`。 */
+export interface ReclaimOutcomeView {
+  taskId: string
+  repo: string
+  directory: string
+  removed: boolean
+  reason?: string
+  portsReleased?: boolean
+}
+
+export function reclaimWorktree(taskId: string, options: { force?: boolean } = {}): Promise<ReclaimOutcomeView> {
   return request('/workmate/api/worktrees/reclaim', {
     method: 'POST',
     body: JSON.stringify({ taskId, ...(options.force === true ? { force: true } : {}) }),

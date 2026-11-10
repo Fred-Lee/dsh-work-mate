@@ -184,7 +184,9 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
       .then((response) => {
         if (!alive) return
         setBranches(response.branches)
-        setSelectedBranch(response.branches.default ?? response.branches.current)
+        // 选项目只刷新分支清单，不替用户做过滤决定：自动锁 default 分支曾把 19 条提案
+        // 静默滤成 2 条（用户从未选过分支，也无出口撤销）；分支过滤只由用户主动选。
+        setSelectedBranch('')
       })
       .catch(() => {
         if (!alive) return
@@ -284,7 +286,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           ...prev,
           [id]:
             action === 'archive'
-              ? `✅ 归档完成${forced ? '（force：已跳过审查 / 任务 / 计划漂移三道门）' : ''}`
+              ? `✅ 归档完成${forced ? '（force：已跳过审查 / 任务 / 计划漂移 / 团队证据四道门）' : ''}`
               : action === 'abandon'
                 ? `🛑 已终止（记录原因，未跑归档编排；勾「显示已归档」可撤销）`
                 : action === 'unabandon'
@@ -325,8 +327,9 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const visibleProposals = useMemo(() => {
     const query = search.trim().toLowerCase()
     return proposals.filter((proposal) => {
-      // 已终止默认不显示（与已归档一致），勾「显示已终止」时才出现以便撤销。
-      if (proposal.abandonedAt !== undefined && !showArchived) return false
+      // 已终止（abandon 落盘形态：status=archived + abandonedAt）默认不显示，勾「显示已归档」才出现以便撤销；
+      // 只认这个组合——历史 abandon 残留的 abandonedAt 不把已回到活跃状态的提案连坐隐藏（真机 2026-11-11）。
+      if (proposal.abandonedAt !== undefined && proposal.status === 'archived' && !showArchived) return false
       if (selectedProject !== '' && !proposal.projects.includes(selectedProject)) return false
       // 分支下拉曾经只改自己的 value、没有任何过滤逻辑读它（真机 2026-11-10）。
       // 现在真正过滤：按 target 的基线/实现分支匹配。
@@ -430,6 +433,8 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
           <label className="wm-context-field">
             <span>分支</span>
             <select value={selectedBranch} onChange={(event) => setSelectedBranch(event.target.value)}>
+              {/* 空值 = 不过滤，与「全部项目」对称，也是撤销分支过滤的出口 */}
+              <option value="">全部分支</option>
               {(branches?.local ?? []).map((branch) => (
                 <option key={branch} value={branch}>
                   {branch}
@@ -892,10 +897,10 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                                       className="wm-btn mini"
                                       type="button"
                                       disabled={busy}
-                                      title="跳过三道门：审查门（缺 review.md / 有未解决 CRITICAL）、任务门（tasks.md 有未勾选项）、计划漂移门；openspec archive 与 gitnexus 照常执行。会记录理由与跳过的门"
+                                      title="跳过四道门：审查门（缺 review.md / 有未解决 CRITICAL）、任务门（tasks.md 有未勾选项）、计划漂移门、团队证据门（有 TASKS.json 但缺 TEST.md / TEAM-REVIEW.md）；openspec archive 与 gitnexus 照常执行。会记录理由与跳过的门"
                                       onClick={() => void act(proposal.id, 'archive', undefined, true)}
                                     >
-                                      {pending === `${proposal.id}:archive` ? '归档中…' : '强制归档（跳过三道门）'}
+                                      {pending === `${proposal.id}:archive` ? '归档中…' : '强制归档（跳过四道门）'}
                                     </button>
                                   </div>
                                 )}
@@ -1700,7 +1705,15 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
     void listProposals()
       .then(({ proposals }) => {
         if (alive) {
-          setAbandonedIds(new Set(proposals.filter((proposal) => proposal.abandonedAt !== undefined).map((proposal) => proposal.id)))
+          // 与 metrics 的「已终止」判据一致（abandon 落盘形态 status=archived + abandonedAt），
+          // 残留字段不把已回到活跃状态的提案从控制台连坐掉（真机 2026-11-11）。
+          setAbandonedIds(
+            new Set(
+              proposals
+                .filter((proposal) => proposal.abandonedAt !== undefined && proposal.status === 'archived')
+                .map((proposal) => proposal.id),
+            ),
+          )
         }
       })
       .catch(() => undefined)

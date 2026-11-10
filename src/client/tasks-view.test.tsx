@@ -113,21 +113,86 @@ describe('四列与状态', () => {
     expect(await screen.findByText('测试依赖是否允许升级？')).toBeTruthy()
   })
 
-  it('显示遗留目录并可回收', async () => {
+  it('显示遗留目录并回收：首次回收不带 force（走服务端 isMergedInto 保护）', async () => {
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'
       if (url === '/workmate/api/tasks' && method === 'GET') return ok(board([]))
       if (url === '/workmate/api/worktrees/leftover') {
         return ok({ entries: [{ taskId: 'task-1', repo: 'repo', directory: 'workmate/workmate-x' }] })
       }
+      if (url === '/workmate/api/worktrees/reclaim' && method === 'POST') {
+        return ok({ taskId: 'task-1', repo: 'repo', directory: 'workmate/workmate-x', removed: true, portsReleased: false })
+      }
       return ok({})
     })
     render(<TasksView onError={() => undefined} />)
     expect(await screen.findByText('workmate/workmate-x')).toBeTruthy()
     fireEvent.click(screen.getByText('回收'))
-    await waitFor(() =>
-      expect(fetchMock.mock.calls.some(([url]) => url === '/workmate/api/worktrees/reclaim')).toBe(true),
-    )
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url]) => url === '/workmate/api/worktrees/reclaim')
+      expect(call).toBeDefined()
+      expect(String((call?.[1] as RequestInit).body)).toBe('{"taskId":"task-1"}')
+    })
+    // 回收成功：不出现「强制回收」。
+    expect(screen.queryByText('强制回收')).toBeNull()
+  })
+
+  it('未合并被拒：条目行展示服务端 reason 并出现「强制回收」', async () => {
+    const reason = '分支 workmate/workmate-x 尚未合并进 main — 确认后再回收'
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url === '/workmate/api/tasks' && method === 'GET') return ok(board([]))
+      if (url === '/workmate/api/worktrees/leftover') {
+        return ok({ entries: [{ taskId: 'task-1', repo: 'repo', directory: 'workmate/workmate-x' }] })
+      }
+      if (url === '/workmate/api/worktrees/reclaim' && method === 'POST') {
+        // 未合并：服务端拒绝并给原因（reclaim.ts 的 isMergedInto 保护）。
+        return ok({ taskId: 'task-1', repo: 'repo', directory: 'workmate/workmate-x', removed: false, reason })
+      }
+      return ok({})
+    })
+    render(<TasksView onError={() => undefined} />)
+    expect(await screen.findByText('workmate/workmate-x')).toBeTruthy()
+    fireEvent.click(screen.getByText('回收'))
+    const note = await screen.findByRole('note')
+    expect(note.textContent).toContain('尚未合并进 main')
+    expect(screen.getByText('强制回收')).toBeTruthy()
+    // 底部文案与实际行为一致。
+    expect(screen.getByText('回收删除 worktree 与分支；未合并的分支会被拒绝，确认放弃后可强制回收。')).toBeTruthy()
+  })
+
+  it('强制回收必须先 window.confirm：取消不发请求，确认才带 force', async () => {
+    const reason = '分支 workmate/workmate-x 尚未合并进 main — 确认后再回收'
+    const reclaimBodies: string[] = []
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      if (url === '/workmate/api/tasks' && method === 'GET') return ok(board([]))
+      if (url === '/workmate/api/worktrees/leftover') {
+        return ok({ entries: [{ taskId: 'task-1', repo: 'repo', directory: 'workmate/workmate-x' }] })
+      }
+      if (url === '/workmate/api/worktrees/reclaim' && method === 'POST') {
+        reclaimBodies.push(String((init as RequestInit).body))
+        return ok({ taskId: 'task-1', repo: 'repo', directory: 'workmate/workmate-x', removed: false, reason })
+      }
+      return ok({})
+    })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<TasksView onError={() => undefined} />)
+    expect(await screen.findByText('workmate/workmate-x')).toBeTruthy()
+    fireEvent.click(screen.getByText('回收'))
+    const forceBtn = (await screen.findByText('强制回收')) as HTMLButtonElement
+    // 等第一次回收的 busy 结束再点，避免 disabled 吞掉事件。
+    await waitFor(() => expect(forceBtn.disabled).toBe(false))
+    fireEvent.click(forceBtn)
+    // confirm 取消：只有首次那次不带 force 的请求。
+    expect(reclaimBodies).toHaveLength(1)
+    expect(reclaimBodies[0]).toBe('{"taskId":"task-1"}')
+    expect(confirm).toHaveBeenCalledWith('未合并的分支与未提交修改将一并删除。确定强制回收？')
+
+    confirm.mockReturnValue(true)
+    fireEvent.click(forceBtn)
+    await waitFor(() => expect(reclaimBodies).toHaveLength(2))
+    expect(JSON.parse(reclaimBodies[1] ?? '')).toEqual({ taskId: 'task-1', force: true })
   })
 })
 

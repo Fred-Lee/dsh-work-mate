@@ -183,6 +183,39 @@ describe('proposal REST API', () => {
     expect((created.body as { proposal: { id: string } }).proposal.id).toMatch(/^proposal-/)
   })
 
+  it('keeps a stale-abandonedAt proposal in the graph and still excludes the abandoned shape', async () => {
+    // abandon 的落盘形态是 status=archived + abandonedAt；只有这个组合算「已终止」。
+    // 残留 abandonedAt 但已回到 merging 的提案不得从图谱连坐掉（真机 2026-11-11）。
+    const at = '2026-10-04T00:00:00.000Z'
+    await store.save([
+      {
+        id: 'live', title: '恢复后继续合并', status: 'merging', projects: ['alpha'], commits: [],
+        openspecChangeId: 'live', createdAt: at, updatedAt: at, abandonedAt: at,
+      },
+      {
+        id: 'dead', title: '真终止', status: 'archived', projects: ['alpha'], commits: [],
+        openspecChangeId: 'dead', createdAt: at, updatedAt: at, abandonedAt: at,
+      },
+      {
+        id: 'plain', title: '普通归档', status: 'archived', projects: ['alpha'], commits: [],
+        openspecChangeId: 'plain', createdAt: at, updatedAt: at,
+      },
+    ])
+    const nodeIds = (body: unknown): string[] =>
+      (body as { nodes: Array<{ id: string }> }).nodes.map((node) => node.id)
+
+    const graph = await call('GET', '/api/graph')
+    expect(nodeIds(graph.body)).toContain('proposal:live')
+    expect(nodeIds(graph.body)).not.toContain('proposal:dead')
+    expect(nodeIds(graph.body)).not.toContain('proposal:plain')
+
+    // scope=all 只放开普通归档；abandon 落盘形态依旧不进图谱。
+    const all = await call('GET', '/api/graph?scope=all')
+    expect(nodeIds(all.body)).toContain('proposal:live')
+    expect(nodeIds(all.body)).toContain('proposal:plain')
+    expect(nodeIds(all.body)).not.toContain('proposal:dead')
+  })
+
   it('walks the lifecycle endpoints (advance × N then archive requires archiving)', async () => {
     await call('POST', '/api/proposals', { id: 'p2', title: 't' })
 
@@ -749,7 +782,7 @@ describe('project registry REST API', () => {
 })
 
 describe('task panel REST API', () => {
-  const taskRouter = (): { router: Router; tick: number } => {
+  const taskRouter = (registry?: ProjectRegistry): { router: Router; tick: number } => {
     const tick = { value: 0 }
     const fileStore = new TaskFileStore({ rootDir: join(home, 'workmate') })
     const superagent = {
@@ -772,7 +805,7 @@ describe('task panel REST API', () => {
     registerApiRoutes(r, {
       proposals,
       archive,
-      registry: undefined as never,
+      registry: registry as never,
       openspecRoot: 'openspec',
       projectRoot: '',
       qualitySyncEnabled: false,
@@ -824,6 +857,37 @@ describe('task panel REST API', () => {
       status: 200,
       body: { task: { abandoned: false, assigned: true } },
     })
+  })
+
+  it('proposal-mode 双写把 repo 路径归一成项目名，而不是把路径写进 projects', async () => {
+    const repoRoot = join(home, 'repo-a')
+    await mkdir(repoRoot, { recursive: true })
+    const registry = new ProjectRegistry({ homeRoot: home, subdir: 'workmate' })
+    await registry.upsert('repo-a', repoRoot)
+    const { router: r } = taskRouter(registry)
+    const handle = async (method: string, url: string, body?: unknown): Promise<StubResponse> => {
+      const { res, result } = stubRes()
+      await r.handle(url, stubReq(method, url, body), res)
+      result.body = json(result)
+      return result
+    }
+
+    // 已注册：写入注册项目名，ready→implementing 才能解析到 root。
+    const created = await handle('POST', '/api/tasks', { intent: '做点事', repo: repoRoot, mode: 'proposal' })
+    expect(created.status).toBe(200)
+    const body = created.body as { proposal: { projects: string[] }; note?: string }
+    expect(body.proposal.projects).toEqual(['repo-a'])
+    // projectRoot 为空时 openspec 目录不生成；createProposal 的 note 要透出给面板。
+    expect(body.note).toContain('no projectRoot')
+
+    // 未注册：退到路径末段，错误文案至少不再出现绝对路径。
+    const fallback = await handle('POST', '/api/tasks', {
+      intent: '别的事',
+      repo: join(home, 'not-registered'),
+      mode: 'proposal',
+    })
+    expect(fallback.status).toBe(200)
+    expect((fallback.body as { proposal: { projects: string[] } }).proposal.projects).toEqual(['not-registered'])
   })
 
   it('keeps the write-side errors readable', async () => {

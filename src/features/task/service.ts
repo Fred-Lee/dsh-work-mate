@@ -218,7 +218,7 @@ export class TaskServiceImpl {
     return { task }
   }
 
-  /** 重新打开：清 abandoned，不递增 attempt（下一个扫描周期重投同一 attempt）。 */
+  /** 重新打开：清 abandoned 并递增 attempt（与 assign 同款，让重投拿到全新 Trigger）。 */
   async reopen(taskId: string): Promise<TaskRecord> {
     return this.serialize(() => this.reopenLocked(taskId))
   }
@@ -228,6 +228,10 @@ export class TaskServiceImpl {
     const task = this.require(file.tasks, taskId)
     task.abandoned = false
     task.assigned = true
+    // attempt 必须递增：Trigger id 按 `workmate:<taskId>:<attempt>` 确定性派生（watch.ts
+    // buildTaskTrigger），复用旧 attempt 会被执行器判重——重开显示「已投递，等待接受」
+    // 却永不投出。旧的人工停止 Ticket 不受影响：新 id 会让 Eval 建新 Ticket。
+    task.attempt += 1
     task.updatedAt = this.now().toISOString()
     await this.deps.store.save(file)
     await this.event(task, 'task-reopen', `attempt=${task.attempt}`)

@@ -230,4 +230,25 @@ describe('aggregateMetrics', () => {
     // Both sat in proposing from their transition to now (10h / 8h) → mean 9h.
     expect(metrics.averageTimeInStateMs['proposing']).toBe(9 * 60 * 60 * 1000)
   })
+
+  it('keeps a live proposal with a stale abandonedAt active and flags only the abandoned shape', () => {
+    // abandon 的落盘形态是 status=archived + abandonedAt；只有这个组合算「已终止」。
+    // 历史残留的 abandonedAt 不得把已回到活跃状态的提案（真机 2026-11-11 team-e2e-final，
+    // merging）从 byState/perProposal 连坐掉。
+    const metrics = aggregateMetrics(
+      [
+        proposal({ id: 'live', status: 'merging', abandonedAt: '2026-10-04T00:00:00.000Z' }),
+        proposal({ id: 'dead', status: 'archived', abandonedAt: '2026-10-04T00:00:00.000Z' }),
+      ],
+      [],
+      { now },
+    )
+
+    expect(metrics.proposals).toBe(1)
+    expect(metrics.byState['merging']).toBe(1)
+    // 真终止的 dead 不进 activeProposals，也不占活跃分布的 archived 位。
+    expect(metrics.byState['archived']).toBe(0)
+    expect(metrics.perProposal.map((row) => row.id)).toEqual(['live'])
+    expect(metrics.perProposal.map((row) => row.abandoned)).toEqual([false])
+  })
 })

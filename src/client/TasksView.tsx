@@ -80,6 +80,8 @@ export function TasksView(props: { onError: (message: string) => void; pollMs?: 
   const [drawerId, setDrawerId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [leftovers, setLeftovers] = useState<Array<{ taskId: string; repo: string; directory: string }>>([])
+  // 回收被服务端拒绝的原因（taskId → reason）：展示出来之后才有「强制回收」可点。
+  const [reclaimReasons, setReclaimReasons] = useState<Record<string, string>>({})
 
   const refresh = useCallback(async () => {
     try {
@@ -115,6 +117,28 @@ export function TasksView(props: { onError: (message: string) => void; pollMs?: 
       }
     },
     [props, refresh],
+  )
+
+  // 回收分两段（对齐 reclaim.ts 的设计意图）：默认不带 force，走服务端
+  // isMergedInto 保护；被拒（未合并等）时把 reason 挂到条目行，用户看到原因
+  // 后才有「强制回收」可点——force 是人的决定，不给一键直达。
+  const reclaimLeftover = useCallback(
+    async (entry: { taskId: string; repo: string; directory: string }, options: { force?: boolean } = {}) => {
+      await run(async () => {
+        const outcome = await reclaimWorktree(entry.taskId, options)
+        setReclaimReasons((prev) => {
+          if (outcome.removed === true) {
+            // 成功即清原因；刷新后条目本身也会消失
+            if (prev[entry.taskId] === undefined) return prev
+            const next = { ...prev }
+            delete next[entry.taskId]
+            return next
+          }
+          return { ...prev, [entry.taskId]: outcome.reason ?? '回收被拒绝（服务端未给出原因）' }
+        })
+      })
+    },
+    [run],
   )
 
   const drawer = drawerId === null ? undefined : byId.get(drawerId)
@@ -202,21 +226,36 @@ export function TasksView(props: { onError: (message: string) => void; pollMs?: 
       {(leftovers ?? []).length > 0 && (
         <div className="wm-tasks-leftover">
           <div className="wm-section-title">遗留目录（Ticket 已结束）</div>
-          {(leftovers ?? []).map((entry) => (
-            <div className="wm-tasks-leftover-row" key={entry.taskId}>
-              <code>{entry.directory}</code>
-              <span>{entry.taskId} · {entry.repo}</span>
-              <Btn
-                size="sm"
-                type="button"
-                disabled={busy}
-                onClick={() => void run(() => reclaimWorktree(entry.taskId, { force: true }))}
-              >
-                回收
-              </Btn>
-            </div>
-          ))}
-          <div className="wm-kpi-note">回收会删除 worktree 与分支；未合并时需先确认（force）。</div>
+          {(leftovers ?? []).map((entry) => {
+            const reason = reclaimReasons[entry.taskId]
+            return (
+              <div className="wm-tasks-leftover-row" key={entry.taskId}>
+                <code>{entry.directory}</code>
+                <span>{entry.taskId} · {entry.repo}</span>
+                {reason !== undefined && (
+                  <span className="wm-tasks-leftover-reason" role="note">{reason}</span>
+                )}
+                <Btn size="sm" type="button" disabled={busy} onClick={() => void reclaimLeftover(entry)}>
+                  回收
+                </Btn>
+                {reason !== undefined && (
+                  <Btn
+                    size="sm"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      // 与 App.tsx 终止提案同一惯例：不可逆删除先 window.confirm 一次。
+                      if (!window.confirm('未合并的分支与未提交修改将一并删除。确定强制回收？')) return
+                      void reclaimLeftover(entry, { force: true })
+                    }}
+                  >
+                    强制回收
+                  </Btn>
+                )}
+              </div>
+            )
+          })}
+          <div className="wm-kpi-note">回收删除 worktree 与分支；未合并的分支会被拒绝，确认放弃后可强制回收。</div>
         </div>
       )}
 

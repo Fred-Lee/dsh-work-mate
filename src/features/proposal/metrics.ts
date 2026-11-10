@@ -194,7 +194,11 @@ export function aggregateMetrics(
     if (event.kind === 'transition') actorShare[event.actor] += 1
   }
 
-  const activeProposals = proposals.filter((proposal) => proposal.abandonedAt === undefined)
+  // 「已终止」只认 abandon 落盘形态（status=archived + abandonedAt）；
+  // abandonedAt 残留但已回到活跃状态的提案不连坐（真机 2026-11-11 team-e2e-final）。
+  const activeProposals = proposals.filter(
+    (proposal) => proposal.abandonedAt === undefined || proposal.status !== 'archived',
+  )
   for (const proposal of activeProposals) {
     byState[proposal.status] += 1
     const metrics = proposalMetrics(proposal, events, now)
@@ -207,7 +211,8 @@ export function aggregateMetrics(
       title: proposal.title,
       status: proposal.status,
       archived: metrics.archived,
-      abandoned: proposal.abandonedAt !== undefined,
+      // 与 activeProposals 同判据：只有真终止的提案才标 abandoned（控制台表格按它过滤）。
+      abandoned: proposal.abandonedAt !== undefined && proposal.status === 'archived',
       currentStateMs: metrics.timeInStateMs[proposal.status] ?? 0,
       ...(metrics.cycleTimeMs !== undefined ? { cycleTimeMs: metrics.cycleTimeMs } : {}),
       reworkCount: metrics.reworkCount,

@@ -7,7 +7,7 @@
  * `adopt-dsh-native-config-and-guidance`).
  */
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -150,6 +150,43 @@ describe('decision layer wiring (add-decision-layer)', () => {
     await expect(
       decideTool(registered).execute({ id: 'p1', decision: '改用 SQLite', rationale: '更快' }, { signal: undefined }),
     ).resolves.toBeDefined()
+  })
+})
+
+describe('resolveRoots fallback (repo path as project name)', () => {
+  it('ready→implementing 对把 repo 路径当项目名的历史坏提案不再误报未注册', async () => {
+    const repoRoot = join(home, 'legacy-repo')
+    await mkdir(repoRoot, { recursive: true })
+    await git(['init', '-q', '-b', 'main'], repoRoot)
+    await git(['config', 'user.email', 't@t'], repoRoot)
+    await git(['config', 'user.name', 't'], repoRoot)
+    await writeFile(join(repoRoot, 'README.md'), '# r\n', 'utf8')
+    await git(['add', '-A'], repoRoot)
+    await git(['commit', '-q', '-m', 'init'], repoRoot)
+
+    const { ctx } = fakeCtx({})
+    apply(ctx)
+    const { proposal, archive, projects } = (
+      ctx as unknown as {
+        workmate: {
+          proposal: {
+            upsert(input: { id: string; title: string; projects: string[] }): Promise<unknown>
+            setStatus(id: string, status: string): Promise<unknown>
+            get(id: string): Promise<{ status: string } | undefined>
+          }
+          archive: { transition(id: string, to: string): Promise<unknown> }
+          projects: { upsert(name: string, root: string): Promise<unknown> }
+        }
+      }
+    ).workmate
+    await projects.upsert('legacy-repo', repoRoot)
+    // 模拟历史坏提案：`projects` 里写的是 repo 绝对路径而非注册项目名。
+    await proposal.upsert({ id: 'legacy-bad', title: 'x', projects: [repoRoot] })
+    await proposal.setStatus('legacy-bad', 'ready')
+
+    // 兜底前这里抛「项目根未注册：<repoRoot>」；兜底后应正常建实现待办并推进。
+    await expect(archive.transition('legacy-bad', 'implementing')).resolves.toBeDefined()
+    expect((await proposal.get('legacy-bad'))?.status).toBe('implementing')
   })
 })
 

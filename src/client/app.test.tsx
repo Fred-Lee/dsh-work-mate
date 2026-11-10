@@ -218,6 +218,54 @@ describe('ProposalPanel (kanban)', () => {
     })
   })
 
+  it('选项目不自动锁 default 分支，分支下拉以「全部分支」开头可撤销', async () => {
+    routeMock((url, method) => {
+      if (url === '/workmate/api/proposals' && method === 'GET') {
+        return {
+          proposals: [
+            proposal({ id: 'a-main', title: '主线提案', projects: ['a'], featureBranch: 'main' }),
+            proposal({ id: 'a-dev', title: '开发提案', projects: ['a'], featureBranch: 'dev' }),
+            proposal({ id: 'b1', title: 'B 提案', projects: ['b'], featureBranch: 'main' }),
+          ],
+        }
+      }
+      if (url === '/workmate/api/projects' && method === 'GET') {
+        return { projects: [{ name: 'a', root: '/repo/a', defaultBranch: 'main', workspace: 'xkw' }] }
+      }
+      if (url === '/workmate/api/projects/a/branches') {
+        return { project: 'a', branches: { current: 'main', default: 'main', local: ['main', 'dev'], remote: [] } }
+      }
+      if (url === '/workmate/api/isolation') return { occupancy: [], conflicts: [] }
+      return {}
+    })
+
+    renderPanel()
+    await screen.findByText('主线提案')
+
+    fireEvent.change(screen.getByLabelText('项目'), { target: { value: 'a' } })
+    // 选项目只刷新分支清单：项目下两条提案都留在视野里，不被静默滤成 default 分支那一条。
+    expect(await screen.findByLabelText('分支')).toBeTruthy()
+    expect(screen.getByText('主线提案')).toBeTruthy()
+    expect(screen.getByText('开发提案')).toBeTruthy()
+
+    // 下拉首项是「全部分支」，与「全部项目」对称——这是用户撤销分支过滤的出口。
+    const branchSelect = screen.getByLabelText('分支') as HTMLSelectElement
+    expect(branchSelect.options[0]?.value).toBe('')
+    expect(branchSelect.options[0]?.textContent).toBe('全部分支')
+
+    // 分支只作为用户主动选择的过滤器：选 dev 只剩 dev 提案，选回「全部分支」即恢复。
+    fireEvent.change(branchSelect, { target: { value: 'dev' } })
+    expect(screen.queryByText('主线提案')).toBeNull()
+    expect(screen.getByText('开发提案')).toBeTruthy()
+    fireEvent.change(branchSelect, { target: { value: '' } })
+    expect(screen.getByText('主线提案')).toBeTruthy()
+    expect(screen.getByText('开发提案')).toBeTruthy()
+
+    // 切到另一项目时旧分支过滤一并清空：若残留 'dev'，B 提案会被陈旧过滤器静默藏掉。
+    fireEvent.change(screen.getByLabelText('项目'), { target: { value: 'b' } })
+    expect(await screen.findByText('B 提案')).toBeTruthy()
+  })
+
   it('opens a list row in the detail drawer', async () => {
     routeMock((url, method) => {
       if (url === '/workmate/api/proposals' && method === 'GET') {
@@ -322,11 +370,11 @@ describe('ProposalPanel (kanban)', () => {
     fireEvent.click(screen.getByText('加载详情'))
 
     await screen.findByText('完成归档')
-    expect(screen.getByText('强制归档（跳过三道门）')).toBeTruthy()
+    expect(screen.getByText('强制归档（跳过四道门）')).toBeTruthy()
     expect(screen.queryByText(/^推进到/)).toBeNull()
 
     const prompt = vi.spyOn(window, 'prompt').mockReturnValue('验收后强制归档')
-    fireEvent.click(screen.getByText('强制归档（跳过三道门）'))
+    fireEvent.click(screen.getByText('强制归档（跳过四道门）'))
 
     await waitFor(() => {
       const call = postedCall('/workmate/api/proposals/batch-grading-v2/archive')
@@ -528,6 +576,54 @@ describe('control room (workbench panel)', () => {
     expect(screen.getByText(/1 行无法解析/)).toBeTruthy()
   })
 
+  it('shows a stale-abandonedAt proposal in the console rows (真机 2026-11-11)', async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input)
+      if (url.includes('/api/metrics')) {
+        return Promise.resolve(
+          ok({
+            metrics: {
+              proposals: 1,
+              byState: { merging: 1 },
+              averageTimeInStateMs: {},
+              perProposal: [
+                {
+                  id: 'live',
+                  title: '等合并提案',
+                  status: 'merging',
+                  archived: false,
+                  currentStateMs: 60_000,
+                  reworkCount: 0,
+                  gateFailureCount: 0,
+                  openBlockers: 0,
+                  decisions: 0,
+                  approvals: 0,
+                },
+              ],
+              events: 0,
+              skippedLines: 0,
+            },
+            skippedLines: 0,
+          }),
+        )
+      }
+      // abandonedIds 从全量提案拉取：残留 abandonedAt + 非 archived 状态不得进集合。
+      if (url.includes('/api/proposals')) {
+        return Promise.resolve(
+          ok({
+            proposals: [proposal({ id: 'live', title: '等合并提案', status: 'merging', abandonedAt: '2026-11-01T00:00:00.000Z' })],
+          }),
+        )
+      }
+      if (url.includes('/api/bands')) return Promise.resolve(ok({ windowDays: 0, evaluations: [] }))
+      return Promise.resolve(ok({}))
+    })
+
+    render(<ConsoleView onError={() => {}} />)
+
+    expect(await screen.findByText('等合并提案')).toBeTruthy()
+  })
+
   it('shows a thin baseline as 数据不足 instead of normal', async () => {
     render(<ConsoleView onError={() => {}} />)
 
@@ -711,6 +807,38 @@ describe('panel scroll contract (fix-panel-scroll)', () => {
     fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'archived' } })
     await screen.findByText('旧提案')
     expect(screen.queryByText('进行中提案')).toBeNull()
+  })
+
+  it('keeps a stale-abandonedAt proposal visible and hides only the abandoned shape (真机 2026-11-11)', async () => {
+    routeMock((url, method) => {
+      if (url === '/workmate/api/proposals' && method === 'GET') {
+        return {
+          proposals: [
+            proposal({ id: 'live', title: '等合并提案', status: 'merging', abandonedAt: '2026-11-01T00:00:00.000Z' }),
+            proposal({ id: 'dead', title: '真终止提案', status: 'archived', abandonedAt: '2026-11-01T00:00:00.000Z' }),
+          ],
+        }
+      }
+      if (url === '/workmate/api/projects') return { projects: [] }
+      if (url === '/workmate/api/isolation') return { occupancy: [], conflicts: [] }
+      return {}
+    })
+
+    render(<ProposalPanel />)
+    fireEvent.click(screen.getByText('列表'))
+    // 只认 abandon 落盘形态（status=archived + abandonedAt）：残留字段不把 merging 提案连坐隐藏。
+    await screen.findByText('等合并提案')
+    expect(screen.queryByText('真终止提案')).toBeNull()
+
+    // 真终止的提案需「显示已归档」+ 状态=已归档 两个开关才回到列表（撤销终止的入口）。
+    fireEvent.click(screen.getByText('显示已归档'))
+    fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'archived' } })
+    await screen.findByText('真终止提案')
+
+    // 状态选回「全部」：两者同时可见，残留提案不受开关影响。
+    fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'all' } })
+    await screen.findByText('等合并提案')
+    expect(screen.getByText('真终止提案')).toBeTruthy()
   })
 
   it('opens the project tree and filters by the chosen project', async () => {
