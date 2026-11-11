@@ -155,6 +155,14 @@ export function mountWorkmateApi(webServer: WebServerLike, deps: ApiDeps): void 
     handler: async (req, res) => {
       const url = new URL(req.url ?? '/', 'http://local')
       const pathname = url.pathname
+      // 目录式 URL 必须带尾斜杠：index.html 里是相对路径 `./app.js`，浏览器按「当前
+      // 路径的目录」解析——访问 /workmate（无斜杠）会去请求 /app.js，静态资源 404、
+      // 页面白屏（真机 2026-11-11）。保留 query，/workmate?x 也能落地。
+      if (pathname === '/workmate') {
+        res.writeHead(301, { Location: `/workmate/${url.search}` })
+        res.end()
+        return
+      }
       if (pathname.startsWith('/workmate/api/')) {
         await router.handle(pathname.replace(/^\/workmate/, '') + url.search, req, res)
         return

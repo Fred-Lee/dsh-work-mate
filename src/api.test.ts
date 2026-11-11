@@ -9,7 +9,7 @@ import { ProposalServiceImpl } from './features/proposal/service.ts'
 import { LifecycleServiceImpl } from './features/archive/service.ts'
 import { WorktreeManager } from './features/worktree/manager.ts'
 import { Router, readJsonBody } from './http.ts'
-import { registerApiRoutes } from './api.ts'
+import { registerApiRoutes, mountWorkmateApi } from './api.ts'
 import { ProjectRegistry } from './features/project/registry.ts'
 import { EventLog } from './features/proposal/events.ts'
 import { DecisionService } from './features/decision/service.ts'
@@ -922,5 +922,55 @@ describe('task panel REST API', () => {
     await r.handle('/api/tasks', stubReq('GET', '/api/tasks'), res)
     expect(result.status).toBe(400)
     expect((JSON.parse(String(result.raw)) as { error: string }).error).toContain('任务服务未装配')
+  })
+})
+
+describe('prefix mount 的目录式 URL（真机 2026-11-11 白屏）', () => {
+  /**
+   * `dist/client/index.html` 里引用的是相对路径 `./app.js`。浏览器按「当前路径的目录」
+   * 解析它，于是 `/workmate`（无尾斜杠）会去请求 `/app.js` —— 静态资源挂在
+   * `/workmate/app.js`，结果 404、页面白屏。修复前必须先把裸路径 301 到带斜杠的目录。
+   */
+  function mount(): { get: (url: string) => Promise<StubResponse> } {
+    const registered: Array<{ path: string; handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void> }> = []
+    mountWorkmateApi(
+      { register: (route) => registered.push(route as never) },
+      {
+        proposals,
+        archive,
+        registry: undefined as never,
+        openspecRoot: 'openspec',
+        projectRoot: '',
+        qualitySyncEnabled: false,
+        claudeAssetsEnabled: false,
+      } as never,
+    )
+    const route = registered.find((r) => r.path === '/workmate')
+    if (route === undefined) throw new Error('没有注册 /workmate 前缀路由')
+    return {
+      get: async (url: string) => {
+        const { res, result } = stubRes()
+        await route.handler(stubReq('GET', url), res)
+        result.body = json(result)
+        return result
+      },
+    }
+  }
+
+  it('裸 /workmate 301 到 /workmate/，否则相对路径的 app.js 会打到 /app.js 而白屏', async () => {
+    const result = await mount().get('/workmate')
+    expect(result.status).toBe(301)
+    expect(result.headers['Location'] ?? result.headers.location).toBe('/workmate/')
+  })
+
+  it('重定向保留 query，避免 ?view=board 这类深链丢失', async () => {
+    const result = await mount().get('/workmate?view=board')
+    expect(result.status).toBe(301)
+    expect(result.headers['Location'] ?? result.headers.location).toBe('/workmate/?view=board')
+  })
+
+  it('带斜杠的 /workmate/ 直接进静态层，不再重定向（否则无限跳转）', async () => {
+    const result = await mount().get('/workmate/')
+    expect(result.status).not.toBe(301)
   })
 })
