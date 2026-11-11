@@ -544,14 +544,32 @@ export const PANEL_STYLE = `
 .wm-task-form { display: flex; flex-direction: column; gap: 10px; }
 .wm-task-form-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 @media (max-width: 760px) { .wm-task-form-row { grid-template-columns: minmax(0, 1fr); } }
-.wm-task-form .wm-context-field { display: flex; flex-direction: column; gap: 4px; }
-.wm-task-form input, .wm-task-form textarea, .wm-task-form select { width: 100%; padding: 6px 8px; border: 0.5px solid var(--wm-border); border-radius: 6px; background: var(--wm-card); color: var(--wm-fg); font: inherit; font-size: 12px; }
-.wm-task-modes { display: flex; flex-direction: column; gap: 6px; }
+/* 基类 wm-context-field 是 inline-flex + align-items:center（筛选条那种横排），
+   表单里改成竖排时只覆盖了 display 与 direction，居中和不拉伸一起漏了过来：
+   标签飘在中间、输入框 width:100% 又没有 border-box，比列宽多出 18px 溢到模态
+   padding 里（真机 2026-11-11 截图）。三处都必须显式覆盖。 */
+.wm-task-form .wm-context-field { display: flex; flex-direction: column; align-items: stretch; min-width: 0; gap: 4px; }
+.wm-task-form input, .wm-task-form textarea, .wm-task-form select { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 0.5px solid var(--wm-border); border-radius: 6px; background: var(--wm-card); color: var(--wm-fg); font: inherit; font-size: 12px; }
+/* 模态的 input 规则（32px 高 + 0 10px 内边距）也命中了单选框：圆圈被撑成 33px，
+   标题被挤到只剩 120px、断成三行。单选框自己按原生尺寸走。 */
+.wm-task-form input[type='radio'] { width: auto; height: auto; flex: none; padding: 0; margin: 2px 0 0; }
+/* 三种执行方式横排：竖排时每个卡片 100px 起步，模态总高被顶到 600+，
+   首屏看不到「创建」（真机 2026-11-11）。横排后单屏放得下，窄屏仍回退单列。 */
+.wm-task-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 560px) { .wm-task-modes { grid-template-columns: minmax(0, 1fr); } }
 .wm-task-mode { display: flex; align-items: flex-start; gap: 8px; padding: 7px 9px; border: 0.5px solid var(--wm-border-soft); border-radius: 8px; }
 .wm-task-mode.active { border-color: var(--wm-accent); }
 .wm-task-mode b { display: block; font-size: 12px; font-weight: 500; }
 .wm-task-mode small { display: block; color: var(--wm-muted); font-size: 11px; }
-.wm-task-form-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+/* 兜底：表单再长也不把主操作滚出去。贴住滚动区底部并盖住滚过的内容，
+   背景必须与模态同色（.wm-modal-box 用的是 bg-layer-2）。 */
+.wm-task-form-actions {
+  position: sticky; bottom: 0; z-index: 1;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+  padding-top: 8px; margin-top: -2px;
+  background: var(--dsw-alias-bg-layer-2, var(--wm-surface));
+  border-top: 0.5px solid var(--wm-border-soft);
+}
 .wm-task-facts { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 4px 10px; margin: 0; font-size: 12px; }
 .wm-task-facts dt { color: var(--wm-muted); }
 .wm-task-facts dd { margin: 0; overflow-wrap: anywhere; }

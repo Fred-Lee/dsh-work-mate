@@ -378,8 +378,8 @@ function CreateForm(props: {
       <div className="wm-task-modes" role="radiogroup" aria-label="执行方式">
         {(
           [
-            ['superagent', '指派给 Super-agent', '投递后由它评估，接受才开工'],
-            ['proposal', '生成 OpenSpec 提案', '先走方案评审与 planHash'],
+            ['superagent', '指派给 Super-agent', '评估后接受才开工'],
+            ['proposal', '生成 OpenSpec 提案', '先评审方案与 planHash'],
             ['record', '仅记录', '只入待办，稍后再指派'],
           ] as const
         ).map(([value, title, hint]) => (
