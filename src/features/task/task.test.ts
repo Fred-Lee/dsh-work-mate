@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TaskFileStore, TaskStoreCorruptError } from './files.ts'
 import { TaskServiceImpl, defaultTaskFile } from './service.ts'
+import { EventLog } from '../proposal/events.ts'
 import type { SuperagentClient } from '../superagent/client.ts'
 import type { TicketView } from '../superagent/project.ts'
 
@@ -98,6 +99,25 @@ describe('TaskFileStore', () => {
 
   it('默认任务文件位于 rootDir', () => {
     expect(defaultTaskFile('/x')).toBe(join('/x', 'tasks.json'))
+  })
+})
+
+describe('事件落盘契约（#16）', () => {
+  it('任务动作落为 kind=task-settled + status=动作名 + taskId', async () => {
+    // 这条锁的是「kind 稳定、动作名在 status」的形态：面板按 status 区分六种动作，
+    // 一旦有人把 kind 改成 task-create，抽屉会再次退化成清一色 task-settled（或更糟），
+    // 而 service.ts 用 .catch(() => undefined) 吞掉事件写入失败，写侧错形状在生产里完全无声。
+    const { client } = fakeClient()
+    const events = new EventLog({ homeRoot: dir, subdir: 'workmate' })
+    const svc = service(client, { events })
+    const task = await svc.create({ intent: 'x', repo: 'r', mode: 'record', proposalId: 'p-1' })
+
+    const { events: log } = await events.read()
+    const row = log.find((event) => event.kind === 'task-settled')
+    expect(row).toBeDefined()
+    expect(row?.status).toBe('task-create')
+    expect(row?.taskId).toBe(task.id)
+    expect(row?.proposalId).toBe('p-1')
   })
 })
 

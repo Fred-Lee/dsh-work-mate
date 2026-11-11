@@ -7,6 +7,7 @@
  * dynamic columns and full labels in a title tooltip.
  */
 import { useCallback, useEffect, useState } from 'react'
+import { Btn } from './controls'
 import type { GraphPayload } from './graph-types'
 
 const NODE_W = 180
@@ -41,15 +42,20 @@ const KIND_LABEL: Record<GraphPayload['nodes'][number]['kind'], string> = {
   commit: 'Git 提交',
 }
 
-export function GraphView(props: { projectRoot?: string }): JSX.Element {
-  const { projectRoot } = props
+export function GraphView(props: { projectRoot?: string; showArchived?: boolean }): JSX.Element {
+  const { projectRoot, showArchived = false } = props
   const [graph, setGraph] = useState<GraphPayload | undefined>(undefined)
   const [error, setError] = useState('')
 
   const refresh = useCallback(async () => {
     try {
-      const query = projectRoot ? `?projectRoot=${encodeURIComponent(projectRoot)}` : ''
-      const response = await fetch(`/workmate/api/graph${query}`)
+      // scope=all 由服务端决定是否返回归档节点；缺省只返回活跃提案。
+      // 不用模板拼接：URLSearchParams 负责编码，也让「只带 projectRoot」保持原样。
+      const params = new URLSearchParams()
+      if (projectRoot !== undefined && projectRoot !== '') params.set('projectRoot', projectRoot)
+      if (showArchived) params.set('scope', 'all')
+      const suffix = params.toString() === '' ? '' : `?${params.toString()}`
+      const response = await fetch(`/workmate/api/graph${suffix}`)
       const body = (await response.json()) as GraphPayload
       if (!response.ok) throw new Error('graph API failed')
       setGraph(body)
@@ -57,22 +63,52 @@ export function GraphView(props: { projectRoot?: string }): JSX.Element {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
-  }, [projectRoot])
+  }, [projectRoot, showArchived])
 
   useEffect(() => {
     void refresh()
   }, [refresh])
 
-  if (error !== '') return <div className="wm-error">{error}</div>
+  // 三处（正常/错误/空态）共用一个入口，标签统一：图谱没有别的刷新途径，
+  // 归档一批提案后必须能就地重取，而不是靠切走再切回触发重新挂载。
+  const refreshButton = (
+    <Btn size="sm" type="button" onClick={() => void refresh()}>
+      刷新
+    </Btn>
+  )
+
+  if (error !== '') {
+    return (
+      <div className="wm-error wm-graph-state" role="alert">
+        <span>{error}</span>
+        {refreshButton}
+      </div>
+    )
+  }
   if (graph === undefined) return <div className="wm-empty">加载中…</div>
-  if (graph.nodes.filter((node) => node.kind === 'proposal' && node.status !== 'archived').length === 0)
-    return <div className="wm-empty">还没有活跃提案关联 — 归档提案默认不进入图谱。</div>
+
+  const proposals = graph.nodes.filter((node) => node.kind === 'proposal')
+  const shown = showArchived ? proposals : proposals.filter((node) => node.status !== 'archived')
+  if (shown.length === 0) {
+    // 缺省请求下服务端本就不返回归档提案——不能靠客户端数「有几条归档」来解释空态，
+    // 只能说清「默认不含归档」并指出开关在哪。
+    return (
+      <div className="wm-empty wm-graph-state">
+        <span>
+          {showArchived ? '还没有提案关联 — 图谱为空。' : '还没有活跃提案关联 — 归档提案默认不进入图谱，点顶部「显示已归档」查看。'}
+        </span>
+        {refreshButton}
+      </div>
+    )
+  }
 
   // Client-side guard: an older host may still return archived proposals.
-  const activeProposalIds = new Set(
-    graph.nodes.filter((node) => node.kind === 'proposal' && node.status !== 'archived').map((node) => node.id),
+  const proposalNodeIds = new Set(
+    graph.nodes
+      .filter((node) => node.kind === 'proposal' && (showArchived || node.status !== 'archived'))
+      .map((node) => node.id),
   )
-  const visibleIds = new Set<string>(activeProposalIds)
+  const visibleIds = new Set<string>(proposalNodeIds)
   let grew = true
   while (grew) {
     grew = false
@@ -114,6 +150,9 @@ export function GraphView(props: { projectRoot?: string }): JSX.Element {
 
   return (
     <div className="wm-graph">
+      {/* 绝对定位按钮的容器：只能在 .wm-graph（position:relative）里用；
+          错误态/空态没有这个祖先，改用 wm-graph-state 的流内布局。 */}
+      <div className="wm-graph-refresh">{refreshButton}</div>
       <div className="wm-graph-head">
         {kinds.map((kind, column) => (
           <span key={kind} className="wm-graph-col-label" style={{ left: LEFT + column * (NODE_W + COL_GAP) }}>
@@ -121,7 +160,7 @@ export function GraphView(props: { projectRoot?: string }): JSX.Element {
           </span>
         ))}
       </div>
-      <svg width={width} height={height} role="img" aria-label="知识图谱：活跃提案、项目与提交">
+      <svg width={width} height={height} role="img" aria-label={showArchived ? '知识图谱：提案、项目与提交' : '知识图谱：活跃提案、项目与提交'}>
         <defs>
           {[...positions.values()].map((node, index) => (
             <clipPath key={node.id} id={`wm-graph-clip-${index}`}>

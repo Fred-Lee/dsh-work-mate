@@ -194,16 +194,14 @@ export function getProjectStatus(name: string): Promise<{ project: string; statu
   return request(`/workmate/api/projects/${encodeURIComponent(name)}/status`)
 }
 
-export interface ProposalEventRow {
-  at: string
-  kind: string
-  from?: string
-  to?: string
-  actor: string
-  gate?: string
-  reason?: string
-  detail?: string
-}
+/**
+ * 从服务端类型派生而不是手抄一份子集：服务端改名会让 `pnpm typecheck` 报错，
+ * 而不是在界面上静默渲染出 undefined（整体体检 #16 的成因就是手抄漏了 status）。
+ */
+export type ProposalEventRow = Pick<
+  ProposalEvent,
+  'at' | 'kind' | 'from' | 'to' | 'actor' | 'gate' | 'reason' | 'detail' | 'status' | 'taskId'
+>
 
 export function listProposalEvents(id: string): Promise<{ events: ProposalEventRow[] }> {
   return request(`/workmate/api/proposals/${encodeURIComponent(id)}/events`)

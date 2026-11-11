@@ -4,7 +4,7 @@
  * 只断言本变更新增的行为：四列渲染、主按钮按子状态切换、离线如实显示、
  * 新建表单校验、回答写回 inputs 而不是重走评估。
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TasksView, primaryActionOf } from './TasksView'
 import type { TaskCardView } from './api'
@@ -202,8 +202,11 @@ describe('primaryActionOf：每张卡只有一个主按钮', () => {
     expect(primaryActionOf(card({ lane: 'todo', substate: 'unassigned', connectable: false })).label).toBe('仓库未接入')
   })
 
-  it('已放弃的待办给"重新打开"', () => {
-    expect(primaryActionOf(card({ lane: 'todo', substate: 'unassigned', task: task({ abandoned: true }) })).kind).toBe('reopen')
+  it('已停止的待办（投影 substate=stopped）给"重新打开"', () => {
+    // 判据取投影给的 substate，不看 task.abandoned：阶段归属只来自服务端。
+    expect(primaryActionOf(card({ lane: 'todo', substate: 'stopped', task: task({ abandoned: true }) })).kind).toBe('reopen')
+    // 只有 task.abandoned、没有 stopped 子状态（旧服务端投影）时不重复推断：按普通待办处理。
+    expect(primaryActionOf(card({ lane: 'todo', substate: 'unassigned', task: task({ abandoned: true }) })).kind).toBe('assign')
   })
 
   it('需要我：待回答给回答、待验收给验收、受阻给���试', () => {
@@ -216,6 +219,39 @@ describe('primaryActionOf：每张卡只有一个主按钮', () => {
   it('执行中与已完成没有主按钮（只能看详情）', () => {
     expect(primaryActionOf(card({ lane: 'working', substate: 'working' })).kind).toBe('none')
     expect(primaryActionOf(card({ lane: 'done', substate: 'merged' })).kind).toBe('none')
+  })
+})
+
+describe('卡片与抽屉的显示一致性（#5 #7）', () => {
+  const renderBoard = async (cards: TaskCardView[]): Promise<void> => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (typeof url === 'string' && url.includes('/api/worktrees/leftover')) return ok({ entries: [] })
+      return ok(board(cards))
+    })
+    render(<TasksView onError={() => undefined} />)
+    await screen.findByText(cards[0]?.task.title ?? '')
+  }
+
+  it('已停止的待办徽标写「已停止」，不写「未指派」', async () => {
+    await renderBoard([
+      card({ lane: 'todo', substate: 'stopped', task: task({ id: 't-stopped', title: '被停掉的待办', abandoned: true, assigned: false }) }),
+    ])
+    expect(screen.getAllByText('已停止').length).toBeGreaterThan(0)
+    expect(screen.queryByText('未指派')).toBeNull()
+  })
+
+  it('卡片与抽屉用同一种紧凑时间，抽屉不再直出完整 ISO', async () => {
+    const iso = '2026-11-09T08:57:45.336Z'
+    await renderBoard([card({ lane: 'todo', substate: 'unassigned', task: task({ id: 't-time', title: '有时间戳的待办', updatedAt: iso }) })])
+    // 卡片：11-09 08:57（精确值留在 title 里）
+    expect(screen.getByText('11-09 08:57')).toBeTruthy()
+    expect(screen.queryByText(iso)).toBeNull()
+
+    fireEvent.click(screen.getByText('有时间戳的待办'))
+    const dialog = await screen.findByRole('dialog')
+    // 抽屉：同一格式，且不出现完整 ISO 串
+    expect(within(dialog).getByText('11-09 08:57')).toBeTruthy()
+    expect(within(dialog).queryByText(iso)).toBeNull()
   })
 })
 

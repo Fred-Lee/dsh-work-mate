@@ -266,6 +266,41 @@ describe('ProposalPanel (kanban)', () => {
     expect(await screen.findByText('B 提案')).toBeTruthy()
   })
 
+  it('labels task actions in the drawer event list instead of repeating task-settled (#16)', async () => {
+    routeMock((url, method) => {
+      if (url === '/workmate/api/proposals' && method === 'GET') {
+        return { proposals: [proposal({ id: 'p-task', title: '有任务的提案', status: 'reviewing' })] }
+      }
+      if (url === '/workmate/api/projects') return { projects: [] }
+      if (url === '/workmate/api/isolation') return { occupancy: [], conflicts: [] }
+      if (url.endsWith('/p-task') && method === 'GET') {
+        return { proposal: proposal({ id: 'p-task', title: '有任务的提案', status: 'reviewing' }), projects: [], lifecycle: {} }
+      }
+      if (url.endsWith('/p-task/events')) {
+        return {
+          events: [
+            { at: '2026-11-09T01:00:00.000Z', kind: 'task-settled', status: 'task-create', taskId: 'task-1', actor: 'human' },
+            { at: '2026-11-09T02:00:00.000Z', kind: 'task-settled', status: 'task-stop', taskId: 'task-1', actor: 'human' },
+            // 提案级事件保持英文 kind：它是排查用的可 grep 标识。
+            { at: '2026-11-09T03:00:00.000Z', kind: 'transition', from: 'reviewing', to: 'ready', actor: 'agent' },
+          ],
+        }
+      }
+      return {}
+    })
+
+    render(<ProposalPanel />)
+    fireEvent.click(screen.getByText('列表'))
+    const rows = await screen.findAllByText('有任务的提案')
+    fireEvent.click(rows[rows.length - 1] as HTMLElement)
+
+    // 动作名 + taskId 可见，两种动作可区分；kind 原文不再重复出现。
+    expect(await screen.findByText(/任务 · 创建待办（task-1）/)).toBeTruthy()
+    expect(screen.getByText(/任务 · 停止（task-1）/)).toBeTruthy()
+    expect(screen.queryByText(/^task-settled$/)).toBeNull()
+    expect(screen.getByText(/transition reviewing→ready/)).toBeTruthy()
+  })
+
   it('opens a list row in the detail drawer', async () => {
     routeMock((url, method) => {
       if (url === '/workmate/api/proposals' && method === 'GET') {
@@ -640,6 +675,38 @@ describe('control room (workbench panel)', () => {
 })
 
 describe('console view tolerance (regression)', () => {
+  it('renders the proposal status in the same Chinese label as board/list (#8)', async () => {
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input)
+      if (url.includes('/api/metrics')) {
+        return Promise.resolve(
+          ok({
+            metrics: {
+              proposals: 1,
+              perProposal: [
+                { id: 'p-arch', title: '已归档提案', status: 'archived', archived: true, abandoned: false, currentStateMs: 0, reworkCount: 0, gateFailureCount: 0, openBlockers: 0, approvals: 0 },
+              ],
+              gateFailureRanking: [],
+              actorShare: { agent: 0, human: 0, system: 0 },
+              reworkRate: 0,
+              firstPassRate: 0,
+              archived7d: 1,
+              archived30d: 1,
+              events: 0,
+              skippedLines: 0,
+            },
+          }),
+        )
+      }
+      return Promise.resolve(ok({ windowDays: 30, evaluations: [] }))
+    })
+
+    render(<ConsoleView onError={() => {}} />)
+    // 控制台与看板/列表同一视觉：中文徽标，不再输出 archived 原文。
+    expect(await screen.findByText('已归档')).toBeTruthy()
+    expect(screen.queryByText('archived')).toBeNull()
+  })
+
   it('renders instead of blanking when the payload lacks perProposal', async () => {
     fetchMock.mockImplementation((input: unknown) => {
       const url = String(input)
@@ -670,7 +737,8 @@ describe('console view tolerance (regression)', () => {
     expect(await screen.findByText('提案总数')).toBeTruthy()
   })
 
-  it('still shows the metrics when only the bands endpoint fails', async () => {
+  it('still shows the metrics when only the bands endpoint fails, and says so', async () => {
+    const onError = vi.fn()
     fetchMock.mockImplementation((input: unknown) => {
       const url = String(input)
       if (url.includes('/api/metrics')) {
@@ -679,10 +747,77 @@ describe('console view tolerance (regression)', () => {
       return Promise.reject(new Error('bands.json is corrupt'))
     })
 
-    render(<ConsoleView onError={() => {}} />)
+    render(<ConsoleView onError={onError} />)
 
     expect(await screen.findByText('提案总数')).toBeTruthy()
-    expect(screen.getByText(/窗口 0 天/)).toBeTruthy()
+    // bands 失败不再伪造「窗口 0 天」的空表：如实报错，且不再声称「数据不足」。
+    expect(await screen.findByText(/控制带加载失败：bands\.json is corrupt/)).toBeTruthy()
+    expect(screen.queryByText(/窗口 0 天/)).toBeNull()
+    // metrics 端点正常，不能被 bands 的失败连坐。
+    expect(screen.queryByText(/过程度量加载失败/)).toBeNull()
+    expect(onError).toHaveBeenCalledWith('bands.json is corrupt')
+  })
+
+  it('keeps the last successful bands table when a later refresh fails', async () => {
+    let bandsShouldFail = false
+    fetchMock.mockImplementation((input: unknown) => {
+      const url = String(input)
+      if (url.includes('/api/metrics')) {
+        return Promise.resolve(ok({ metrics: { proposals: 1, perProposal: [], gateFailureRanking: [], actorShare: { agent: 0, human: 0, system: 0 }, reworkRate: 0, firstPassRate: 0, archived7d: 0, archived30d: 0, events: 0, skippedLines: 0 } }))
+      }
+      if (bandsShouldFail) return Promise.reject(new Error('bands.json is corrupt'))
+      return Promise.resolve(ok({ windowDays: 30, evaluations: [] }))
+    })
+
+    render(<ConsoleView onError={() => {}} />)
+    expect(await screen.findByText(/窗口 30 天/)).toBeTruthy()
+
+    bandsShouldFail = true
+    fireEvent.click(screen.getByRole('button', { name: '刷新数据' }))
+
+    // 失败提示出现，但表仍在——不能清空成「窗口 0 天」的假数据。
+    expect(await screen.findByText(/控制带加载失败：bands\.json is corrupt（下方为上一次成功的数据）/)).toBeTruthy()
+    expect(screen.getByText(/窗口 30 天/)).toBeTruthy()
+  })
+})
+
+describe('context toolbar scope (#4)', () => {
+  const panelRoutes = (): void => {
+    routeMock((url, method) => {
+      if (url === '/workmate/api/proposals' && method === 'GET') {
+        return { proposals: [proposal({ id: 'p1', title: '进行中提案', status: 'reviewing' })] }
+      }
+      if (url === '/workmate/api/projects') return { projects: [] }
+      if (url === '/workmate/api/isolation') return { occupancy: [], conflicts: [] }
+      return {}
+    })
+  }
+
+  it('renders the status select only inside the list view', async () => {
+    panelRoutes()
+    render(<ProposalPanel />)
+    // 默认视图是「任务」——下拉不在屏幕上（它在看板/任务/控制台/图谱里都是无效控件）。
+    await screen.findByText('待办')
+    expect(screen.queryByLabelText('状态')).toBeNull()
+
+    fireEvent.click(screen.getByText('看板'))
+    expect(screen.queryByLabelText('状态')).toBeNull()
+
+    fireEvent.click(screen.getByText('列表'))
+    await screen.findByText('进行中提案')
+    expect(screen.getByLabelText('状态')).toBeTruthy()
+  })
+
+  it('keeps the status select on screen when the filter matches nothing', async () => {
+    panelRoutes()
+    render(<ProposalPanel />)
+    fireEvent.click(screen.getByText('列表'))
+    await screen.findByText('进行中提案')
+
+    fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'archived' } })
+    // 空态出现时控件仍在——否则用户没有出路把筛选改回来。
+    expect(await screen.findByText('没有匹配的提案')).toBeTruthy()
+    expect(screen.getByLabelText('状态')).toBeTruthy()
   })
 })
 

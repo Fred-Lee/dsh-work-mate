@@ -579,7 +579,7 @@ pnpm dsh web                                            # 启动，默认 http:/
 
 | 配置项 | 默认 | 说明 |
 |---|---|---|
-| `workmateHome` | `'workmate'` | 状态目录名（`$DSH_HOME` 下，默认 `~/.dsh/workmate`）；其中 `proposals.json` 是提案聚合（原子写、损坏 fail-closed），`events.jsonl` 是只追加的过程事件流（每次状态迁移/门禁失败/控制带越界各一条；读取容错撕裂尾行）；`bands.json` 是控制带配置（缺失用内建默认，损坏 fail-closed） |
+| `workmateHome` | `'workmate'` | 状态目录名（`$DSH_HOME` 下，默认 `~/.dsh/workmate`）；其中 `proposals.json` 是提案聚合（原子写、损坏 fail-closed），`events.jsonl` 是只追加的过程事件流（状态迁移 / 门禁失败 / 控制带越界 / 审批 / 判断 / 自动推进 / 任务动作各一条；任务动作落为 `kind=task-settled` + `status=动作名`，读取容错撕裂尾行）；`bands.json` 是控制带配置（缺失用内建默认，损坏 fail-closed） |
 | `projectRoot` | `''` | 默认项目根；空 = 每次显式传 |
 | `openspecRoot` | `'openspec'` | 目标项目内 OpenSpec 目录名（提案目录生成、状态聚合、生命周期前置校验、归档编排全链路一致） |
 | `gitnexusEnabled` | `true` | GitNexus 知识查询总开关 |
@@ -952,7 +952,7 @@ rules/agent/hook 形式分发到目标项目，供在同一个仓库里跑 Claud
 | `POST /proposals/:id/block` / `/:id/unblock` | 卡点上报 / 答复解除 |
 | `POST /proposals/:id/wiki-links` | 登记 WeKnora 页面引用 |
 | `GET /projects` · `POST /projects` · `DELETE /projects/:name` | 项目注册表 CRUD |
-| `GET /graph?projectRoot=` | 知识图谱数据（提案↔项目↔提交） |
+| `GET /graph?projectRoot=`、`GET /graph?projectRoot=&scope=all` | 知识图谱数据（提案↔项目↔提交）；缺省只含活跃提案，`scope=all` 含归档 |
 | `GET /metrics?id=` | 过程度量（带 `id` 出单提案，缺省出全局聚合） |
 | `GET /bands?windowDays=` | 控制带评测结果（只读） |
 | `GET /config` | 面板配置（`taskExecutor` 常量 + `pollMs` 轮询间隔） |

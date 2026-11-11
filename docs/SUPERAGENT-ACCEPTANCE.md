@@ -50,6 +50,7 @@
 | 4 | `person/answer` | 需要我 | `待回答` | 卡片显示提问原文；回答后回到执行中 |
 | 5 | `person/review` | 需要我 | `待验收` | 与 Execution 页的验收动作对应 |
 | 6 | `ended`（completed / merged / closed / dropped / stopped） | 已完成 | 五值各自对应 | 不漏判成执行中（ended 优先） |
+| 7 | 本地停止 / 放弃（`abandoned`，无 Ticket） | 待办 | `已停止` | 徽标不写「未指派」；主按钮是「重新打开」 |
 
 - [x] [引擎级] 六个阶段的面板投影逐一对过（`projectTask` + 真实 `ticketStage`）：
       无票→`working/submitted`、queued、working、person/answer、person/review、ended/merged

@@ -74,6 +74,21 @@ const STATE_META: Record<Proposal['status'], { label: string; tone: string }> = 
   archiving: { label: '归档中', tone: '#fb923c' },
   archived: { label: '已归档', tone: '#22c55e' },
 }
+
+/**
+ * 只给 `task-settled` 这一类做中文映射：它的 kind 固定、动作名在 status 里，
+ * 不映射就六种任务动作（创建/指派/重试/停止/重开/回答）在抽屉里全显示成同一个词。
+ * 其它 kind（transition / gate-failed / decision）保持原样——它们是 README 与
+ * 事件流排查用的可 grep 标识，换成中文反而查不到。
+ */
+const TASK_ACTION_LABEL: Record<string, string> = {
+  'task-create': '创建待办',
+  'task-assign': '指派',
+  'task-retry': '重试',
+  'task-stop': '停止',
+  'task-reopen': '重新打开',
+  'task-reply': '回答',
+}
 /**
  * Pipeline stages, not a generic kanban: the eight internal states collapse to
  * the five things a human actually acts on (方案 → 待确认 → 执行中 → 待合并 →
@@ -122,6 +137,7 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   const [importOpen, setImportOpen] = useState(false)
   const [treeOpen, setTreeOpen] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
+  /** 仅列表视图消费；控件渲染在列表分支内（view === 'list'），不要在共享工具栏里再渲染一份。 */
   const [statusFilter, setStatusFilter] = useState<'active' | 'all' | 'reviewing' | 'archived'>('active')
   const [loading, setLoading] = useState(true)
   const searchRef = useRef<HTMLInputElement>(null)
@@ -443,18 +459,6 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
             </select>
           </label>
         )}
-        <label className="wm-context-field">
-          <span>状态</span>
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as 'active' | 'all' | 'reviewing' | 'archived')}
-          >
-            <option value="active">进行中</option>
-            <option value="all">全部</option>
-            <option value="reviewing">评审中</option>
-            <option value="archived">已归档</option>
-          </select>
-        </label>
         {branches?.current !== undefined && branches.current !== '' && (
           <span className="wm-context-meta">当前 ⎇ {branches.current}</span>
         )}
@@ -498,11 +502,27 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
         {view === 'tasks' ? (
           <TasksView onError={setError} />
         ) : view === 'graph' ? (
-          <GraphView projectRoot={projectRootDraft || undefined} />
+          <GraphView projectRoot={projectRootDraft || undefined} showArchived={showArchived} />
         ) : view === 'console' ? (
           <ConsoleView onError={setError} />
         ) : view === 'list' ? (
           <div className="wm-list">
+            {/* 状态下拉只在列表里出现：它是列表私有的筛选轴（看板列本身即状态轴）。
+                放在空态之前——筛到 0 条时控件仍要在屏幕上，否则用户没有出路改回来。 */}
+            <div className="wm-list-filters">
+              <label className="wm-context-field">
+                <span>状态</span>
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value as 'active' | 'all' | 'reviewing' | 'archived')}
+                >
+                  <option value="active">进行中</option>
+                  <option value="all">全部</option>
+                  <option value="reviewing">评审中</option>
+                  <option value="archived">已归档</option>
+                </select>
+              </label>
+            </div>
             {loading && proposals.length === 0 && (
               <div className="wm-skeleton-list" aria-label="加载中">
                 {[0, 1, 2].map((index) => (
@@ -1131,7 +1151,13 @@ function ProposalDrawer(props: {
               <div className="wm-team-events">
                 {events.slice(-20).map((event, index) => (
                   <div className="wm-action-note" key={`${event.at}-${index}`}>
-                    {event.kind}
+                    {event.kind === 'task-settled'
+                      ? `任务 · ${
+                          event.status !== undefined && event.status !== ''
+                            ? TASK_ACTION_LABEL[event.status] ?? event.status
+                            : 'task-settled'
+                        }${event.taskId !== undefined ? `（${event.taskId}）` : ''}`
+                      : event.kind}
                     {event.from !== undefined ? ` ${event.from}→${event.to ?? ''}` : event.to !== undefined ? ` →${event.to}` : ''}
                     {event.reason !== undefined ? ` · ${event.reason}` : ''}
                     {event.detail !== undefined ? ` · ${event.detail}` : ''}
@@ -1698,6 +1724,12 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
   const [metrics, setMetrics] = useState<AggregateMetrics | null>(null)
   const [bands, setBands] = useState<BandsPayload | null>(null)
   const [failure, setFailure] = useState('')
+  // 控制带自己的失败文案：复用 failure 会与 metrics 的失败混在一起
+  // （failure 只在 metrics === null 时显示，metric 已加载时不可见）。
+  const [bandsFailure, setBandsFailure] = useState('')
+  // 手动刷新开关。不挂定时器：控制台是低频视图，反复重读整份事件流只服务
+  // 一张没人盯着的表，与「外层轮询只管 list + isolation」的既有分工相悖。
+  const [reloadToken, setReloadToken] = useState(0)
   const [abandonedIds, setAbandonedIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
@@ -1721,7 +1753,10 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
     // (a corrupt bands.json would otherwise keep the whole console in "loading").
     void getMetrics()
       .then((nextMetrics) => {
-        if (alive) setMetrics(nextMetrics)
+        if (alive) {
+          setMetrics(nextMetrics)
+          setFailure('')
+        }
       })
       .catch((cause: unknown) => {
         if (!alive) return
@@ -1731,16 +1766,24 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
       })
     void getBands()
       .then((nextBands) => {
-        if (alive) setBands(nextBands)
+        if (alive) {
+          setBands(nextBands)
+          setBandsFailure('')
+        }
       })
       .catch((cause: unknown) => {
-        if (alive) setBands({ windowDays: 0, evaluations: [] })
-        void cause
+        if (!alive) return
+        // 不伪造空 payload（旧实现 setBands({windowDays: 0, evaluations: []})）：
+        // 那会渲染成「空表 + 窗口 0 天」，与真实的「数据不足」一瞥难辨。
+        // 失败就如实说失败；若此前成功过，旧数据保留在表里，并在表上方标注。
+        const message = cause instanceof Error ? cause.message : String(cause)
+        setBandsFailure(message)
+        onError(message)
       })
     return () => {
       alive = false
     }
-  }, [onError])
+  }, [onError, reloadToken])
 
   if (metrics === null) {
     return (
@@ -1748,6 +1791,15 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
         {failure === ''
           ? '加载过程度量…（若长时间停在这里，多半是 /workmate/api/metrics 没通）'
           : `过程度量加载失败：${failure}`}
+        {/* 首次就失败时，刷新按钮必须在屏幕上——否则「点刷新恢复」既点不到、
+            真机上也没有别的出路（切走再回来是唯一的重挂载手段）。 */}
+        {failure !== '' && (
+          <div className="wm-actions" style={{ justifyContent: 'center', marginTop: 8 }}>
+            <Btn size="sm" type="button" onClick={() => setReloadToken((value) => value + 1)}>
+              刷新数据
+            </Btn>
+          </div>
+        )}
       </div>
     )
   }
@@ -1761,6 +1813,12 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
   const rows = [...(metrics.perProposal ?? [])].sort((left, right) => left.id.localeCompare(right.id))
   return (
     <div className="wm-console">
+      <div className="wm-actions">
+        <Btn size="sm" type="button" onClick={() => setReloadToken((value) => value + 1)}>
+          刷新数据
+        </Btn>
+        <span className="wm-kpi-note">停留在控制台不会自动刷新；点「刷新数据」或切走再回来重新取数。</span>
+      </div>
       <section className="wm-section">
         <div className="wm-kpis">
           <div className="wm-kpi">
@@ -1802,6 +1860,11 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
                 .join('、')}`
             : ''}
         </div>
+        {/* metrics 已加载后再失败：KPI 区看上去一切正常却是上一次的数据，
+            与 bands 的静默降级是同一类问题，必须说清。 */}
+        {failure !== '' && (
+          <div className="wm-action-note error">过程度量刷新失败：{failure}（下方为上一次成功的数据）</div>
+        )}
       </section>
 
       <section className="wm-section">
@@ -1826,7 +1889,12 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
               {rows.filter((row) => !row.abandoned && !abandonedIds.has(row.id)).map((row) => (
                 <tr key={row.id}>
                   <td title={row.id}>{row.title}</td>
-                  <td>{row.status}</td>
+                  <td>
+                    <Tag tone={statusTone(row.status)}>
+                      {/* 兜底：历史/未知状态值不能让整行白屏，退回原始枚举字面量。 */}
+                      {STATE_META[row.status]?.label ?? row.status}
+                    </Tag>
+                  </td>
                   <td>{formatDuration(row.currentStateMs)}</td>
                   <td>{row.archived ? formatDuration(row.cycleTimeMs) : '—'}</td>
                   <td className="wm-num">{row.reworkCount}</td>
@@ -1842,8 +1910,14 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
 
       <section className="wm-section">
         <h3 className="wm-card-title">控制带（每提案一个样本）</h3>
+        {bandsFailure !== '' && (
+          <div className="wm-action-note error">
+            控制带加载失败：{bandsFailure}
+            {bands !== null ? '（下方为上一次成功的数据）' : '（过程度量照常显示）'}
+          </div>
+        )}
         {bands === null ? (
-          <div className="wm-empty">加载控制带…</div>
+          <div className="wm-empty">{bandsFailure !== '' ? '控制带没有数据' : '加载控制带…'}</div>
         ) : (
           <table className="wm-table">
             <thead>
@@ -1884,9 +1958,13 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
             </tbody>
           </table>
         )}
-        <div className="wm-kpi-note">
-          窗口 {bands?.windowDays ?? '—'} 天；样本不足时不判越界（"数据不足"不等于正常）。
-        </div>
+        {/* 只在真有数据时给窗口天数：失败时不再出现「窗口 0 天」，
+            加载中也不再出现「窗口 — 天」。 */}
+        {bands !== null && (
+          <div className="wm-kpi-note">
+            窗口 {bands.windowDays} 天；样本不足时不判越界（"数据不足"不等于正常）。
+          </div>
+        )}
       </section>
     </div>
   )

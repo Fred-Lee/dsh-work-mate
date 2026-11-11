@@ -210,6 +210,10 @@ export const PANEL_STYLE = `
 .wm-graph { position: relative; padding: 34px 18px 6px; }
 .wm-graph svg { display: block; }
 .wm-graph-col-label { position: absolute; top: 14px; font-size: 11px; color: var(--wm-muted); font-weight: 600; }
+/* 只在 .wm-graph（position:relative）里绝对定位；错误/空态没有这个祖先，
+   同一个按钮改由 .wm-graph-state 的流内布局承载，不会飞到视口右上。 */
+.wm-graph-refresh { position: absolute; top: 10px; right: 16px; z-index: 1; }
+.wm-graph-state { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
 
 /* ---------- control room (workbench panel) ---------- */
 .wm-console { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 14px; }
@@ -303,6 +307,8 @@ export const PANEL_STYLE = `
 .wm-list-main { min-width: 0; }
 .wm-list-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wm-list-status { display: inline-flex; align-items: center; gap: 7px; }
+/* 列表自己的筛选行：状态下拉只在这里出现（看板/任务/控制台/图谱里它不是有效控件）。 */
+.wm-list-filters { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--wm-border-soft); background: var(--wm-card); }
 .wm-list-projects, .wm-list-time { color: var(--wm-muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 900px) {
   .wm-list-head { display: none; }

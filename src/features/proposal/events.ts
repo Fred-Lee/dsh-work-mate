@@ -81,6 +81,11 @@ export interface ProposalEvent {
   runId?: string
   taskId?: string
   dispatchId?: string
+  /**
+   * `task-settled`：任务动作名（task-create / task-assign / task-retry / task-stop /
+   * task-reopen / task-reply）。kind 固定为 task-settled 以免破坏 append-only 事实流，
+   * 动作放在这里——面板与审计按它区分六种任务动作。
+   */
   status?: string
 }
 

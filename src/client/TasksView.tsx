@@ -21,34 +21,10 @@ import {
   type TaskBoardView,
   type TaskCardView,
 } from './api'
-import type { PanelLane, PanelSubstate } from '../features/superagent/project.ts'
-
-const LANES: Array<{ key: PanelLane; label: string; hint: string }> = [
-  { key: 'todo', label: '待办', hint: '未指派' },
-  { key: 'working', label: '执行中', hint: '执行器在跑' },
-  { key: 'attention', label: '需要我', hint: '等你决定' },
-  { key: 'done', label: '已完成', hint: '最近 24 小时' },
-]
-
-const SUBSTATE_LABEL: Record<PanelSubstate, string> = {
-  unassigned: '未指派',
-  'not-scanning': '待扫描',
-  submitted: '待接受',
-  queued: '排队中',
-  working: '执行中',
-  'waiting-trigger': '等待触发',
-  answer: '待回答',
-  review: '待验收',
-  blocked: '受阻',
-  failed: '失败',
-  delivery: '投递失败',
-  completed: '已完成',
-  merged: '已合并',
-  closed: '已关闭',
-  dropped: '无需处理',
-  stopped: '已停止',
-  unknown: '未知',
-}
+import type { PanelLane } from '../features/superagent/project.ts'
+// 列的标题/提示与子状态文案只有一份真源（服务端投影旁）：本地再抄一份时，
+// 改文案要改两处、漏一处就静默漂移（整体体检 #6）。
+import { LANES, SUBSTATE_LABEL } from '../features/superagent/project.ts'
 
 const TONE: Record<PanelLane, 'info' | 'success' | 'warning' | 'outline'> = {
   todo: 'info',
@@ -57,10 +33,20 @@ const TONE: Record<PanelLane, 'info' | 'success' | 'warning' | 'outline'> = {
   done: 'outline',
 }
 
+/**
+ * 卡片与抽屉共用的紧凑时间：`2026-11-09T08:57:45.336Z` → `11-09 08:57`。
+ * 长度不足 16 时原样返回，避免一个异常字段把整张卡渲染成 undefined。
+ */
+function compactTime(iso: string): string {
+  return iso.length >= 16 ? iso.slice(5, 16).replace('T', ' ') : iso
+}
+
 /** 每张卡只有一个主按钮：按子状态选，绝不并列两个"该怎么办"。 */
 export function primaryActionOf(card: TaskCardView): { kind: 'assign' | 'retry' | 'reply' | 'review' | 'reopen' | 'none'; label: string } {
   if (card.lane === 'todo') {
-    return card.task.abandoned
+    // 判据取投影给的 substate，不看 task.abandoned：阶段归属只来自服务端
+    // （本文件头第 1 条纪律），前端重复推断迟早与投影漂移。
+    return card.substate === 'stopped'
       ? { kind: 'reopen', label: '重新打开' }
       : { kind: 'assign', label: card.connectable ? '指派' : '仓库未接入' }
   }
@@ -285,7 +271,6 @@ function TaskCardView(props: {
 }): JSX.Element {
   const { card, busy } = props
   const primary = primaryActionOf(card)
-  const subtitle = card.note ?? SUBSTATE_LABEL[card.substate]
   // 未接入执行器：把原因写在卡片正文里（不塞进 title/hover），
   // 仓库优先用服务端给出的 unservedRepo，旧服务端缺失时回退 task.repo。
   const unservedRepo = card.connectable ? undefined : card.unservedRepo ?? card.task.repo
@@ -308,7 +293,7 @@ function TaskCardView(props: {
         <span className="wm-task-meta">
           <Tag tone={TONE[card.lane]}>{SUBSTATE_LABEL[card.substate]}</Tag>
           <code className="wm-task-repo">{card.task.repo}</code>
-          <span className="wm-task-time">{card.task.updatedAt.slice(5, 16).replace('T', ' ')}</span>
+          <span className="wm-task-time" title={card.task.updatedAt}>{compactTime(card.task.updatedAt)}</span>
         </span>
       </button>
       {card.note !== undefined && card.substate !== 'unassigned' && (
@@ -474,7 +459,7 @@ function Drawer(props: {
             <div className="wm-task-meta">
               <Tag tone={TONE[card.lane]}>{SUBSTATE_LABEL[card.substate]}</Tag>
               <code className="wm-task-repo">{card.task.repo}</code>
-              <span className="wm-task-time">{card.task.updatedAt}</span>
+              <span className="wm-task-time" title={card.task.updatedAt}>{compactTime(card.task.updatedAt)}</span>
             </div>
           </div>
           <button className="wm-btn mini" type="button" aria-label="关闭" onClick={props.onClose}>
