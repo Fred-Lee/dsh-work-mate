@@ -513,6 +513,8 @@ pnpm test             # 可选：71 个单元测试
 pnpm verify                                     # 五条门禁（契约 + 钉版 + 宿主兼容 + 客户端工厂求值 + 测试自证）
 pnpm verify:test                                # 测试自证：每个 *.test.ts(x) 都必须真的被执行、0 skip / 0 todo
 pnpm verify:client                              # 在 VM 里求值 dist/client/client.js，校验装载契约与 external 白名单
+pnpm ui:regress                                 # 真机 UI 回归（headless Chromium）：需本机已装 playwright 且 DSH web 在
+                                                # http://127.0.0.1:3080 运行；playwright 绝对路径见脚本头注释，仓库不新增依赖
 ```
 
 ### 2.2 方式 A：tarball 安装（推荐生产）

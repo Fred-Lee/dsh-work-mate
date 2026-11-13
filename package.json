@@ -30,6 +30,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit && tsc -p tsconfig.packages.json --noEmit",
     "test": "vitest run",
     "test:toolchain": "node --test scripts/*.test.mjs",
+    "ui:regress": "node scripts/ui-regression.mjs",
     "verify:contract": "node scripts/check-contract.mjs",
     "verify:toolchain": "node scripts/check-toolchain.mjs --structural",
     "prepack": "pnpm run build",
