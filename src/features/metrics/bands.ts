@@ -258,7 +258,9 @@ export function evaluateBands(
         sigma: 0,
         deviation: 0,
         baselineSamples: Math.max(0, baselineSamples),
-        note: `baseline needs ${config.minBaselineSamples} samples, has ${Math.max(0, baselineSamples)}`,
+        // 面板要把它原样展示给操作者（polish-workbench-delivery T9）：
+        // 「样本 12（基线 7）」配「数据不足」曾让人以为 12 已经够——写清门槛与差距。
+        note: `基线样本不足：至少 ${config.minBaselineSamples} 条，当前 ${Math.max(0, baselineSamples)} 条`,
       }
     }
     const baselineSlice = samples.slice(0, baselineSamples)

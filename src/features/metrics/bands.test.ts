@@ -143,7 +143,7 @@ describe('evaluateBands', () => {
 
     expect(cycleTime?.status).toBe('insufficient-data')
     expect(cycleTime?.tier).toBe('normal')
-    expect(cycleTime?.note).toContain('baseline needs 8 samples')
+    expect(cycleTime?.note).toContain('基线样本不足：至少 8 条')
   })
 
   it('classifies a 2σ rise as diagnose and a 3σ rise as propose', () => {

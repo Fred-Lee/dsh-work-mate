@@ -15,6 +15,10 @@ export const PANEL_STYLE = `
   --wm-surface: var(--dsw-alias-bg-layer-3, var(--dsw-alias-bg-secondary, var(--wm-card-fallback)));
   --wm-border: var(--dsw-alias-border-l2, var(--wm-border-fallback));
   --wm-border-soft: var(--dsw-alias-border-l1, var(--wm-border-soft-fallback));
+  /* 输入控件专用强边框：由前景色派生，深浅主题都自然成立。旧内核不认识
+     color-mix 时退回普通边框（两条声明，前者是兜底）。 */
+  --wm-border-strong: var(--wm-border);
+  --wm-border-strong: color-mix(in srgb, var(--wm-fg) 22%, transparent);
   --wm-accent: var(--dsw-alias-button-info-fill, var(--wm-accent-fallback));
   --wm-accent-soft: var(--dsw-alias-bg-secondary, var(--wm-accent-soft-fallback));
   --wm-code: var(--dsw-alias-bg-secondary, var(--wm-code-fallback));
@@ -375,7 +379,7 @@ export const PANEL_STYLE = `
 .wm-context-field > span { font-size: 12px; letter-spacing: 0; text-transform: none; font-weight: 500; }
 .wm-context-field select, .wm-search {
   height: 28px; padding: 0 8px; font-size: 12px; line-height: 26px;
-  border: 0.5px solid var(--wm-border); border-radius: var(--dsw-radius-sm, 6px);
+  border: 0.5px solid var(--wm-border-strong); border-radius: var(--dsw-radius-sm, 6px);
   background: var(--wm-bg); color: var(--wm-fg); box-shadow: none;
 }
 .wm-context-field select:focus, .wm-search:focus { border-color: var(--wm-accent); outline: none; }
@@ -455,7 +459,7 @@ export const PANEL_STYLE = `
 .wm-modal-box h3 { font-size: 16px; font-weight: 600; margin: 0 0 16px; }
 .wm-modal-box input, .wm-modal-box select {
   height: 32px; font-size: 13px; padding: 0 10px;
-  border: 0.5px solid var(--wm-border); border-radius: var(--dsw-radius-sm, 6px);
+  border: 0.5px solid var(--wm-border-strong); border-radius: var(--dsw-radius-sm, 6px);
   background: var(--wm-bg); color: var(--wm-fg);
 }
 .wm-graph {
@@ -549,7 +553,7 @@ export const PANEL_STYLE = `
    标签飘在中间、输入框 width:100% 又没有 border-box，比列宽多出 18px 溢到模态
    padding 里（真机 2026-11-11 截图）。三处都必须显式覆盖。 */
 .wm-task-form .wm-context-field { display: flex; flex-direction: column; align-items: stretch; min-width: 0; gap: 4px; }
-.wm-task-form input, .wm-task-form textarea, .wm-task-form select { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 0.5px solid var(--wm-border); border-radius: 6px; background: var(--wm-card); color: var(--wm-fg); font: inherit; font-size: 12px; }
+.wm-task-form input, .wm-task-form textarea, .wm-task-form select { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 0.5px solid var(--wm-border-strong); border-radius: 6px; background: var(--wm-card); color: var(--wm-fg); font: inherit; font-size: 12px; }
 /* 模态的 input 规则（32px 高 + 0 10px 内边距）也命中了单选框：圆圈被撑成 33px，
    标题被挤到只剩 120px、断成三行。单选框自己按原生尺寸走。 */
 .wm-task-form input[type='radio'] { width: auto; height: auto; flex: none; padding: 0; margin: 2px 0 0; }

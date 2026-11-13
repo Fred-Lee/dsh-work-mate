@@ -287,7 +287,9 @@ function TaskCardView(props: {
   }
 
   return (
-    <article className={`wm-task-card wm-task-${card.lane}`}>
+    // tabIndex：卡片可键盘聚焦，Tab 进入后内部「详情/主操作」按钮可 Enter 触发
+    // （polish-workbench-delivery T10；看板提案卡片此前已有同样处理）。
+    <article className={`wm-task-card wm-task-${card.lane}`} tabIndex={0}>
       <button type="button" className="wm-task-open" onClick={props.onOpen}>
         <span className="wm-task-title">{card.task.title}</span>
         <span className="wm-task-meta">

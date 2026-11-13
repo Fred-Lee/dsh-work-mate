@@ -28,6 +28,12 @@ export interface ProjectDetail {
   reviewReport?: ReviewReport
   /** Machine-readable severity tally of that report (change `add-review-tally`). */
   reviewTally?: ReviewTally
+  /**
+   * `## Why` section of `changes/<id>/proposal.md` (change
+   * `polish-workbench-delivery`): the drawer's 「做了什么」 opens with it.
+   * Evidence enhancement, not a gate — absent when unreadable, never an error.
+   */
+  why?: string
   note?: string
 }
 
@@ -43,6 +49,8 @@ export interface ProposalStatus {
   /** Back-compat projection of the first resolved project. */
   openspec?: OpenspecChangeState
   commits?: AssociatedCommit[]
+  /** Top-level projection of the first resolved project's `## Why` paragraph. */
+  why?: string
   gitNote?: string
   projectNote?: string
   /**
@@ -175,19 +183,20 @@ function lifecycleOf(status: Proposal['status']): ProposalStatus['lifecycle'] {
 function projectProjection(detail: ProjectDetail): Partial<ProposalStatus> {  return {
     ...(detail.openspec !== undefined ? { openspec: detail.openspec } : {}),
     ...(detail.commits !== undefined ? { commits: detail.commits } : {}),
+    ...(detail.why !== undefined ? { why: detail.why } : {}),
     ...(detail.git?.note !== undefined ? { gitNote: detail.git.note } : {}),
     ...(detail.root !== undefined ? { projectRoot: detail.root } : {}),
   }
 }
 
 /**
- * Read the review report from the active change dir; after archiving the
- * whole directory moves under `changes/archive/<date>-<id>/`, so fall back to
- * the archived location (the panel still shows the report on archived cards).
+ * Read a document from the active change dir; after archiving the whole
+ * directory moves under `changes/archive/<date>-<id>/`, so fall back to the
+ * archived location (the panel still shows evidence on archived cards).
  */
-async function readReviewReport(root: string, openspecRoot: string, changeId: string): Promise<string | undefined> {
+async function readChangeDoc(root: string, openspecRoot: string, changeId: string, name: string): Promise<string | undefined> {
   try {
-    return await readFile(join(root, openspecRoot, 'changes', changeId, 'review.md'), 'utf8')
+    return await readFile(join(root, openspecRoot, 'changes', changeId, name), 'utf8')
   } catch {
     // fall through to the archive location
   }
@@ -195,12 +204,37 @@ async function readReviewReport(root: string, openspecRoot: string, changeId: st
     const archiveDir = join(root, openspecRoot, 'changes', 'archive')
     const match = (await readdir(archiveDir)).find((entry) => entry.endsWith(`-${changeId}`))
     if (match !== undefined) {
-      return await readFile(join(archiveDir, match, 'review.md'), 'utf8')
+      return await readFile(join(archiveDir, match, name), 'utf8')
     }
   } catch {
     // no archive dir either
   }
   return undefined
+}
+
+/**
+ * The `## Why` section of proposal.md, flattened to one paragraph for the
+ * drawer. Everything between the heading and the next `## `, list markers
+ * kept as text. Returns undefined for historic changes without the section —
+ * evidence enhancement must not add a failure path (design D3).
+ */
+export function whyFromProposalMd(content: string): string | undefined {
+  const lines = content.split('\n')
+  const start = lines.findIndex((line) => line.trim() === '## Why')
+  if (start === -1) return undefined
+  const section: string[] = []
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (line === undefined || line.startsWith('## ')) break
+    section.push(line)
+  }
+  const flattened = section
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+    .map((line) => line.replace(/^[-*\d.]+\s*/, ''))
+    .join(' ')
+    .trim()
+  return flattened !== '' ? flattened : undefined
 }
 
 async function collectProject(
@@ -212,16 +246,19 @@ async function collectProject(
   reviewBlockingSeverities?: string[],
 ): Promise<ProjectDetail> {
   const detail: ProjectDetail = { project: name, root }
-  const [git, gitScan, openspecState, reviewContent] = await Promise.all([
+  const [git, gitScan, openspecState, reviewContent, proposalMd] = await Promise.all([
     getGitInfo(root).catch(() => undefined),
     listProposalCommits(root, changeId),
     readChangeState(root, openspecRoot, changeId),
-    withReviewReport === true ? readReviewReport(root, openspecRoot, changeId) : Promise.resolve(undefined),
+    withReviewReport === true ? readChangeDoc(root, openspecRoot, changeId, 'review.md') : Promise.resolve(undefined),
+    readChangeDoc(root, openspecRoot, changeId, 'proposal.md'),
   ])
   if (git !== undefined) detail.git = git
   detail.commits = gitScan.commits
   if (gitScan.note !== undefined) detail.note = gitScan.note
   detail.openspec = openspecState
+  const why = proposalMd !== undefined ? whyFromProposalMd(proposalMd) : undefined
+  if (why !== undefined) detail.why = why
   if (reviewContent !== undefined) {
     const report = parseReviewMd(reviewContent)
     detail.reviewReport = report

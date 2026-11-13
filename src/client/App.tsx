@@ -76,10 +76,11 @@ const STATE_META: Record<Proposal['status'], { label: string; tone: string }> = 
 }
 
 /**
- * 只给 `task-settled` 这一类做中文映射：它的 kind 固定、动作名在 status 里，
+ * 只给 `task-settled` 这一类做动作名映射：它的 kind 固定、动作名在 status 里，
  * 不映射就六种任务动作（创建/指派/重试/停止/重开/回答）在抽屉里全显示成同一个词。
- * 其它 kind（transition / gate-failed / decision）保持原样——它们是 README 与
- * 事件流排查用的可 grep 标识，换成中文反而查不到。
+ * 其余 kind 经 EVENT_KIND_LABEL 显示中文（polish-workbench-delivery T5）——排查
+ * 时仍可对上：事件行 hover 的 title 保留 kind 原文，events.jsonl 文件里也仍是
+ * 英文 kind，grep 语义不变。
  */
 const TASK_ACTION_LABEL: Record<string, string> = {
   'task-create': '创建待办',
@@ -140,6 +141,8 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
   /** 仅列表视图消费；控件渲染在列表分支内（view === 'list'），不要在共享工具栏里再渲染一份。 */
   const [statusFilter, setStatusFilter] = useState<'active' | 'all' | 'reviewing' | 'archived'>('active')
   const [loading, setLoading] = useState(true)
+  /** 最近一次提案列表请求是否失败：顶栏计数因此退成「—」，不把 0 当数据（T6）。 */
+  const [proposalsFailed, setProposalsFailed] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const [drawerId, setDrawerId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -150,8 +153,12 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
       // 已终止的提案**保留在内存里**：图标上「已终止」筛选时能看到并撤销终止。
       // 旧实现直接过滤掉，点错「终止」就再也找不回来（真机 2026-11-10）。
       setProposals(list)
+      setProposalsFailed(false)
       setError('')
     } catch (cause) {
+      // 真机 2026-11-11：失败时顶栏显示「0 条提案」像真数据。留一层
+      // proposalsFailed 让计数退成「—」，横幅给前缀与重试（T6）。
+      setProposalsFailed(true)
       setError(cause instanceof Error ? cause.message : String(cause))
     }
     try {
@@ -400,6 +407,17 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
     showArchived || statusFilter === 'archived'
       ? 0
       : visibleProposals.filter((proposal) => proposal.status === 'archived').length
+  // 已终止被 visibleProposals 的不连坐规则先行滤掉（T2），从这里数会永远得 0——
+  // 必须从全量数：两类隐藏语义不同（归档=交付完成、终止=放弃），要分开报（真机
+  // 2026-11-11：提示「已隐藏 10 条」而实际另有 8 条已终止不可见）。
+  const hiddenTerminated = showArchived
+    ? 0
+    : proposals.filter((proposal) => proposal.abandonedAt !== undefined && proposal.status === 'archived').length
+  const hiddenParts = [
+    ...(hiddenArchived > 0 ? [`${hiddenArchived} 条已归档`] : []),
+    ...(hiddenTerminated > 0 ? [`${hiddenTerminated} 条已终止`] : []),
+  ]
+  const hiddenTotal = hiddenArchived + hiddenTerminated
 
   const drawerProposal = drawerId === null ? undefined : proposals.find((proposal) => proposal.id === drawerId)
 
@@ -411,7 +429,12 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
         <div className="wm-brand">
           <span className="wm-logo" aria-hidden>WM</span>
           WorkMate
-          <span className="wm-count">{proposals.length} 条提案</span>
+          {/* 失败时不是「0 条」：加载失败与空列表必须可区分（T6）。 */}
+        <span className="wm-count">
+          {proposalsFailed && proposals.length === 0
+            ? '— 条提案'
+            : `${proposals.length} 条提案（含已归档）`}
+        </span>
         </div>
         <div className="wm-toolbar">
           <Segmented
@@ -494,7 +517,14 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
 
       {error !== '' && (
         <div className="wm-error" role="alert" aria-live="polite">
+          {/* 失败来源可读：裸「boom」看不出哪条请求挂了（真机 2026-11-11）。 */}
+          {proposalsFailed ? '提案列表加载失败：' : ''}
           {error}
+          {proposalsFailed && (
+            <button className="wm-btn mini" type="button" onClick={() => void refresh()}>
+              重试
+            </button>
+          )}
         </div>
       )}
 
@@ -530,7 +560,32 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                 ))}
               </div>
             )}
-            {!loading && listRows.length === 0 && <div className="wm-empty">没有匹配的提案</div>}
+            {!loading && listRows.length === 0 && (
+              <div className="wm-empty">
+                {/* 两种空要分开说：没有任何提案 vs 有提案被筛掉（T7）。 */}
+                {proposals.length === 0 ? (
+                  '还没有提案 — 点右上「＋ 新提案」创建'
+                ) : (
+                  <>
+                    没有匹配的提案 — 试试清空搜索、状态或项目筛选
+                    {(search !== '' || statusFilter !== 'active' || selectedProject !== '') && (
+                      <button
+                        className="wm-btn mini"
+                        type="button"
+                        style={{ marginLeft: 8 }}
+                        onClick={() => {
+                          setSearch('')
+                          setStatusFilter('active')
+                          setSelectedProject('')
+                        }}
+                      >
+                        清空筛选
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
             {listRows.length > 0 && (
               <div className="wm-list-head">
                 <span>提案</span>
@@ -555,10 +610,10 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                 <span className="wm-list-time">{relativeTime(proposal.updatedAt)}</span>
               </button>
             ))}
-            {hiddenArchived > 0 && (
+            {hiddenTotal > 0 && (
               <DisclosureRow
                 icon="▸"
-                title={`已隐藏 ${hiddenArchived} 条已归档`}
+                title={`已隐藏 ${hiddenTotal} 条（${hiddenParts.join(' + ')}）`}
                 open={false}
                 expandable
                 onToggle={() => setShowArchived(true)}
@@ -576,9 +631,9 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
                 </header>
                 <div className="wm-col-body">
                   {column.cards.length === 0 && <div className="wm-col-empty">暂无提案</div>}
-                  {column.label === '已归档' && !showArchived && column.cards.length > 0 && (
+                  {column.label === '已归档' && !showArchived && hiddenTotal > 0 && (
                     <div className="wm-col-empty">
-                      已隐藏 {column.cards.length} 条已归档
+                      已隐藏 {hiddenTotal} 条（{hiddenParts.join(' + ')}）
                       <button className="wm-btn mini" type="button" onClick={() => setShowArchived(true)}>
                         显示
                       </button>
@@ -1009,6 +1064,31 @@ export function ProposalPanel(props: { projectRoot?: string }): JSX.Element {
  * 这里不再直接改写 Run（避免同一个问题有两处入口、两种语义）。
  * `team`（回退）模式保持原行为。
  */
+/**
+ * 事件 kind → 中文标签（polish-workbench-delivery T5）。历史 team-* 行是
+ * append-only 事实流的一部分，必须继续可读（remove-team-executor）。
+ */
+const EVENT_KIND_LABEL: Record<string, string> = {
+  transition: '状态迁移',
+  'gate-failed': '门禁拒绝',
+  'band-breach': '控制带越界',
+  approval: '人工批准',
+  decision: '决策',
+  'advance-scan': '自动推进',
+  'task-settled': '任务',
+  'team-dispatch': '任务派发（历史）',
+  'team-settled': '任务收尾（历史）',
+  'team-run': '团队运行（历史）',
+}
+
+/** 事件行的短时间戳：审计读的是绝对时间，「x 分钟前」反而难对账。 */
+function eventTime(at: string): string {
+  const date = new Date(at)
+  if (Number.isNaN(date.getTime())) return at
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 function ProposalDrawer(props: {
   proposal: Proposal
   detail: ProposalStatusPayload | undefined
@@ -1109,6 +1189,47 @@ function ProposalDrawer(props: {
               </div>
             )}
 
+            <h4 className="wm-drawer-section">做了什么</h4>
+            {/* T4：抽屉原本只有分支/任务进度，判断推进与否要跳去别处找证据。
+                Why 来自 proposal.md（宿主解析），提交来自每项目的标记扫描。 */}
+            {detail.why !== undefined && (
+              <p className="wm-progress-label" style={{ marginTop: 0 }}>{detail.why}</p>
+            )}
+            {(detail.projects ?? []).length === 0 && (
+              <div className="wm-progress-label">未关联项目 — 没有可展示的提交与分支</div>
+            )}
+            {(detail.projects ?? []).map((project) => (
+              <div className="wm-section" key={`work-${project.project}`}>
+                <b>{project.project}</b>
+                {project.git !== undefined && (
+                  <span className="wm-progress-label">
+                    {' '}HEAD <code>{project.git.headShort}</code>
+                    {project.git.dirtyCount > 0 ? ` · ${project.git.dirtyCount} 个未提交变更` : ''}
+                  </span>
+                )}
+                {(project.commits ?? []).length > 0 ? (
+                  <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                    {(project.commits ?? []).slice(-8).map((commit) => (
+                      <li key={commit.hash} className="wm-progress-label">
+                        <code>{commit.short}</code> {commit.subject}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="wm-progress-label">还没有标记提交</div>
+                )}
+                {project.why !== undefined && detail.why === undefined && (
+                  <div className="wm-progress-label">{project.why}</div>
+                )}
+              </div>
+            ))}
+            {detail.proposal.archiveManifest !== undefined && (
+              <div className="wm-progress-label">
+                归档交付：
+                {detail.proposal.archiveManifest.projects.map((entry) => entry.diffStat).filter((stat) => stat !== undefined).join(' · ') || '无 diff 统计'}
+              </div>
+            )}
+
             <h4 className="wm-drawer-section">任务</h4>
             {tasks !== undefined && tasks.total > 0 ? (
               <div>
@@ -1150,14 +1271,17 @@ function ProposalDrawer(props: {
             ) : (
               <div className="wm-team-events">
                 {events.slice(-20).map((event, index) => (
-                  <div className="wm-action-note" key={`${event.at}-${index}`}>
+                  <div className="wm-action-note" key={`${event.at}-${index}`} title={event.kind}>
+                    {/* T5：时间开头 + 中文 kind，排查对账靠 hover 的 kind 原文与
+                        events.jsonl 的英文 kind（见 TASK_ACTION_LABEL 上方说明）。 */}
+                    {eventTime(event.at)} · {EVENT_KIND_LABEL[event.kind] ?? event.kind}
                     {event.kind === 'task-settled'
-                      ? `任务 · ${
+                      ? ` · ${
                           event.status !== undefined && event.status !== ''
                             ? TASK_ACTION_LABEL[event.status] ?? event.status
                             : 'task-settled'
                         }${event.taskId !== undefined ? `（${event.taskId}）` : ''}`
-                      : event.kind}
+                      : ''}
                     {event.from !== undefined ? ` ${event.from}→${event.to ?? ''}` : event.to !== undefined ? ` →${event.to}` : ''}
                     {event.reason !== undefined ? ` · ${event.reason}` : ''}
                     {event.detail !== undefined ? ` · ${event.detail}` : ''}
@@ -1465,6 +1589,12 @@ function CreateModal(props: {
   }
 
   async function goBranches(): Promise<void> {
+    // 标题校验前置（T8）：旧实现第 1 步不查，走完三步后 submit 静默 return，
+    // 用户以为点了没反应。错误就地提示并留在第 1 步。
+    if (title.trim() === '') {
+      setLocalError('先填标题')
+      return
+    }
     const selected = projects.filter((project) => checked.includes(project.name))
     if (selected.length === 0) {
       setLocalError('未选择项目：将只创建提案记录，不生成 target/worktree')
@@ -1525,9 +1655,12 @@ function CreateModal(props: {
   const featurePreview = `feature/${id.trim() !== '' ? id.trim() : '<id>'}`
 
   return (
-    <div className="wm-modal" onClick={props.onClose}>
+    <div className="wm-modal" role="presentation" onClick={props.onClose}>
       <form
         className="wm-modal-box"
+        role="dialog"
+        aria-modal="true"
+        aria-label="新建提案"
         onClick={(event) => event.stopPropagation()}
         onSubmit={(event) => void submit(event)}
       >
@@ -1545,17 +1678,22 @@ function CreateModal(props: {
         </div>
         {step === 1 && (
           <>
+            {/* label 包裹控件 = 隐式关联，读屏器能读出字段名（T13）。 */}
             <div className="wm-field">
-              <label>标题（必填）</label>
-              <input autoFocus value={title} placeholder="批量批改 v2.1" onChange={(event) => setTitle(event.target.value)} />
+              <label>
+                标题（必填）
+                <input autoFocus value={title} placeholder="批量批改 v2.1" onChange={(event) => setTitle(event.target.value)} />
+              </label>
             </div>
             <div className="wm-field">
-              <label>id（可选，留空自动生成）</label>
-              <input value={id} placeholder="batch-grading-v2" onChange={(event) => setId(event.target.value)} />
+              <label>
+                id（可选，留空自动生成）
+                <input value={id} placeholder="batch-grading-v2" onChange={(event) => setId(event.target.value)} />
+              </label>
             </div>
             <div className="wm-field">
               <label>关联项目（多选，微服务变更可同时勾选多个）</label>
-              {projects.length === 0 && <span className="wm-progress-label">还没有注册项目 — 在下方添加。</span>}
+              {projects.length === 0 && <span className="wm-progress-label">还没有注册项目 — 在下方注册。</span>}
               {projects.map((project) => (
                 <label key={project.name} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
                   <input
@@ -1571,24 +1709,38 @@ function CreateModal(props: {
                   <PathLabel path={project.root} style={{ color: 'var(--wm-muted)', fontSize: 11 }} />
                 </label>
               ))}
-              <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                <input style={{ flex: 1 }} value={newName} placeholder="项目名" onChange={(event) => setNewName(event.target.value)} />
-                <input style={{ flex: 2 }} value={newRoot} placeholder="/abs/path/to/project" onChange={(event) => setNewRoot(event.target.value)} />
-                <input value={newBranch} placeholder="默认分支（可选）" onChange={(event) => setNewBranch(event.target.value)} />
-                <input value={newWorkspace} placeholder="工作区（可选）" onChange={(event) => setNewWorkspace(event.target.value)} />
-                <button className="wm-btn mini" type="button" onClick={() => void addProject()}>
-                  注册
+            </div>
+            {/* 注册新区独立成节（T8）：过去四个输入框挤在多选列表底下，
+                「注册」紧贴「工作区」，像同一行的字段。 */}
+            <details className="wm-field" style={{ borderTop: '0.5px solid var(--wm-border-soft)', paddingTop: 8 }}>
+              <summary className="wm-progress-label" style={{ cursor: 'pointer' }}>没有想要的仓库？现场注册</summary>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
+                  项目名
+                  <input style={{ flex: 1 }} value={newName} placeholder="dsh-Helmsman" onChange={(event) => setNewName(event.target.value)} />
+                </label>
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
+                  仓库根
+                  <input style={{ flex: 1 }} value={newRoot} placeholder="/abs/path/to/project" onChange={(event) => setNewRoot(event.target.value)} />
+                </label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input style={{ flex: 1 }} value={newBranch} placeholder="默认分支（可选）" onChange={(event) => setNewBranch(event.target.value)} />
+                  <input style={{ flex: 1 }} value={newWorkspace} placeholder="工作区分组（可选）" onChange={(event) => setNewWorkspace(event.target.value)} />
+                </div>
+                <button className="wm-btn mini" type="button" style={{ alignSelf: 'flex-end' }} onClick={() => void addProject()}>
+                  注册并勾选
                 </button>
               </div>
-            </div>
-            <div className="wm-field">
-              <label>单项目根（可选，兼容旧流程；多项目请用上方关联）</label>
+            </details>
+            {/* 旧流程兼容项折叠（T8）：多项目用上面的关联，这项只在旧工具链还依赖时展开。 */}
+            <details className="wm-field">
+              <summary className="wm-progress-label" style={{ cursor: 'pointer' }}>单项目根（可选，兼容旧流程）</summary>
               <input
                 value={props.projectRoot}
                 placeholder="/abs/path/to/project"
                 onChange={(event) => props.onProjectRoot(event.target.value)}
               />
-            </div>
+            </details>
             {localError !== '' && <div className="wm-error-note">{localError}</div>}
           </>
         )}
@@ -1823,7 +1975,9 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
         <div className="wm-kpis">
           <div className="wm-kpi">
             <div className="wm-kpi-value">{rows.filter((row) => !abandonedIds.has(row.id)).length || metrics.proposals}</div>
-            <div className="wm-kpi-label">提案总数</div>
+            {/* 口径必须写出来：顶栏是全量（含已归档/已终止），这里是非终止活跃数。
+                同名「提案总数」让两个数字互相拆台（真机 2026-11-11：19 vs 11）。 */}
+            <div className="wm-kpi-label">活跃提案</div>
           </div>
           <div className="wm-kpi">
             <div className="wm-kpi-value">{percent(metrics.reworkRate)}</div>
@@ -1952,6 +2106,10 @@ export function ConsoleView({ onError }: { onError: (message: string) => void })
                   <td className="wm-num">
                     {entry.samples}
                     {entry.status === 'insufficient-data' ? `（基线 ${entry.baselineSamples}）` : ''}
+                    {/* T9：门槛与差距写在行里，「样本 12」配「数据不足」不再自相矛盾。 */}
+                    {entry.status === 'insufficient-data' && entry.note !== undefined && (
+                      <div className="wm-kpi-note">{entry.note}</div>
+                    )}
                   </td>
                 </tr>
               ))}

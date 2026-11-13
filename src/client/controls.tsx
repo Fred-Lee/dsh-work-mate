@@ -71,7 +71,8 @@ export function Tooltip(props: { label: string; children: ReactNode; side?: stri
 
 export function Pill(props: ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }): JSX.Element {
   const { active = false, className = '', type = 'button', ...rest } = props
-  return <button className={`wm-pill${active ? ' active' : ''} ${className}`.trim()} type={type} {...rest} />
+  // aria-pressed 让读屏器知道这是开关而不是普通按钮（polish-workbench-delivery T11）。
+  return <button className={`wm-pill${active ? ' active' : ''} ${className}`.trim()} type={type} aria-pressed={active} {...rest} />
 }
 
 export function DisclosureRow(props: { icon?: string; title: string; open?: boolean; expandable?: boolean; onToggle: () => void }): JSX.Element {

@@ -158,6 +158,8 @@ export interface ProjectDetail {
   openspec?: { state: 'active' | 'archived' | 'missing'; tasks?: { done: number; total: number } }
   reviewReport?: ReviewReport
   reviewTally?: ReviewTally
+  /** `## Why` paragraph of the change's proposal.md (evidence, never a gate). */
+  why?: string
   note?: string
 }
 
@@ -183,6 +185,8 @@ export interface ProposalStatusPayload {
   approvals?: ApprovalRecord[]
   openspec?: { state: 'active' | 'archived' | 'missing'; tasks?: { done: number; total: number } }
   commits?: AssociatedCommit[]
+  /** First resolved project's `## Why` paragraph (drawer 「做了什么」 opens with it). */
+  why?: string
   gitNote?: string
   projectNote?: string
 }

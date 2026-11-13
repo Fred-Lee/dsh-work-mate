@@ -117,7 +117,7 @@ describe('ProposalPanel (kanban)', () => {
 
     renderPanel()
     expect(await screen.findByText('批量批改 v2.1')).toBeTruthy()
-    expect(screen.getByText('3 条提案')).toBeTruthy()
+    expect(screen.getByText('3 条提案（含已归档）')).toBeTruthy()
 
     expect(within(columnFor('draft')).getByText('批量批改 v2.1')).toBeTruthy()
     expect(within(columnFor('executing')).getByText('另一提案')).toBeTruthy()
@@ -298,7 +298,7 @@ describe('ProposalPanel (kanban)', () => {
     expect(await screen.findByText(/任务 · 创建待办（task-1）/)).toBeTruthy()
     expect(screen.getByText(/任务 · 停止（task-1）/)).toBeTruthy()
     expect(screen.queryByText(/^task-settled$/)).toBeNull()
-    expect(screen.getByText(/transition reviewing→ready/)).toBeTruthy()
+    expect(screen.getByText(/状态迁移 reviewing→ready/)).toBeTruthy()
   })
 
   it('opens a list row in the detail drawer', async () => {
@@ -337,7 +337,7 @@ describe('ProposalPanel (kanban)', () => {
     expect(within(dialog).getByText('任务')).toBeTruthy()
     expect(screen.getByText('审查')).toBeTruthy()
     expect(screen.getByText('事件')).toBeTruthy()
-    expect(screen.getByText(/transition reviewing→ready/)).toBeTruthy()
+    expect(screen.getByText(/状态迁移 reviewing→ready/)).toBeTruthy()
     expect(screen.getByText('确认方案')).toBeTruthy()
     expect(screen.getByRole('dialog', { name: /提案详情/ })).toBeTruthy()
     fireEvent.keyDown(window, { key: 'Escape' })
@@ -508,7 +508,7 @@ describe('ProposalPanel (kanban)', () => {
     fetchMock.mockResolvedValue({ ok: false, status: 500, json: async () => ({ error: '存储不可读' }) })
 
     renderPanel()
-    await screen.findByText('存储不可读')
+    await screen.findByText(/提案列表加载失败：存储不可读/)
   })
 
   it('expands a card to load per-project detail facts', async () => {
@@ -584,7 +584,7 @@ describe('control room (workbench panel)', () => {
         deviation: 0,
         samples: 4,
         baselineSamples: 0,
-        note: 'baseline needs 8 samples, has 0',
+        note: '基线样本不足：至少 8 条，当前 0 条',
       },
     ],
   }
@@ -602,7 +602,7 @@ describe('control room (workbench panel)', () => {
   it('renders aggregate KPIs, per-proposal rows and the gate-failure ranking', async () => {
     render(<ConsoleView onError={() => {}} />)
 
-    expect(await screen.findByText('提案总数')).toBeTruthy()
+    expect(await screen.findByText('活跃提案')).toBeTruthy()
     expect(screen.getByText('33%')).toBeTruthy()
     expect(screen.getByText('67%')).toBeTruthy()
     expect(screen.getByText('4.0h')).toBeTruthy()
@@ -719,7 +719,7 @@ describe('console view tolerance (regression)', () => {
 
     render(<ConsoleView onError={() => {}} />)
 
-    expect(await screen.findByText('提案总数')).toBeTruthy()
+    expect(await screen.findByText('活跃提案')).toBeTruthy()
     expect(screen.getByText('还没有提案')).toBeTruthy()
   })
 
@@ -734,7 +734,7 @@ describe('console view tolerance (regression)', () => {
 
     render(<ConsoleView onError={() => {}} />)
 
-    expect(await screen.findByText('提案总数')).toBeTruthy()
+    expect(await screen.findByText('活跃提案')).toBeTruthy()
   })
 
   it('still shows the metrics when only the bands endpoint fails, and says so', async () => {
@@ -749,7 +749,7 @@ describe('console view tolerance (regression)', () => {
 
     render(<ConsoleView onError={onError} />)
 
-    expect(await screen.findByText('提案总数')).toBeTruthy()
+    expect(await screen.findByText('活跃提案')).toBeTruthy()
     // bands 失败不再伪造「窗口 0 天」的空表：如实报错，且不再声称「数据不足」。
     expect(await screen.findByText(/控制带加载失败：bands\.json is corrupt/)).toBeTruthy()
     expect(screen.queryByText(/窗口 0 天/)).toBeNull()
@@ -816,7 +816,7 @@ describe('context toolbar scope (#4)', () => {
 
     fireEvent.change(screen.getByLabelText('状态'), { target: { value: 'archived' } })
     // 空态出现时控件仍在——否则用户没有出路把筛选改回来。
-    expect(await screen.findByText('没有匹配的提案')).toBeTruthy()
+    expect(await screen.findByText(/没有匹配的提案/)).toBeTruthy()
     expect(screen.getByLabelText('状态')).toBeTruthy()
   })
 })
@@ -1006,4 +1006,194 @@ describe('panel scroll contract (fix-panel-scroll)', () => {
     await waitFor(() => expect((screen.getByLabelText('项目') as HTMLSelectElement).value).toBe('alpha'))
   })
 
+})
+
+describe('交付打磨（polish-workbench-delivery）', () => {
+  it('提案列表失败：顶栏退成「—」、横幅带前缀与重试，重试成功恢复计数', async () => {
+    let failing = true
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url).includes('/api/proposals') && !String(url).includes('/api/proposals/')) {
+        return failing ? Promise.reject(new Error('boom')) : Promise.resolve(ok({ proposals: [proposal()] }))
+      }
+      if (String(url).includes('/api/config')) return Promise.resolve(ok({ taskExecutor: 'superagent', pollMs: 0 }))
+      return Promise.resolve(ok({ occupancy: [], conflicts: [] }))
+    })
+
+    render(<ProposalPanel />)
+    expect(await screen.findByText(/提案列表加载失败：boom/)).toBeTruthy()
+    expect(screen.getByText('— 条提案')).toBeTruthy()
+
+    failing = false
+    fireEvent.click(screen.getByText('重试'))
+    await waitFor(() => expect(screen.getByText('1 条提案（含已归档）')).toBeTruthy())
+    expect(screen.queryByText(/提案列表加载失败/)).toBeNull()
+  })
+
+  it('隐藏计数分开报已归档与已终止（真机 2026-11-11：8 条终止曾被静默剔除）', async () => {
+    const archived = Array.from({ length: 10 }, (_, index) =>
+      proposal({ id: `arch-${index}`, title: `归档 ${index}`, status: 'archived' }),
+    )
+    const terminated = Array.from({ length: 8 }, (_, index) =>
+      proposal({ id: `gone-${index}`, title: `终止 ${index}`, status: 'archived', abandonedAt: '2026-11-01T00:00:00.000Z' }),
+    )
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url).includes('/api/proposals')) return Promise.resolve(ok({ proposals: [...archived, ...terminated] }))
+      if (String(url).includes('/api/config')) return Promise.resolve(ok({ taskExecutor: 'superagent', pollMs: 0 }))
+      return Promise.resolve(ok({ occupancy: [], conflicts: [] }))
+    })
+
+    renderPanel()
+    expect(await screen.findByText(/已隐藏 18 条（10 条已归档 \+ 8 条已终止）/)).toBeTruthy()
+    fireEvent.click(screen.getByText('显示已归档'))
+    expect(await screen.findByText('终止 0')).toBeTruthy()
+    expect(screen.getByText('归档 0')).toBeTruthy()
+  })
+
+  it('列表空态区分「还没有」与「被筛掉」，后者给清空筛选出口', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url).includes('/api/proposals')) {
+        return Promise.resolve(ok({ proposals: [proposal({ title: '轮询改事件推送' })] }))
+      }
+      if (String(url).includes('/api/config')) return Promise.resolve(ok({ taskExecutor: 'superagent', pollMs: 0 }))
+      return Promise.resolve(ok({ occupancy: [], conflicts: [] }))
+    })
+
+    render(<ProposalPanel />)
+    fireEvent.click(screen.getByText('列表'))
+    expect(await screen.findByText('轮询改事件推送')).toBeTruthy()
+    fireEvent.change(screen.getByPlaceholderText('搜索提案 / 项目…'), { target: { value: '不存在的关键词' } })
+    expect(await screen.findByText(/没有匹配的提案/)).toBeTruthy()
+    fireEvent.click(screen.getByText('清空筛选'))
+    expect(await screen.findByText('轮询改事件推送')).toBeTruthy()
+  })
+
+  it('「显示已归档」pill 暴露 aria-pressed 开关状态', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url).includes('/api/proposals')) return Promise.resolve(ok({ proposals: [] }))
+      if (String(url).includes('/api/config')) return Promise.resolve(ok({ taskExecutor: 'superagent', pollMs: 0 }))
+      return Promise.resolve(ok({ occupancy: [], conflicts: [] }))
+    })
+    render(<ProposalPanel />)
+    const pill = (await screen.findByText('显示已归档')).closest('button') as HTMLElement
+    expect(pill.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(pill)
+    expect(pill.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('新提案第 1 步标题前置校验：空标题停在第一步并就地提示', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url).includes('/api/projects')) return Promise.resolve(ok({ projects: [] }))
+      if (String(url).includes('/api/config')) return Promise.resolve(ok({ taskExecutor: 'superagent', pollMs: 0 }))
+      return Promise.resolve(ok({ proposals: [] , occupancy: [], conflicts: [] }))
+    })
+
+    render(<ProposalPanel />)
+    fireEvent.click(await screen.findByText('＋ 新提案'))
+    fireEvent.click(screen.getByText('下一步'))
+    expect(await screen.findByText('先填标题')).toBeTruthy()
+    fireEvent.change(screen.getByPlaceholderText('批量批改 v2.1'), { target: { value: '有标题了' } })
+    fireEvent.click(screen.getByText('下一步'))
+    await waitFor(() => expect(screen.queryByText('先填标题')).toBeNull())
+  })
+
+  it('抽屉「做了什么」：Why、每项目提交、HEAD；无提交时如实说还没有', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      const path = String(url)
+      if (path === '/workmate/api/proposals') {
+        return Promise.resolve(ok({ proposals: [proposal({ projects: ['alpha'], status: 'implementing' })] }))
+      }
+      if (path === '/workmate/api/proposals/batch-grading-v2' || path.startsWith('/workmate/api/proposals/batch-grading-v2?')) {
+        return Promise.resolve(ok({
+          proposal: proposal({ projects: ['alpha'], status: 'implementing' }),
+          why: '把任务面板的轮询改成事件推送',
+          lifecycle: { status: 'implementing', hint: '实现中' },
+          projects: [
+            {
+              project: 'alpha',
+              root: '/repo/alpha',
+              git: { branch: 'main', headShort: 'abc1234', dirtyCount: 2, isWorktree: false },
+              commits: [{ hash: 'abc1234', short: 'abc1234', subject: 'feat: 先改一块' }],
+            },
+            { project: 'beta', root: '/repo/beta' },
+          ],
+        }))
+      }
+      if (path.includes('/api/config')) return Promise.resolve(ok({ taskExecutor: 'superagent', pollMs: 0 }))
+      return Promise.resolve(ok({ occupancy: [], conflicts: [] }))
+    })
+
+    render(<ProposalPanel />)
+    fireEvent.click(screen.getByText('列表'))
+    const rows = await screen.findAllByText('批量批改 v2.1')
+    fireEvent.click(rows[rows.length - 1] as HTMLElement)
+    expect(await screen.findByText('做了什么')).toBeTruthy()
+    expect(screen.getByText('把任务面板的轮询改成事件推送')).toBeTruthy()
+    expect(screen.getByText(/feat: 先改一块/)).toBeTruthy()
+    expect(screen.getAllByText(/abc1234/).length).toBeGreaterThan(0)
+    expect(screen.getByText('还没有标记提交')).toBeTruthy()
+  })
+
+  it('抽屉事件行：时间开头 + kind 中文标签（含历史 team-* 行可读）', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      const path = String(url)
+      if (path === '/workmate/api/proposals') {
+        return Promise.resolve(ok({ proposals: [proposal({ status: 'implementing' })] }))
+      }
+      if (path.startsWith('/workmate/api/proposals/batch-grading-v2/events')) {
+        return Promise.resolve(ok({
+          events: [
+            { at: '2026-11-11T15:20:00.000Z', kind: 'transition', from: 'implementing', to: 'merging', actor: 'human' },
+            { at: '2026-10-01T08:00:00.000Z', kind: 'team-run', actor: 'system' },
+          ],
+        }))
+      }
+      if (path.startsWith('/workmate/api/proposals/batch-grading-v2')) {
+        return Promise.resolve(ok({ proposal: proposal(), lifecycle: { status: 'implementing', hint: '实现中' }, projects: [] }))
+      }
+      if (path.includes('/api/config')) return Promise.resolve(ok({ taskExecutor: 'superagent', pollMs: 0 }))
+      return Promise.resolve(ok({ occupancy: [], conflicts: [] }))
+    })
+
+    render(<ProposalPanel />)
+    fireEvent.click(screen.getByText('列表'))
+    const eventRows = await screen.findAllByText('批量批改 v2.1')
+    fireEvent.click(eventRows[eventRows.length - 1] as HTMLElement)
+    expect(await screen.findByText(/· 状态迁移/)).toBeTruthy()
+    expect(screen.getByText(/· 团队运行（历史）/)).toBeTruthy()
+    expect(screen.getByText(/implementing→merging/)).toBeTruthy()
+  })
+
+  it('控制台样本不足行渲染门槛说明（T9）', async () => {
+    const metricsBody = {
+      proposals: 1,
+      perProposal: [],
+      gateFailureRanking: [],
+      actorShare: { agent: 0, human: 0, system: 0 },
+      reworkRate: 0,
+      firstPassRate: 0,
+      archived7d: 0,
+      archived30d: 0,
+      events: 0,
+      skippedLines: 0,
+    }
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url).includes('/api/metrics')) return Promise.resolve(ok({ metrics: metricsBody, skippedLines: 0 }))
+      if (String(url).includes('/api/bands')) {
+        return Promise.resolve(ok({
+          windowDays: 30,
+          evaluations: [
+            { metric: 'cycleTime', direction: 'high', status: 'insufficient-data', tier: 'normal', action: 'normal',
+              current: 0, baseline: 0, sigma: 0, deviation: 0, samples: 12, baselineSamples: 7,
+              note: '基线样本不足：至少 8 条，当前 7 条' },
+          ],
+        }))
+      }
+      return Promise.resolve(ok({}))
+    })
+
+    render(<ConsoleView onError={() => {}} />)
+    expect(await screen.findByText('活跃提案')).toBeTruthy()
+    expect(await screen.findByText('基线样本不足：至少 8 条，当前 7 条')).toBeTruthy()
+    expect(screen.getByText('数据不足')).toBeTruthy()
+  })
 })
