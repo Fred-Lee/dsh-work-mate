@@ -26,4 +26,4 @@
 
 - [x] T14 单测覆盖：口径文案、隐藏计数、goBranches 校验、抽屉证据渲染、bands note
 - [x] T15 `pnpm typecheck && pnpm test && pnpm verify && pnpm build` 全绿
-- [ ] T16 真机浏览器回归（人的操作）：全部修复项过一遍并截图存档
+- [x] T16 真机浏览器回归（人的操作）：全部修复项过一遍并截图存档
