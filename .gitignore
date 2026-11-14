@@ -10,3 +10,8 @@ coverage/
 
 .dsh-vision-router/
 .vws-workspaces.json
+
+# 本地审计截图与工具缓存（out/e2e 由 ui:regress 每次重写）
+out/
+.v2c/
+.video_agent/
