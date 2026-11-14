@@ -327,6 +327,10 @@ export const PANEL_STYLE = `
 }
 .wm-drawer {
   width: min(560px, 100vw); height: 100%;
+  /* height:100% 是 content-box 语义：不加 border-box 时 v3 的 20px 上下 padding
+     会把总高顶到视口外 40px，而 overflow 区把被裁的 padding 算进内容——
+     滚不动、底部操作按钮永远够不着（真机 2026-11-14，用户视口 1101px 复现）。 */
+  box-sizing: border-box;
   background: var(--wm-surface); color: var(--wm-fg);
   border-left: 1px solid var(--wm-border);
   padding: 16px; overflow-y: auto;
@@ -449,6 +453,15 @@ export const PANEL_STYLE = `
 .wm-table tbody tr:hover { background: var(--wm-hover); }
 .wm-drawer { width: min(560px, 100vw); padding: 20px 24px; background: var(--wm-surface); border-left: 0.5px solid var(--wm-border); }
 .wm-drawer-head h3 { font-size: 16px; font-weight: 600; }
+/* G2/G5 的动作栏（确认方案/推进/归档）是人在抽屉里的主操作：贴底常驻，
+   推进连点时不必反复滚动。背景与抽屉同色，滚过的内容从它下面穿过。 */
+.wm-drawer-actions {
+  position: sticky; bottom: 0; z-index: 1;
+  display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto;
+  padding: 10px 0 2px;
+  background: var(--dsw-alias-bg-layer-2, var(--wm-surface));
+  border-top: 0.5px solid var(--wm-border-soft);
+}
 .wm-modal { align-items: center; padding: 24px; }
 .wm-modal-box {
   width: min(560px, 100%); padding: 24px;
