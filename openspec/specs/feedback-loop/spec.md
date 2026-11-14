@@ -2,7 +2,9 @@
 
 ## Purpose
 TBD - created by archiving change add-feedback-loop. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: 提案来源与关联
 
 提案记录 SHALL 支持 `source`（`spec` | `incident` | `review-finding` |
@@ -37,12 +39,14 @@ id 列表）；创建入口 SHALL 接受这些字段，且更新已有提案时 
 `recentSamples` 之外的样本计算基线与标准差，与最近样本均值比较，按 `direction`
 （大者差 / 小者差）落 1σ / 2σ / 3σ 分级；样本数不足 `minBaselineSamples` 时 SHALL
 返回 `insufficient-data` 且 SHALL NOT 判为越界；标准差为 0 且当前值与基线不等时
-SHALL 按 3σ 处理并保留 `sigma: 0`。
+SHALL 按 3σ 处理并保留 `sigma: 0`。`insufficient-data` 的 `note` SHALL 用中文
+说明基线门槛与实际样本数（需多少、差多少），SHALL NOT 只给面向开发者的英文串
+让面板无从展示。
 
 #### Scenario: 样本不足不误报
 
 - **WHEN** 历史样本少于 8 个
-- **THEN** 该指标结论为 `insufficient-data`，不产生越界
+- **THEN** 该指标结论为 `insufficient-data`，不产生越界，note 说明「基线样本不足：至少 8 条，当前 N 条」
 
 #### Scenario: 超标分级
 
@@ -65,4 +69,3 @@ metric-regression`，provenance 记越界事实）；默认调用 SHALL 只读�
 - **WHEN** 某指标为 `propose` 档且调用方传 `apply: true`
 - **THEN** 新建一个 draft 提案，其 `source` 为 `metric-regression`，
   provenance 含指标名、当前值、基线与标准差
-
